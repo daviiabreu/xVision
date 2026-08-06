@@ -1,0 +1,10 @@
+{
+  "title": "Pesquisa",
+  "pages": [
+    "benchmarking",
+    "modelos-visao-computacional",
+    "runtimes-e-formatos",
+    "estrategias-de-execucao",
+    "quantizacao-e-otimizacao"
+  ]
+}

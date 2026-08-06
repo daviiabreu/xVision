@@ -1,0 +1,7 @@
+pipeline:check:
+  stage: test
+  image: alpine:latest
+  extends:
+    - .actions-rules:always
+  script:
+    - echo "Pipeline check passed"

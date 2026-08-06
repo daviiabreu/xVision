@@ -1,0 +1,139 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node.js
+node_modules/
+.npm/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+.env/
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+*.pid
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis / Queue
+dump.rdb
+
+# Secrets and credentials
+*.pem
+*.key
+secrets/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Cache
+.cache/
+
+# ============================================================================
+# CONTEÚDO RESTRITO DA FOOTSTATS — NUNCA VERSIONAR
+#
+# O TAPI do projeto classifica como restrito, e proíbe publicar no GitHub ou no
+# site do Inteli: vídeos das partidas e qualquer material audiovisual; os dados
+# proprietários de marcação e o histórico de xG usado como ground truth; modelos,
+# critérios e algoritmos proprietários; e informações internas da empresa.
+#
+# Esses arquivos ficam FORA do repositório. A documentação pode descrever formato,
+# grão e estatísticas agregadas — nunca conter o dado em si.
+# NÃO REMOVA ESTE BLOCO.
+# ============================================================================
+
+# Vídeo e material audiovisual das partidas
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.m4v
+videos/
+frames/
+
+# Dados proprietários: histórico de marcação e amostras anotadas de xG
+# (padrão `dir/*` e não `dir/`: só assim o `!` abaixo consegue reincluir o README
+#  — git não reabre um diretório que já foi ignorado por inteiro)
+data/*
+dataset/*
+datasets/*
+annotations/*
+ground-truth/*
+!data/README.md
+
+# Pesos e artefatos de modelo treinado
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.tflite
+*.weights
+*.h5
+*.pkl
+weights/
+checkpoints/
+runs/
+# ============================================================================
+# FERRAMENTAL LOCAL — nunca versionar neste repositorio
+#
+# Este repo e o entregavel do projeto. O ferramental que apoia o trabalho vive
+# aqui em disco porque precisa rodar a partir da raiz, mas nao faz parte da
+# entrega e nao deve aparecer no repositorio publico nem no do Inteli.
+# ============================================================================
+brain/
+prompts/
+pipeline.config.json
+pipeline-state.json
+pipeline-approvals.json
+scope.md

@@ -1,0 +1,11 @@
+branch-rules:
+  stage: test
+  image: alpine:latest
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME != "develop"
+      when: always
+    - when: never
+  script:
+    - echo "ERROR - Only develop branch can be merged into main"
+    - echo "Source branch - $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+    - exit 1
