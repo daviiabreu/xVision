@@ -1,6 +1,33 @@
 ---
-title: CPV e valor para o parceiro
-description: Canvas Proposta de Valor e valor esperado para o parceiro
+title: Canvas de Proposta de Valor
+description: Canvas de Proposta de Valor (CPV) e geração de valor mensurável para o parceiro Footstats.
 ---
 
-Placeholder.
+&emsp; Conforme detalhado na seção de [Problema](/problema), a Footstats possui uma oportunidade clara de otimização no seu processo de extração dos parâmetros de Expected Goal (xG). Atualmente, a operação depende da intervenção manual contínua: colaboradores assistem ao vivo a cada finalização da partida para extrair, individualmente, oito parâmetros discretos que alimentam o cálculo de *Expected Goals* (xG). Esse modelo operacional gera gargalos no tempo de treinamento de equipes, cria variabilidade na padronização das decisões e consome capital humano em tarefas repetitivas. Nesta seção, apresentamos como a solução da xVision supera esses gargalos por meio do processamento dos parâmetros com visão computacional na borda.
+
+&emsp; Ao substituir a revisão manual por um modelo de visão computacional na extração contínua de parâmetros, a xVision diminui drasticamente a subjetividade humana e automatiza a rotina operacional. A validação, antes pulverizada entre dezenas de colaboradores, passa a exigir a supervisão de apenas um especialista na fase de auditoria e testes. Como aponta Oliveira (2026), da Fundação CERTI: *"Ao automatizar tarefas visuais, é possível diminuir as falhas humanas e aumentar a consistência dos processos, impactando diretamente em produtividade, qualidade e custos operacionais"*.
+
+&emsp; Dessa forma, a xVision viabiliza a realocação do capital humano da Footstats para atividades estratégicas e analíticas, como o refinamento do algoritmo proprietário. Ademais, com a solução implementada, destacam-se os seguintes ganhos:
+
+- Possibilidade de sugestão de novas métricas: A automação por visão computacional libera a equipe para mapear e integrar parâmetros mais complexos ainda não identificados pelos operadores humanos que possam elevar a precisão do cálculo de xG.
+- Possibilidade de testar consistência nas decisões: A padronização via modelo também reduz a subjetividade das análises manuais e reduz drasticamente o tempo de validação, permitindo a geração mais veloz de relatórios de consistência.
+
+&emsp; Na Figura 1, apresenta-se a proposta de valor acima mapeada sob a estrutura do *Canvas de Proposta de Valor*.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 1 - Canvas de Proposta de Valor</sup>
+
+  <img
+    src="/cpv.svg"
+    alt="Canvas de Proposta de Valor"
+    style={{ display: "block", margin: "1rem auto" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
+&emsp; Na Figura 1, observam-se dois pilares ainda não citados da arquitetura proposta: a computação em borda e a otimização algorítmica. Embora a infraestrutura de captura de vídeo em campo não seja gerida diretamente pela Footstats hoje, a escolha do processamento em borda se deve aos requerimentos acadêmicos do módulo. O mesmo acontece com a otimização, parte complementar ao deploy do modelo na Jetson Nano, conforme aprofundado na seção [Quantização e Otimização](pesquisa/quantizacao-e-otimizacao.mdx). Ainda assim, ressalta-se que uma solução deste tipo garante ganho de eficiência computacional, permitindo integração direta com provedores de captação e transmissão com ganhos ímpares de velocidade no cálculo de xG, como apontado na pesquisa acerca de Hardware. Isso poderia ser utilizado para venda da solução para outros provedores no futuro.
+
+## Bibliografia
+
+OLIVEIRA, André Luiz. Visão computacional: o que é, sua importância e aplicações práticas. Fundação CERTI, 7 maio 2026. Disponível em: [https://certi.org.br/blog/visao-computacional/](https://certi.org.br/blog/visao-computacional/). Acesso em: 10 ago. 2026.
