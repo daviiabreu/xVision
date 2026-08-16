@@ -1,0 +1,37 @@
+---
+title: Requisitos iniciais
+description: Organização dos requisitos da proposta e dos critérios que serão validados nas próximas sprints
+---
+
+Os requisitos desta sprint traduzem o problema da Footstats em condições que o projeto
+consegue testar. Eles ainda são iniciais: algumas condições vieram diretamente do escopo e
+da arquitetura, enquanto os limites de desempenho e qualidade dependem de medições ou de
+uma resposta do parceiro.
+
+Separar essas situações evita tratar uma estimativa da pesquisa como se fosse um resultado
+do produto. Também dá uma referência única para as outras páginas. Quando arquitetura,
+benchmarking ou matriz de risco precisarem citar um limite, devem usar o ID do requisito em
+vez de repetir o número.
+
+## Como os requisitos estão divididos
+
+Os [requisitos funcionais](/docs/sprint-1/requisitos/funcionais) descrevem o que o sistema
+deve fazer, desde a entrada do vídeo até a entrega do evento. Essa parte será consolidada na
+próxima etapa da documentação.
+
+Os [requisitos não funcionais](/docs/sprint-1/requisitos/nao-funcionais) definem as
+condições sob as quais esse fluxo precisa funcionar. É onde ficam vazão, latência,
+qualidade, memória, energia, compatibilidade, confiabilidade, confidencialidade,
+manutenibilidade e observabilidade.
+
+## Como ler a situação de cada requisito
+
+| Situação | O que significa |
+| --- | --- |
+| Confirmado | deriva de uma necessidade já definida pelo parceiro, pelo escopo ou pela proposta inicial de arquitetura |
+| Alvo preliminar | há um valor ou uma regra de decisão sustentada pela pesquisa, mas a equipe ainda precisa medir no pipeline real |
+| Pendente do parceiro | falta uma referência que a equipe não pode definir sozinha, como a latência tolerada ou a política de retenção |
+
+Um requisito confirmado ainda pode estar sem implementação. A situação registra a origem da
+decisão, não o progresso do código. A validação aparece separadamente em cada RNF e se conecta
+aos riscos da [matriz de risco](/docs/sprint-1/matriz-de-risco).

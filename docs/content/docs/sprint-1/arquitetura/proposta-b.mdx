@@ -1,0 +1,145 @@
+---
+title: Proposta B
+description: Arquitetura para operação em maior escala, registrada como evolução futura e fora do escopo de implementação
+---
+
+**Esta proposta fica fora do escopo de implementação do projeto.** Ela está documentada
+porque é para onde a [proposta A](/docs/sprint-1/arquitetura/proposta-a) precisa crescer se
+a Footstats decidir operar com tudo, em maior escala, e porque comparar as duas é o que
+torna explícito o que a proposta A está trocando por simplicidade.
+
+O gargalo nesse cenário não é o volume de eventos, como parece à primeira vista. Mesmo com
+dezenas de milhares de jogos por ano, os eventos de finalização de uma temporada inteira
+cabem em poucos gigabytes, baratos de guardar para sempre. O que pesa é o vídeo, que chega
+à casa dos terabytes por hora quando centenas de transmissões acontecem ao mesmo tempo, e a
+frota de GPU que essas transmissões exigem, concentrada em poucas janelas de fim de semana
+e parada no resto. Essa assimetria dita todo o desenho.
+
+<Diagram
+  light="/sprint1/arquitetura/proposta-b-light.png"
+  dark="/sprint1/arquitetura/proposta-b-dark.png"
+  width={5505}
+  height={3795}
+  alt="Fontes alimentam regiões de processamento com pool de workers em GPU; os eventos vão para um log particionado global, consumido pelo cálculo de xG, pela entrega ao cliente e pela indexação analítica; um plano de controle provisiona capacidade a partir do calendário de partidas."
+/>
+
+## O que muda em relação à proposta A
+
+**A borda deixa de ser um dispositivo e vira uma região.** Centenas de caixas físicas não
+são operáveis. No lugar delas entra um pool de workers com GPU por região, posicionado
+perto de onde o sinal entra, para não atravessar a rede com gigabits de vídeo. É o mesmo
+argumento de banda que sustenta a computação de borda no caso geral
+([Edge-Based Video Analytics: A Survey, 2023](https://arxiv.org/abs/2303.14329)).
+
+**O provisionamento é agendado, e não apenas reativo.** Aqui está a particularidade mais
+específica deste domínio: o calendário do futebol é conhecido com semanas de antecedência.
+Dá para saber hoje quantos jogos começam às quatro da tarde de sábado. Autoescala reativa,
+por atraso de fila de consumo, no modelo que o [KEDA](https://keda.sh/docs/latest/scalers/apache-kafka/)
+implementa para tópicos Kafka, reage depois que a fila cresceu, quando lances já se
+perderam. Por isso ela fica como rede de segurança, e o mecanismo principal é provisionar
+antes do apito, guiado pelo calendário.
+
+O mesmo calendário justifica o outro lado da conta: escalar para zero durante a semana. Uma
+frota de GPU parada de segunda a sexta é o desperdício que essa arquitetura elimina, e esse
+número é o que convence o parceiro, não o diagrama.
+
+**Vídeo nunca entra na fila.** O clipe vai para o armazenamento regional e o evento carrega
+apenas a chave que aponta para ele. É o padrão
+[Claim-Check](https://learn.microsoft.com/en-us/azure/architecture/patterns/claim-check),
+documentado justamente para o caso em que a carga é grande demais para o barramento de
+mensagens: paga-se o transporte pesado uma vez, para o object storage, e o barramento fica
+com os ponteiros. O armazenamento de clipes é em camadas: quente por alguns dias para
+revisão humana, depois frio, depois expira.
+
+**O transporte de eventos vira um log particionado.** A escolha não é por vazão, e
+apresentar como se fosse seria fácil de contestar: dois milhões de eventos por ano qualquer
+fila aguenta. O que justifica o log são três propriedades que uma fila comum não tem, e que
+[Kleppmann](https://dataintensive.net/) descreve ao contrastar brokers baseados em log com
+filas tradicionais: releitura do histórico desde o começo, que permite recalcular tudo
+quando o modelo de xG melhorar; consumidores independentes, cada um com seu ponto de
+leitura, sem que o mais lento segure os outros; e ordenação dentro da partição, que a
+[documentação do Kafka](https://kafka.apache.org/documentation/#intro_concepts_and_terms)
+garante por chave. No nosso caso a chave é o identificador da partida, então a sequência
+de cada jogo se reconstrói na ordem certa.
+
+**Aparece um registro de esquema.** Rollout de modelo em centenas de workers não é atômico:
+versões diferentes publicam no mesmo tópico ao mesmo tempo, por horas. Sem contrato
+versionado, quem consome vira uma pilha de condicionais por versão.
+
+**O armazenamento operacional se separa do analítico.** O banco operacional atende a API e o
+front com a janela recente. O histórico vai para formato colunar particionado por liga e
+temporada. Essa separação é o que caracteriza a proposta como intensiva em dados; sem ela,
+seria a proposta A com uma fila diferente.
+
+**Cada worker reporta sinal de vida.** Com centenas deles é preciso saber qual está ativo,
+com qual versão de modelo e com quanto atraso. Sem isso, um worker travado no segundo tempo
+é descoberto pelo cliente.
+
+Também ficou de fora, de propósito, o que costuma vir de carona em desenhos desse porte:
+ferramentas de processamento de stream distribuído, orquestrador de pipeline de dados e
+malha de serviço. Não há processamento de stream complexo neste sistema, o que pesa é a
+inferência, e ela acontece na borda. Acrescentar essas peças numa proposta inicial seria
+enfeite sem justificativa.
+
+## Evoluções que não esperam a escala
+
+Nem tudo nesta página depende do cenário de maior escala. Alguns caminhos valem sobre a
+proposta A como ela está, e ficam registrados como recomendação.
+
+O primeiro degrau, e o mais importante, é a entrada deixar de ser um clipe recortado. No MVP
+a Footstats entrega o lance já isolado, e o sistema só precisa achar o instante dentro dele.
+Receber a transmissão contínua muda o problema em três frentes ao mesmo tempo: passa a ser
+preciso encontrar as finalizações no meio do jogo, sustentar o processamento pela partida
+inteira sem acumular atraso, e lidar com o replay, que em broadcast é rotina e faria a mesma
+finalização ser contada duas ou três vezes. O
+[SoccerNet-v2](https://arxiv.org/abs/2011.13367) anotou os replays de 500 partidas de
+broadcast justamente porque associar cada um ao lance original é uma tarefa por si só. Nada
+disso pesa hoje, e tudo isso vem antes de qualquer discussão de escala: sem processar uma
+transmissão, não faz sentido falar em processar centenas delas.
+
+Junto com essa mudança vem o tratamento de corte de plano. A transmissão interrompe o lance
+com close-up, troca de câmera e câmera lenta, e nada no desenho atual lida com isso. Boa
+parte da literatura assume câmera tática fixa, então há pouco caminho pronto para seguir.
+
+O terceiro é o ciclo de melhoria que o desenho já deixa armado. Guardar as features, e não
+só o xG, permite recalcular o histórico inteiro quando o modelo mudar, faltando apenas
+definir o gatilho e o custo, se a cada versão ou por competição e temporada. A janela de
+clipe retida por evento abre a porta para revisão humana, em que cada correção vira exemplo
+rotulado para treinar o modelo, dependendo só de decidir onde o clipe vive. E o ângulo e a
+posição que a Footstats fornece, duas das variáveis centrais dos modelos de xG em produção
+([Hudl StatsBomb](https://www.hudl.com/blog/expected-goals-xg-explained)), servem de
+gabarito para a extração própria desses valores a partir do vídeo, uma validação que não
+custa anotação manual. Enquanto a extração não atingir acerto suficiente, o valor fornecido
+continua valendo.
+
+## Conclusão
+
+Para uma liga apenas, esta arquitetura é mais cara e mais frágil que a proposta A, e exige
+competência operacional que a equipe não tem hoje. Ela só se paga quando o volume existir, e
+por isso está registrada como destino, não como alternativa em disputa.
+
+A migração, quando fizer sentido, não recomeça do zero. O contrato do evento é o mesmo nas
+duas propostas, então a borda que extrai features e a Footstats que consome não precisam
+mudar: o que troca é o transporte no meio, de fila para log, e o plano de controle em volta.
+Crescer, aqui, é substituir o miolo mantendo as pontas.
+
+## Referências
+
+1. Kleppmann, M.
+   [Designing Data-Intensive Applications](https://dataintensive.net/). O'Reilly, 2017,
+   cap. 11 (_Stream Processing_). Por que um log particionado, e não uma fila, quando
+   releitura e múltiplos consumidores importam.
+2. Microsoft Azure Architecture Center.
+   [Claim-Check pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/claim-check).
+   Separação entre carga pesada e ponteiro no barramento; sustenta "vídeo nunca entra na
+   fila".
+3. Apache Kafka.
+   [Documentação oficial, conceitos e garantias de ordenação](https://kafka.apache.org/documentation/#intro_concepts_and_terms).
+   Ordenação por partição via chave; sustenta a partição por identificador de partida.
+4. KEDA.
+   [Apache Kafka scaler, documentação oficial](https://keda.sh/docs/latest/scalers/apache-kafka/).
+   Autoescala por atraso de consumo; usada aqui como rede de segurança, não como
+   mecanismo principal.
+5. [Edge-Based Video Analytics: A Survey](https://arxiv.org/abs/2303.14329). 2023.
+   Argumento de banda para processar vídeo perto da fonte, que se mantém na escala
+   regional.

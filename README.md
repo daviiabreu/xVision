@@ -4,9 +4,9 @@
 <!-- TODO: nome do grupo -->
 ## [Nome do Grupo]
 
-<!-- TODO: adicionar a logo em docs/public/logo.png -->
+<!-- TODO: adicionar a logo em docs/public/readme/logo.png -->
 <p align="center">
-  <img src="docs/public/logo.png" alt="Logo do projeto" width="600">
+  <img src="docs/public/readme/logo.png" alt="Logo do projeto" width="600">
 </p>
 
 ## Integrantes:
@@ -15,58 +15,58 @@
   <table>
     <tr>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/Lucas Nepomuceno.png) -->
+        <!-- TODO: LinkedIn e foto (docs/public/readme/Lucas Nepomuceno.png) -->
         <a href="#">
-          <img src="docs/public/Lucas Nepomuceno.png" style="border-radius: 10%; width: 150px;" alt="Lucas Nepomuceno"/><br>
+          <img src="docs/public/readme/Lucas Nepomuceno.png" style="border-radius: 10%; width: 150px;" alt="Lucas Nepomuceno"/><br>
           <sub><b>Lucas Nepomuceno dos Santos</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/Yasmim Marly.png) -->
+        <!-- TODO: LinkedIn e foto (docs/public/readme/Yasmim Marly.png) -->
         <a href="#">
-          <img src="docs/public/Yasmim Marly.png" style="border-radius: 10%; width: 150px;" alt="Yasmim Marly"/><br>
+          <img src="docs/public/readme/Yasmim Marly.png" style="border-radius: 10%; width: 150px;" alt="Yasmim Marly"/><br>
           <sub><b>Yasmim Marly Passos</b></sub>
         </a>
       </td>
       <td align="center">
         <!-- TODO: LinkedIn -->
         <a href="#">
-          <img src="docs/public/Matheus Jorge.png" style="border-radius: 10%; width: 150px;" alt="Matheus Jorge"/><br>
+          <img src="docs/public/readme/Matheus Jorge.png" style="border-radius: 10%; width: 150px;" alt="Matheus Jorge"/><br>
           <sub><b>Matheus Jorge Rosa</b></sub>
         </a>
       </td>
       <td align="center">
         <a href="https://www.linkedin.com/in/davi-abreu-da-silveira/">
-          <img src="docs/public/Davi Abreu.png" style="border-radius: 10%; width: 150px;" alt="Davi Abreu"/><br>
+          <img src="docs/public/readme/Davi Abreu.png" style="border-radius: 10%; width: 150px;" alt="Davi Abreu"/><br>
           <sub><b>Davi Abreu da Silveira</b></sub>
         </a>
       </td>
     </tr>
     <tr>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/Gabriel Henrique.png) -->
+        <!-- TODO: LinkedIn e foto (docs/public/readme/Gabriel Henrique.png) -->
         <a href="#">
-          <img src="docs/public/Gabriel Henrique.png" style="border-radius: 10%; width: 150px;" alt="Gabriel Henrique"/><br>
+          <img src="docs/public/readme/Gabriel Henrique.png" style="border-radius: 10%; width: 150px;" alt="Gabriel Henrique"/><br>
           <sub><b>Gabriel Henrique Martins Alves</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/Roberto Diniz.png) -->
+        <!-- TODO: LinkedIn e foto (docs/public/readme/Roberto Diniz.png) -->
         <a href="#">
-          <img src="docs/public/Roberto Diniz.png" style="border-radius: 10%; width: 150px;" alt="Roberto Diniz"/><br>
+          <img src="docs/public/readme/Roberto Diniz.png" style="border-radius: 10%; width: 150px;" alt="Roberto Diniz"/><br>
           <sub><b>Roberto Diniz Branco Filho</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/Daniel Parente.png) -->
+        <!-- TODO: LinkedIn e foto (docs/public/readme/Daniel Parente.png) -->
         <a href="#">
-          <img src="docs/public/Daniel Parente.png" style="border-radius: 10%; width: 150px;" alt="Daniel Parente"/><br>
+          <img src="docs/public/readme/Daniel Parente.png" style="border-radius: 10%; width: 150px;" alt="Daniel Parente"/><br>
           <sub><b>Daniel Parente Pessoa Dias</b></sub>
         </a>
       </td>
       <td align="center">
         <a href="https://www.linkedin.com/in/danilo-martins-merlo/">
-          <img src="docs/public/Danilo Martins.png" style="border-radius: 10%; width: 150px;" alt="Danilo Martins"/><br>
+          <img src="docs/public/readme/Danilo Martins.png" style="border-radius: 10%; width: 150px;" alt="Danilo Martins"/><br>
           <sub><b>Danilo Martins Merlo</b></sub>
         </a>
       </td>

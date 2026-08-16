@@ -137,3 +137,5 @@ pipeline.config.json
 pipeline-state.json
 pipeline-approvals.json
 scope.md
+CLAUDE.md
+AGENTS.md

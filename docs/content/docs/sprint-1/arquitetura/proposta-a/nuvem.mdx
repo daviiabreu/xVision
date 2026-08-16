@@ -1,0 +1,140 @@
+---
+title: Arquitetura da Nuvem
+description: Componentes responsáveis pelo processamento, persistência e distribuição dos eventos de finalização na nuvem
+---
+
+## Fluxo completo da arquitetura na nuvem
+
+A arquitetura na nuvem é responsável por receber os dados estruturados de uma finalização, processar e complementar essas informações, calcular o xG, armazenar os resultados e disponibilizá-los para os diferentes consumidores da aplicação.
+
+Antes da entrada na nuvem, o dispositivo de borda é responsável pelo processamento do vídeo e pela transformação das informações identificadas em dados estruturados. A partir do recebimento desses dados, inicia-se o fluxo descrito nesta arquitetura.
+
+<Diagram
+  light="/sprint1/arquitetura/nuvem-light.png"
+  dark="/sprint1/arquitetura/nuvem-dark.png"
+  width={3426}
+  height={2595}
+  alt="O evento estruturado vindo do dispositivo de borda entra pelo load balancer, passa pela fila de eventos e chega ao backend, que valida, complementa com dados da Footstats, calcula o xG e persiste no banco geral; a API serve o frontend, que recebe estáticos da CDN, e o webhook notifica a Footstats."
+/>
+
+## 1. Entrada dos eventos
+
+Os eventos estruturados chegam à nuvem contendo as informações extraídas da finalização e necessárias para continuar o processamento.
+
+A partir desse momento, o objetivo da arquitetura é garantir que esses eventos consigam percorrer as diferentes etapas de processamento de forma organizada, mesmo quando houver variações na quantidade de dados recebidos.
+
+Por esse motivo, a entrada foi separada do processamento principal por meio do **Load Balancer** e da **fila de eventos**.
+
+### 1.1 Load Balancer
+
+O **Load Balancer (LB)** foi adicionado como ponto de entrada da infraestrutura para permitir que as requisições sejam distribuídas entre as instâncias disponíveis.
+
+Essa decisão prepara a arquitetura para cenários em que várias partidas estejam sendo processadas simultaneamente. Conforme o número de eventos aumenta, novas instâncias podem ser adicionadas sem modificar o restante do fluxo.
+
+Além da escalabilidade, essa separação reduz a dependência de uma única instância e permite que a infraestrutura seja expandida conforme a demanda do sistema.
+
+### 1.2 Fila de eventos
+
+Após a entrada, os eventos são encaminhados para a **fila de eventos**.
+
+A fila foi adicionada principalmente porque a quantidade de finalizações recebidas não será constante. Em determinados períodos, diferentes eventos podem chegar quase simultaneamente, principalmente quando várias partidas estiverem acontecendo ao mesmo tempo.
+
+Nesse cenário, a fila permite que os eventos aguardem até que exista capacidade para processá-los, evitando que um pico de requisições sobrecarregue diretamente o backend.
+
+Essa separação também aumenta a resiliência do fluxo, pois uma redução temporária na capacidade de processamento não significa necessariamente a perda dos eventos que já chegaram à infraestrutura.
+
+## 2. Backend
+
+O **backend** concentra o processamento principal realizado na nuvem e funciona como o componente responsável por coordenar o evento desde sua retirada da fila até sua persistência e disponibilização.
+
+Ele consome os eventos disponíveis, valida as informações recebidas, complementa os dados quando necessário e realiza o cálculo do xG. Depois disso, controla a persistência dos resultados e sua disponibilização para os demais consumidores da aplicação.
+
+A escolha de concentrar essas responsabilidades no backend permite manter a lógica de processamento em um único componente, facilitando a manutenção e evitando que outras partes da aplicação precisem conhecer os detalhes internos do cálculo e da persistência.
+
+### 2.1 Complementação dos dados
+
+Durante o processamento, algumas informações podem precisar ser complementadas antes do cálculo final do xG.
+
+Na arquitetura proposta, existe uma comunicação com a **Footstats** para obtenção de dados como **ângulo e posição da finalização**. Essas informações são combinadas com os dados já presentes no evento para formar o conjunto utilizado durante o processamento.
+
+### 2.2 Cálculo do xG
+
+Com as informações necessárias disponíveis, o backend realiza o **cálculo do xG**.
+
+Essa etapa transforma as características associadas à finalização em uma estimativa da probabilidade daquele lance resultar em gol.
+
+Depois do cálculo, o evento passa a possuir tanto os dados recebidos e complementares quanto o resultado de xG, formando uma informação consolidada que pode ser armazenada e posteriormente distribuída.
+
+### 2.3 Banco de dados geral
+
+Depois do processamento, o backend envia os resultados para o **banco de dados geral**.
+
+Nele vão ser mantidos os eventos, suas características, os valores de xG e os metadados necessários para acompanhar o processamento.
+
+### 2.4 API
+
+A **API** disponibilizada pelo backend foi adicionada para controlar o acesso às informações armazenadas.
+
+Dessa maneira, o frontend consegue acessar as informações necessárias por meio dela.
+
+### 2.5 Webhook
+
+Depois que um evento é processado, o backend precisa comunicar que o resultado está disponível.
+
+Para isso, foi adicionado um **webhook**, responsável por realizar a notificação para a Footstats.
+
+Essa abordagem evita que seja necessário consultar continuamente a aplicação procurando novos eventos. Quando o processamento termina, o próprio sistema inicia a comunicação.
+
+A escolha está diretamente relacionada ao objetivo de disponibilizar os resultados em tempo quase real, reduzindo o intervalo entre a conclusão do processamento e o recebimento da informação pelo parceiro.
+
+## 3. Frontend
+
+O **frontend** foi incluído como camada de visualização dos resultados produzidos pelo sistema.
+
+Ele utiliza as informações disponibilizadas pelo backend para apresentar os eventos, os valores de xG e outros dados relacionados às partidas.
+
+Além da apresentação dos resultados, essa interface vai ser utilizada para acompanhar o funcionamento da solução.
+
+### 3.1 CDN
+
+A **CDN** foi adicionada para auxiliar na distribuição dos recursos utilizados pelo frontend.
+
+A decisão permite separar a entrega da interface das operações executadas pelo backend. Dessa maneira, recursos estáticos da aplicação podem ser distribuídos sem utilizar diretamente a mesma infraestrutura responsável pelo processamento dos eventos e pelas APIs.
+
+Com essa separação, o backend pode permanecer concentrado nas operações relacionadas aos dados, enquanto a distribuição da interface possui uma estrutura própria.
+
+## 4. Integração com a Footstats
+
+A integração com a **Footstats** acontece em dois momentos distintos.
+
+Durante o processamento, o backend pode consultar informações complementares necessárias para consolidar a finalização, como posição e ângulo.
+
+Depois que o processamento é concluído, o webhook comunica a existência do novo resultado.
+
+Dessa forma, a integração permite tanto obter informações necessárias para o processamento quanto entregar o resultado final produzido pelo sistema.
+
+## Fluxo dos dados
+
+O fluxo dentro da nuvem começa com o recebimento dos dados estruturados.
+
+O **Load Balancer** recebe as requisições e distribui a carga para a infraestrutura disponível. Em seguida, os eventos são encaminhados para a **fila**, onde aguardam processamento.
+
+O **backend** consome esses eventos, realiza as validações necessárias e complementa as informações quando necessário. Com os dados completos, o xG é calculado.
+
+Depois do processamento, o resultado consolidado é armazenado no **banco de dados geral**, tornando-se disponível para consultas posteriores.
+
+A **API** permite que o frontend consulte essas informações, enquanto o **webhook** realiza a comunicação dos resultados processados com a Footstats.
+
+Assim, o fluxo principal pode ser resumido como:
+
+**Recebimento → distribuição → enfileiramento → processamento → complementação → cálculo do xG → persistência → disponibilização.**
+
+## Conclusão
+
+A arquitetura na nuvem foi estruturada para transformar os dados estruturados recebidos em resultados de xG persistentes e disponíveis para consumo.
+
+O fluxo começa pela entrada e organização dos eventos e segue para o backend, onde ocorre a principal parte do processamento. Dentro dele estão concentradas a complementação das informações, o cálculo do xG, a persistência, a disponibilização dos dados e a comunicação dos resultados processados.
+
+O frontend permanece responsável pela apresentação dessas informações, enquanto a integração com a Footstats representa a comunicação com o parceiro.
+
+Com essa organização, a solução consegue lidar com variações na quantidade de eventos, centralizar os resultados produzidos e disponibilizá-los de maneira organizada para os diferentes consumidores da aplicação.

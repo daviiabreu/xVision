@@ -1,0 +1,81 @@
+---
+title: Arquitetura
+description: Visão geral da proposta inicial e das responsabilidades entre borda e nuvem
+---
+
+A arquitetura organiza como a xVision transforma o vídeo de uma finalização em um evento
+estruturado que possa ser usado pela Footstats. Nesta sprint, o escopo é o clipe já
+recortado: o desenho parte de duas entradas, o clipe fornecido pela Footstats e o upload
+manual, e as duas seguem pelo mesmo pipeline a partir da ingestão. Processar a transmissão
+contínua, encontrando as finalizações no meio do jogo, é meta das próximas sprints.
+
+Esta é uma proposta inicial. Ela define componentes, responsabilidades e fluxos para orientar
+as próximas sprints, mas as escolhas de modelo, runtime e hardware ainda dependem das medições
+planejadas para a Sprint 2.
+
+## Da transmissão ao evento
+
+O dispositivo de borda recebe e decodifica o vídeo e prepara as imagens para o modelo.
+Depois de identificar o instante da finalização, ele extrai as características do lance e
+grava o resultado localmente antes do envio. O dado que atravessa essa fronteira é um evento
+estruturado, não o vídeo.
+
+Na nuvem, esse evento é validado e pode ser complementado com os dados oficiais fornecidos
+pela Footstats. O backend calcula o xG, mantém o histórico no banco geral e disponibiliza o
+resultado por API e webhook. O frontend consulta a mesma API e usa a CDN apenas para servir
+os recursos estáticos da interface.
+
+Essa divisão deixa uma responsabilidade clara para cada lado: a borda identifica o que
+aconteceu no vídeo, enquanto a nuvem consolida o evento, calcula o valor de xG e entrega o
+resultado aos consumidores.
+
+## Proposta inicial e evolução
+
+As duas propostas documentadas não são alternativas concorrentes. A Proposta A é o ponto de
+partida do projeto. A Proposta B mostra como o mesmo contrato de evento pode sustentar uma
+operação maior no futuro, caso o volume de transmissões justifique uma infraestrutura mais
+complexa.
+
+| Aspecto | Proposta A | Proposta B |
+| --- | --- | --- |
+| Papel no projeto | arquitetura inicial a validar nas próximas sprints | evolução futura para uma operação maior |
+| Processamento de vídeo | uma unidade de borda por fluxo de trabalho | pools regionais de processamento |
+| Transporte dos eventos | envio para a fila da nuvem depois da persistência local | log particionado, com ordenação por partida e múltiplos consumidores |
+| Escala | novas transmissões recebem novas unidades | capacidade ajustada por região e pelo calendário das partidas |
+| Operação | menos componentes e menor custo de desenvolvimento | mais elasticidade, reprocessamento e observabilidade, com maior custo operacional |
+| Uso previsto | base para os experimentos da Sprint 2 | referência de crescimento, sem implementação prevista neste projeto |
+
+A escolha da Proposta A evita introduzir uma plataforma distribuída antes de existir volume
+medido que a justifique. A principal desvantagem é o crescimento linear do número de unidades
+de borda. A Proposta B reduz esse limite, mas exige coordenação de workers, particionamento,
+armazenamento regional e operação de uma infraestrutura que ainda não é necessária.
+
+## Organização da documentação
+
+### Proposta A
+
+A [visão completa da Proposta A](/docs/sprint-1/arquitetura/proposta-a) acompanha o evento
+desde a entrada do vídeo até a entrega para a Footstats. Dentro dela, a página do
+[dispositivo de borda](/docs/sprint-1/arquitetura/proposta-a/dispositivo-de-borda) detalha
+ingestão, processamento e persistência local, enquanto a página da
+[nuvem](/docs/sprint-1/arquitetura/proposta-a/nuvem) descreve processamento central, cálculo
+de xG, banco geral, API, webhook e frontend.
+
+### Proposta B
+
+A [Proposta B](/docs/sprint-1/arquitetura/proposta-b) registra os componentes que passariam
+a fazer sentido em uma operação maior. Ela preserva a separação entre vídeo e evento da
+Proposta A, mas acrescenta capacidade regional, processamento assíncrono e armazenamento
+voltado a reprocessamento.
+
+## Relação com requisitos e riscos
+
+Os valores usados para avaliar a arquitetura ficam centralizados nos
+[requisitos](/docs/sprint-1/requisitos). Assim, vazão, latência, memória, energia e qualidade
+não ganham metas diferentes em cada página. A
+[matriz de risco](/docs/sprint-1/matriz-de-risco) conecta as decisões do grupo às incertezas
+que podem invalidá-las e às evidências que precisam ser produzidas nas sprints seguintes.
+
+O primeiro teste de ponta a ponta pode começar pelo upload manual. Como as duas fontes usam
+o mesmo pipeline depois da ingestão, esse caminho permite validar detecção, contrato do
+evento, persistência e entrega sem depender de integração com o parceiro a cada execução.

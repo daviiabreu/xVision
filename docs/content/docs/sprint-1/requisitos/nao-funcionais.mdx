@@ -1,0 +1,219 @@
+---
+title: Requisitos não funcionais
+description: Critérios de desempenho, qualidade, recursos, compatibilidade e operação da proposta inicial
+---
+
+Os requisitos não funcionais definem como o sistema precisa se comportar enquanto processa
+um clipe de finalização, que é o escopo desta sprint. A organização usa o modelo de qualidade da
+[ISO/IEC 25010:2023](https://www.iso.org/standard/78176.html) como referência, mas mantém
+apenas as características que mudam uma decisão deste projeto.
+
+Os critérios foram cruzados com a proposta de arquitetura, a matriz de risco e as pesquisas
+de hardware, runtime, execução e quantização. Quando as pesquisas trouxeram valores
+diferentes, o requisito separa as medidas em vez de escolher um número sem contexto. FPS e
+tempo por inferência medem etapas do pipeline; latência ponta a ponta mede quanto o parceiro
+espera pelo evento.
+
+## RNF-01: tempo de processamento do clipe
+
+O pipeline deve processar um clipe de finalização dentro do orçamento de tempo definido com o
+modelo escolhido, mantendo o custo por quadro estável do começo ao fim do clipe.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | escopo de clipe da Proposta A e risco R05 |
+| Critério de aceite | processar os clipes de referência dentro do orçamento acordado, sem que o tempo por quadro cresça ao longo da execução nem entre clipes consecutivos |
+| Como verificar | registrar quadros recebidos, amostrados e processados, o tempo de cada etapa e o modo de potência, repetindo com clipes de durações diferentes e em sequência |
+| Situação | Alvo preliminar, trazido pela pesquisa de hardware e ainda não medido no pipeline do projeto |
+
+Quando a entrada deixar de ser um clipe recortado e passar a ser a transmissão contínua, este
+requisito ganha uma segunda forma: vazão sustentada por uma partida inteira, com fila limitada
+e política de descarte declarada. Fica registrado aqui para não se perder na transição, mas
+não é cobrado nesta sprint.
+
+O alvo não exige inferência em todos os quadros. A taxa de amostragem será definida com o
+modelo, mas, uma vez configurada, o processamento precisa sustentá-la. A
+[documentação de desempenho do DeepStream](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_Performance.html)
+também mede o pipeline completo, incluindo captura, decodificação, pré-processamento,
+inferência e pós-processamento, por isso o teste não deve se limitar ao modelo isolado.
+
+## RNF-02: latência ponta a ponta
+
+O evento deve ficar disponível para consulta e entrega em tempo compatível com a operação ao
+vivo da Footstats.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | necessidade de uso ao vivo e risco R05 |
+| Critério de aceite | latência p95 entre o instante da finalização no vídeo e a persistência do evento no banco geral menor ou igual ao limite acordado com a Footstats |
+| Como verificar | registrar timestamps na ingestão, detecção, extração, persistência local, recebimento na nuvem e gravação central; publicar o total e o tempo de cada etapa |
+| Situação | Pendente do parceiro, porque a tolerância máxima ainda não foi informada |
+
+Os valores de 40 ms e 50 ms encontrados nas pesquisas tratam da inferência ou do pipeline de
+vídeo, não da entrega do evento. Eles continuam úteis para localizar gargalos, mas não
+substituem o limite ponta a ponta deste requisito.
+
+## RNF-03: qualidade da saída
+
+A detecção e as features extraídas devem manter qualidade suficiente em material vindo de
+transmissão, inclusive nos casos de rebote, corte de plano e câmera lenta.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | comparação com a marcação histórica prevista no escopo e riscos R03, R04 e R07 |
+| Critério de aceite | atingir os limites acordados com a Footstats para precisão, recall e F1 da finalização; erro absoluto médio para features numéricas; macro F1 para features categóricas |
+| Como verificar | usar uma amostra separada dos dados de desenvolvimento e apresentar os resultados gerais e por cenário, com tolerância temporal declarada para associar evento automático e marcação histórica |
+| Situação | Pendente do parceiro, porque faltam a amostra de referência, a tolerância temporal e os valores mínimos aceitáveis |
+
+O resultado por cenário evita que uma média boa esconda o erro que mais prejudica o produto.
+O [SoccerNet-v2](https://openaccess.thecvf.com/content/CVPR2021W/CVSports/papers/Deliege_SoccerNet-v2_A_Dataset_and_Benchmarks_for_Holistic_Understanding_of_Broadcast_CVPRW_2021_paper.pdf)
+trata replay em broadcast como uma tarefa específica. A comparação entre FP16 e INT8 também
+deve repetir esta avaliação, pois quantização pode reduzir memória e latência com perda de
+qualidade dependente do modelo e dos dados
+([Gholami et al., 2021](https://arxiv.org/abs/2103.13630)).
+
+## RNF-04: memória e armazenamento local
+
+Modelo, buffers de vídeo, aplicação e persistência devem caber no dispositivo sem encerrar o
+processo por falta de memória ou degradar a inferência por escrita em disco.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | dispositivo de borda com recursos restritos e risco R08 |
+| Critério de aceite | uso de memória do sistema abaixo de 70% da capacidade em uma execução contínua de 90 minutos processando clipes em sequência; sem crescimento contínuo; escrita local sem aumentar a latência de inferência em mais de 5% |
+| Como verificar | medir memória, swap, armazenamento ocupado e latência com e sem persistência, usando o mesmo vídeo, modelo e modo de potência |
+| Situação | Alvo preliminar, derivado da pesquisa de hardware; a capacidade reservada para clipes depende da política de retenção |
+
+A margem de 30% cobre variações de buffers e serviços do sistema que um teste curto pode não
+mostrar. Nos Jetson pesquisados, CPU e GPU compartilham a memória principal, então somar os
+dois usos produziria uma medida incorreta. O `tegrastats` informa memória, processadores,
+temperatura e potência, conforme a
+[documentação oficial da NVIDIA](https://docs.nvidia.com/jetson/archives/r36.2/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html).
+
+## RNF-05: energia e estabilidade térmica
+
+O dispositivo deve sustentar o processamento sem redução de frequência causada por
+aquecimento, e toda comparação precisa declarar o custo energético da configuração.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | operação contínua em hardware embarcado e risco R05 |
+| Critério de aceite | completar 90 minutos de processamento contínuo de clipes sem throttling térmico; registrar potência média e energia por inferência em cada modo testado; entre configurações que atendam RNF-01 e RNF-03, preferir a de menor consumo medido |
+| Como verificar | coletar temperatura, frequências e trilhos de potência ao longo do teste, mantendo modelo, entrada e refrigeração constantes entre as comparações |
+| Situação | Alvo preliminar, pois o limite de potência depende do hardware que será disponibilizado |
+
+O modo de potência faz parte do resultado. A documentação da
+[família Jetson Orin](https://docs.nvidia.com/jetson/archives/r36.4.4/DeveloperGuide/SD/PlatformPowerAndPerformance/JetsonOrinNanoSeriesJetsonOrinNxSeriesAndJetsonAgxOrinSeries.html)
+mostra que limites térmicos e elétricos alteram frequências e quantidade de núcleos ativos.
+Comparar duas medições sem registrar esse modo produz um resultado que não pode ser
+repetido.
+
+## RNF-06: compatibilidade do ambiente de inferência
+
+O modelo deve executar em Linux embarcado com versões conhecidas de sistema, runtime e
+driver, sem deslocar silenciosamente operadores do modelo para a CPU.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | alternativas pesquisadas de Linux embarcado, ONNX e runtime acelerado; riscos R06 e R09 |
+| Critério de aceite | exportar o modelo para ONNX, compilar no hardware escolhido e confirmar que todos os operadores do modelo executam no acelerador; reconstruir o ambiente com as versões registradas do JetPack, CUDA, TensorRT e Python |
+| Como verificar | guardar relatório de exportação e compilação, comparar a saída com o modelo de referência e executar uma inferência após instalação limpa do ambiente |
+| Situação | Alvo preliminar, dependente do modelo e da classe de hardware validados na Sprint 2 |
+
+A engine do TensorRT não é um artefato universal. A
+[matriz de suporte](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/support-matrix.html)
+e a documentação de
+[compatibilidade de engines](https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/engine-compatibility.html)
+relacionam sua execução à plataforma, à versão do runtime e ao hardware. Por isso, ONNX fica
+como formato de intercâmbio e a engine deve ser construída para o dispositivo alvo.
+
+## RNF-07: entrega confiável e idempotente
+
+Uma falha de rede não pode interromper a análise em andamento nem criar duas finalizações
+no banco geral quando o envio for repetido.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | persistência local antes do envio, webhook, API e risco R10 |
+| Critério de aceite | após desconexão e reconexão, todos os eventos persistidos localmente chegam ao banco geral; reenvios com o mesmo id de lance mantêm um único registro central |
+| Como verificar | interromper a conexão durante o processamento, restaurá-la e comparar IDs e contagens entre banco local, fila e banco geral; repetir o mesmo webhook |
+| Situação | Confirmado na proposta inicial de arquitetura; precisa ser validado na Sprint 2 |
+
+O critério trata entrega única como resultado observável. A rede pode transportar a mesma
+mensagem mais de uma vez, mas a chave idempotente impede que essa repetição altere o estado
+final.
+
+## RNF-08: confidencialidade e retenção
+
+O fluxo normal deve enviar somente o evento estruturado. Vídeos, clipes e marcações da
+Footstats são material restrito e precisam de uma política explícita de acesso e exclusão.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | restrição de conteúdo do projeto, retenção local da Proposta A e risco R08 |
+| Critério de aceite | nenhum vídeo contínuo aparece no payload do evento ou no repositório; clipes locais ficam acessíveis apenas aos responsáveis autorizados e são removidos no prazo definido com a Footstats |
+| Como verificar | inspecionar o payload e o tráfego de saída, revisar arquivos versionados e executar um teste de expiração e exclusão sobre clipes de teste não restritos |
+| Situação | Pendente do parceiro quanto ao prazo e à necessidade de criptografia; a proibição de publicar conteúdo restrito já está confirmada |
+
+## RNF-09: manutenibilidade e complexidade de desenvolvimento
+
+Trocar uma versão do modelo não deve exigir mudanças na ingestão do vídeo, no contrato do
+evento ou no cálculo de xG na nuvem.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | separação entre borda e nuvem da Proposta A e risco de cronograma levantado pelas pesquisas de software |
+| Critério de aceite | substituir o modelo por outro com a mesma interface, executar os testes de contrato sem alterar o backend e reconstruir o ambiente a partir das dependências versionadas e da documentação do projeto |
+| Como verificar | fazer uma troca controlada de artefato, comparar o schema dos eventos antes e depois e repetir a instalação em ambiente limpo |
+| Situação | Alvo preliminar para orientar a implementação da Sprint 2 |
+
+Esse requisito não obriga o grupo a criar abstrações antes de precisar delas. A fronteira que
+precisa permanecer estável é o evento. Detalhes internos do pipeline podem mudar conforme o
+benchmark indicar DeepStream, GStreamer ou outra estratégia.
+
+## RNF-10: observabilidade dos experimentos
+
+Cada execução usada para justificar uma decisão deve produzir dados suficientes para que
+outra pessoa repita o teste e entenda onde o tempo e os recursos foram consumidos.
+
+| Campo | Definição |
+| --- | --- |
+| Origem | critérios verificáveis exigidos nesta sprint e riscos R03 a R07 |
+| Critério de aceite | o relatório da execução identifica entrada, versão do modelo, precisão numérica, hardware, modo de potência e versões de software; registra timestamps por etapa, tamanho da fila, descarte de quadros, memória, temperatura, potência e estado de entrega |
+| Como verificar | gerar o relatório a partir dos logs de uma execução e repetir o teste com a mesma configuração, sem depender de informação lembrada pela pessoa que o executou |
+| Situação | Confirmado como condição para validar os demais RNFs; a instrumentação será avaliada na Sprint 2 |
+
+A observabilidade não cria um produto de monitoramento nesta fase. Ela registra somente o que
+os benchmarks precisam. O DeepStream, por exemplo, expõe FPS, latência e número de quadros
+por stream em sua
+[integração de telemetria](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_OpenTelemetry.html),
+e o `tegrastats` cobre os recursos do dispositivo.
+
+## Critérios que ainda dependem da Footstats
+
+Três valores não devem ser fechados apenas pela equipe: a latência ponta a ponta tolerada,
+os limites mínimos de qualidade e a política de retenção dos clipes. Eles aparecem como
+pendentes porque alteram decisões de arquitetura ou o resultado da validação. Até essas
+respostas chegarem, a Sprint 2 pode preparar a instrumentação e medir os candidatos, mas não
+pode declarar RNF-02, RNF-03 ou RNF-08 atendidos.
+
+## Referências
+
+1. ISO. [ISO/IEC 25010:2023: Product quality model](https://www.iso.org/standard/78176.html).
+   2023.
+2. NVIDIA. [DeepStream Performance](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_Performance.html).
+   Acesso em: 13 ago. 2026.
+3. NVIDIA. [Tegrastats Utility](https://docs.nvidia.com/jetson/archives/r36.2/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html).
+   Acesso em: 13 ago. 2026.
+4. NVIDIA. [Platform Power and Performance for Jetson Orin](https://docs.nvidia.com/jetson/archives/r36.4.4/DeveloperGuide/SD/PlatformPowerAndPerformance/JetsonOrinNanoSeriesJetsonOrinNxSeriesAndJetsonAgxOrinSeries.html).
+   Acesso em: 13 ago. 2026.
+5. NVIDIA. [TensorRT Support Matrix](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/support-matrix.html).
+   Acesso em: 13 ago. 2026.
+6. NVIDIA. [TensorRT Engine Compatibility](https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/engine-compatibility.html).
+   Acesso em: 13 ago. 2026.
+7. NVIDIA. [DeepStream OpenTelemetry Support](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_OpenTelemetry.html).
+   Acesso em: 13 ago. 2026.
+8. Deliège, A. et al. [SoccerNet-v2: A Dataset and Benchmarks for Holistic Understanding of Broadcast Soccer Videos](https://openaccess.thecvf.com/content/CVPR2021W/CVSports/papers/Deliege_SoccerNet-v2_A_Dataset_and_Benchmarks_for_Holistic_Understanding_of_Broadcast_CVPRW_2021_paper.pdf).
+   CVPR Workshops, 2021.
+9. Gholami, A. et al. [A Survey of Quantization Methods for Efficient Neural Network Inference](https://arxiv.org/abs/2103.13630).
+   2021.

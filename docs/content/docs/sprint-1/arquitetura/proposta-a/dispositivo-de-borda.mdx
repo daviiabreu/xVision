@@ -1,0 +1,204 @@
+---
+title: Arquitetura da Borda
+description: Componentes responsáveis por receber o clipe da finalização, analisar o lance e produzir o evento estruturado enviado para a nuvem
+---
+
+## Fluxo completo da arquitetura na borda
+
+A borda é responsável por transformar vídeo em evento. Ela recebe um clipe contendo uma
+finalização, identifica o instante em que o lance começa, extrai as características daquele
+lance e entrega um evento estruturado para a nuvem, que a partir dali calcula o xG.
+
+Nesta sprint o escopo é o clipe já recortado, **fornecido pela Footstats**. Encontrar
+finalizações dentro de uma partida completa não faz parte do MVP, e sim das próximas
+sprints. Essa distinção aparece ao longo da página sempre que uma decisão muda quando a
+entrada passar a ser a transmissão contínua.
+
+Apesar do nome, este dispositivo não fica no estádio. Como a fonte é material fornecido pelo
+parceiro, e não uma câmera instalada em campo, a borda é o ponto de operação onde esse
+material chega. Isso retira do projeto duas preocupações que existiriam no outro cenário: a
+rede disponível no estádio e o direito de imagem local.
+
+<Diagram
+  light="/sprint1/arquitetura/borda-light.png"
+  dark="/sprint1/arquitetura/borda-dark.png"
+  width={3030}
+  height={1905}
+  alt="O clipe da finalização fornecido pela Footstats e o upload manual entram pela ingestão e decode, seguem para o pré-processamento, que retém o clipe, depois para o modelo de detecção e para a extração de features; o buffer de saída grava no banco local e envia o evento com features e id de lance para a nuvem."
+/>
+
+## 1. Entrada do vídeo
+
+A entrada acontece por duas portas, e ambas chegam ao mesmo ponto de ingestão.
+
+A primeira é o **clipe da finalização**, fornecido pela Footstats já recortado. A segunda é o
+**upload manual** de um arquivo, que além de ser funcionalidade do produto tem um papel
+prático no desenvolvimento: é o que permite exercitar o pipeline inteiro sem depender de
+integração com o parceiro a cada teste.
+
+O que torna esse problema mais difícil do que aparenta é a natureza do material. Mesmo
+recortado, o clipe vem de vídeo de transmissão, o que significa câmera única em movimento,
+enquadramento variável e possibilidade de close-up ou troca de plano no meio do lance. Não é
+a câmera tática fixa que boa parte da literatura de análise de futebol assume. O
+[SoccerNet](https://arxiv.org/abs/1804.04527) é o benchmark público construído exatamente
+sobre esse tipo de vídeo, com 500 partidas completas de broadcast, e é a referência da
+[frente de modelos de visão computacional](/docs/sprint-1/pesquisa/modelos-visao-computacional).
+
+## 2. Ingestão, decode e pré-processamento
+
+### 2.1. Ingestão e decode
+
+O primeiro componente recebe o arquivo e decodifica os quadros. Ele não decide nada sobre o
+conteúdo do vídeo, apenas entrega os quadros prontos para as etapas seguintes.
+
+A decodificação não é detalhe de implementação. Ela disputa os mesmos recursos da inferência,
+e a
+[frente de benchmarking de hardware](/docs/sprint-1/pesquisa/benchmarking) trata a ausência
+de decode acelerado como um custo que recai sobre a CPU, que já precisa dar conta do
+pós-processamento.
+
+### 2.2. Pré-processamento e retenção do clipe
+
+O pré-processamento amostra e prepara os quadros para o modelo, e retém o clipe recebido.
+Guardar o material do lance é o que viabiliza revisão humana e reprocessamento futuro, quando
+o modelo melhorar, sem precisar pedir o vídeo de novo ao parceiro. A política de acesso e o
+prazo de exclusão desse material são tratados pelo
+[RNF-08](/docs/sprint-1/requisitos/nao-funcionais).
+
+## 3. Detecção e extração de features
+
+### 3.1. O modelo
+
+O modelo identifica em que instante do clipe a finalização começa. Ele não avalia a qualidade
+do lance nem calcula probabilidade de gol, o que é responsabilidade da nuvem.
+
+Qual modelo, com qual runtime e sobre qual classe de hardware, é a decisão que ainda depende
+das medições da Sprint 2. As frentes de
+[runtimes e formatos](/docs/sprint-1/pesquisa/runtimes-e-formatos),
+[quantização](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao) e
+[benchmarking](/docs/sprint-1/pesquisa/benchmarking) levantaram os candidatos e os critérios;
+o que falta é medir o tempo por quadro no hardware disponibilizado.
+
+A estrutura em cascata é a maior alavanca desse dimensionamento, e vale registrar aqui porque
+molda o desenho: nem toda etapa precisa rodar em todo quadro. A detecção roda de forma
+contínua, o modelo mais pesado roda apenas nos quadros candidatos e o cálculo do lance
+acontece uma vez só. Como o escopo se restringe à finalização, essa organização reduz
+bastante o processamento necessário.
+
+### 3.2. O que a borda extrai
+
+Vale ser explícito sobre o que está contido em "features", porque é onde mora a ambição do
+projeto. Os modelos de xG em produção usam distância e ângulo do gol, parte do corpo, posição
+do goleiro e dos defensores
+([Hudl StatsBomb](https://www.hudl.com/blog/expected-goals-xg-explained)).
+
+Dessas variáveis, a que a borda entrega é a mais básica e ao mesmo tempo a mais cara de obter
+à mão: **que houve uma finalização, e exatamente quando**. É essa marcação que hoje consome
+tempo humano na Footstats, e é dela que sai o recorte temporal usado pelas demais etapas.
+
+O ângulo e a posição do lance chegam prontos da Footstats e seguem para a nuvem junto com o
+evento. Derivá-los do vídeo exigiria estimar a posição da câmera a cada quadro, sem
+enquadramento fixo, e não faz parte deste MVP. Como o parceiro já fornece esses valores, eles
+também servem de gabarito se o projeto decidir extraí-los mais adiante.
+
+## 4. Persistência local e envio
+
+### 4.1. Banco local
+
+O resultado é gravado em um **banco local** antes de sair. Isso permite que o envio para a
+nuvem seja assíncrono, de modo que uma indisponibilidade momentânea não interrompa o
+processamento nem descarte um lance já analisado.
+
+Fica uma dúvida aberta de dimensionamento. Se o papel é garantir que nada se perca e permitir
+a agregação posterior, um log em modo somente-anexação entrega o mesmo resultado com bem
+menos coisa rodando no dispositivo. Como esse componente compete por memória e armazenamento
+com o modelo, conforme cobra o
+[RNF-04](/docs/sprint-1/requisitos/nao-funcionais), a escolha depende do benchmarking de
+hardware.
+
+### 4.2. O evento que sai daqui
+
+O evento entregue à nuvem contém as features do lance, o ângulo e a posição fornecidos pela
+Footstats, o identificador da partida, o instante, a confiança do detector, a versão do
+modelo que o produziu e o **id de lance**.
+
+Esse identificador é o que permite reenviar sem criar registro duplicado do outro lado, que é
+o comportamento exigido pelo
+[RNF-07](/docs/sprint-1/requisitos/nao-funcionais). O clipe não viaja junto com o evento: fica
+retido no dispositivo e é referenciado pela mesma chave.
+
+## 5. Por que esse processamento acontece na borda
+
+Transportar vídeo para a nuvem custa banda proporcional à duração do material, enquanto o
+resultado da análise cabe em poucos kilobytes por lance. Processar perto de onde o vídeo
+chega mantém esse custo baixo e evita que a análise dependa da rede, argumento consolidado na
+literatura de [análise de vídeo na borda](https://arxiv.org/abs/2303.14329).
+
+O preço dessa escolha é concentrar o processamento pesado em hardware restrito, o que limita
+o tamanho do modelo que cabe no tempo disponível por quadro. É justamente por isso que a
+escolha de modelo, runtime e hardware é a decisão mais crítica do projeto, e o que a
+quantização pode fazer por essa conta está medido na
+[frente correspondente](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao).
+
+Vale registrar que essa fronteira não é obrigatória: o TAPI autoriza que as etapas mais
+pesadas rodem em uma máquina auxiliar local, o que abriria uma segunda camada entre a borda e
+a nuvem. A proposta mantém as duas camadas atuais por simplicidade, e a alternativa fica
+disponível caso as medições mostrem que o dispositivo não comporta o modelo escolhido.
+
+## Riscos e o que a Sprint 2 responde
+
+| O que decidimos | O que nos preocupa | O que a Sprint 2 faz |
+| --- | --- | --- |
+| Entrada por clipe recortado no MVP | a transmissão contínua traz problemas que o clipe esconde, como corte de plano e repetição do lance, e eles só aparecem quando o escopo crescer | validar o pipeline com o clipe e registrar o que muda quando a entrada virar transmissão, sem tratar isso como resolvido |
+| Detecção do instante do lance dentro do clipe | o clipe pode conter mais de um chute em sequência, como num rebote, e o instante escolhido pode ser o errado | testar com lances de rebote e verificar qual chute o modelo marca |
+| Features no contrato do evento | um conjunto insuficiente obriga a mudar o contrato, que é a alteração mais cara do sistema | validar as features contra os gols da Copa de 2026 antes de congelar o contrato |
+| Gravação local antes do envio | o banco local compete por memória e armazenamento com o modelo | medir a pegada no hardware disponibilizado e avaliar um log somente-anexação no lugar de banco |
+| Um modelo dentro do orçamento por quadro | pode ser que nenhum candidato caiba no orçamento com a qualidade necessária | medir tempo por quadro; se nenhum couber, a cascata e a máquina auxiliar local entram como alternativas |
+
+Os alvos numéricos de cada medição ficam nos
+[requisitos não funcionais](/docs/sprint-1/requisitos/nao-funcionais), que são a fonte única
+dos critérios de sucesso. A validação da Sprint 2 usa **gols da Copa de 2026** como conjunto
+de referência.
+
+## Fluxo dos dados
+
+O clipe entra pela ingestão e é decodificado. O pré-processamento prepara os quadros e retém
+o material do lance. O modelo identifica o instante da finalização, e a extração deriva as
+características do evento. O buffer de saída grava no banco local e envia o evento para a
+nuvem.
+
+Resumindo o caminho principal:
+
+**Entrada do clipe → decodificação → pré-processamento → detecção do instante → extração de
+features → persistência local → envio para a nuvem.**
+
+## Conclusão
+
+A borda foi desenhada em torno de uma fronteira: ela responde o que aconteceu no vídeo, e a
+nuvem responde quanto isso vale. Tudo que está nesta página existe para produzir um evento
+confiável e entregá-lo, e nada aqui depende de saber calcular xG.
+
+O elemento que sustenta essa separação é o contrato do evento, com as features, o instante, a
+versão do modelo e o id de lance. Enquanto ele ficar estável, o modelo de visão pode ser
+trocado sem que a nuvem precise saber, e a extração pode ganhar variáveis novas sem
+renegociar nada. É o que vale estabilizar primeiro, e é também o que dá caminho para o
+crescimento previsto: quando a entrada passar de clipe recortado para transmissão contínua, o
+que muda é o que acontece antes da detecção, e o evento que sai daqui continua o mesmo.
+
+## Referências
+
+1. Giancola, S., Amine, M., Dghaily, T., Ghanem, B.
+   [SoccerNet: A Scalable Dataset for Action Spotting in Soccer Videos](https://arxiv.org/abs/1804.04527).
+   CVPR Workshops, 2018. Formulação da tarefa de detecção e localização temporal de eventos
+   sobre vídeo de transmissão.
+2. Giancola, S., Cioppa, A., Ghanem, B., Van Droogenbroeck, M.
+   [Deep learning for action spotting in association football videos](https://arxiv.org/abs/2410.01304).
+   2024. Estado da arte e evolução da tarefa.
+3. [Edge-Based Video Analytics: A Survey](https://arxiv.org/abs/2303.14329). 2023. Sustenta a
+   escolha de processar perto da fonte.
+4. Gholami, A., Kim, S., Dong, Z., Yao, Z., Mahoney, M., Keutzer, K.
+   [A Survey of Quantization Methods for Efficient Neural Network Inference](https://arxiv.org/abs/2103.13630).
+   2021. Trade-offs de latência, memória e qualidade que a escolha do modelo vai medir.
+5. Hudl StatsBomb.
+   [What are Expected Goals (xG)?](https://www.hudl.com/blog/expected-goals-xg-explained)
+   Features usadas por modelos de xG em produção, que definem o alvo da extração.

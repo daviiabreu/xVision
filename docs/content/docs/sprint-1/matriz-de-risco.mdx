@@ -1,6 +1,130 @@
 ---
 title: Matriz de risco
-description: Riscos e incertezas do projeto
+description: Riscos da proposta inicial, seus impactos e as evidências necessárias para tratá-los
 ---
 
-Placeholder.
+A proposta reúne decisões que ainda precisam ser confirmadas com dados. A matriz abaixo
+organiza essas incertezas a partir da arquitetura e das pesquisas de visão computacional,
+hardware, sistema operacional, runtime, quantização e rollout. Ela também considera as
+dependências do parceiro que aparecem na proposta de valor e nos limites do produto.
+
+Probabilidade e impacto são avaliações qualitativas da equipe. Probabilidade alta significa
+que a condição já aparece no material atual ou que uma dependência essencial ainda não foi
+confirmada. Impacto alto indica que o risco pode invalidar um critério de sucesso, alterar a
+fronteira entre borda e nuvem ou impedir o fluxo de ponta a ponta.
+
+## Mapa de probabilidade e impacto
+
+<div className="not-prose my-6 overflow-x-auto rounded-lg border border-fd-border">
+  <table className="w-full min-w-[640px] border-collapse text-sm">
+    <caption className="sr-only">
+      Distribuição dos riscos por probabilidade e impacto
+    </caption>
+    <thead>
+      <tr className="bg-fd-muted text-left">
+        <th className="border border-fd-border p-3">Probabilidade / impacto</th>
+        <th className="border border-fd-border p-3">Baixo</th>
+        <th className="border border-fd-border p-3">Médio</th>
+        <th className="border border-fd-border p-3">Alto</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th className="border border-fd-border bg-fd-muted p-3 text-left">Alta</th>
+        <td className="border border-fd-border bg-yellow-500/15 p-3 align-top">
+          <strong>Moderado</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+        <td className="border border-fd-border bg-orange-500/20 p-3 align-top">
+          <strong>Alto</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+        <td className="border border-fd-border bg-red-500/25 p-3 align-top">
+          <strong>Crítico</strong>
+          <ul className="mt-2 space-y-1">
+            <li><strong>R01</strong> Escopo divergente</li>
+            <li><strong>R02</strong> Ganho operacional sem baseline</li>
+            <li><strong>R03</strong> Amostra de validação inadequada</li>
+            <li><strong>R04</strong> Falhas na detecção em broadcast</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th className="border border-fd-border bg-fd-muted p-3 text-left">Média</th>
+        <td className="border border-fd-border bg-emerald-500/15 p-3 align-top">
+          <strong>Baixo</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+        <td className="border border-fd-border bg-yellow-500/15 p-3 align-top">
+          <strong>Moderado</strong>
+          <p className="mt-2"><strong>R11</strong> Falha em atualização ou rollback</p>
+        </td>
+        <td className="border border-fd-border bg-orange-500/20 p-3 align-top">
+          <strong>Alto</strong>
+          <ul className="mt-2 space-y-1">
+            <li><strong>R05</strong> Pipeline perde o ritmo</li>
+            <li><strong>R06</strong> Modelo incompatível com o runtime</li>
+            <li><strong>R07</strong> Perda de qualidade na quantização</li>
+            <li><strong>R08</strong> Recursos e retenção local</li>
+            <li><strong>R09</strong> Hardware indisponível ou insuficiente</li>
+            <li><strong>R10</strong> Perda ou duplicidade de eventos</li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <th className="border border-fd-border bg-fd-muted p-3 text-left">Baixa</th>
+        <td className="border border-fd-border bg-emerald-500/15 p-3 align-top">
+          <strong>Baixo</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+        <td className="border border-fd-border bg-emerald-500/15 p-3 align-top">
+          <strong>Baixo</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+        <td className="border border-fd-border bg-yellow-500/15 p-3 align-top">
+          <strong>Moderado</strong>
+          <p className="mt-2 text-fd-muted-foreground">Nenhum risco mapeado</p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+A concentração no canto superior direito mostra onde a equipe precisa agir primeiro. R01
+trata do alinhamento do próprio sistema; R02 e R03 dependem de dados do parceiro; R04 depende
+da amostra e dos modelos de visão. Os riscos de R05 a R10 vêm logo depois e compartilham boa
+parte do mesmo experimento contínuo da Sprint 2.
+
+## Registro detalhado
+
+| ID | Risco e evidência atual | Probabilidade | Impacto | Tratamento e evidência esperada |
+| --- | --- | --- | --- | --- |
+| R01 | **O escopo ser interpretado de formas diferentes pelas frentes.** A fronteira foi consolidada na Sprint 1: a entrada é o clipe já recortado fornecido pela Footstats, com a transmissão contínua como meta das próximas sprints, e o xG é calculado na nuvem a partir das features extraídas na borda. O benchmarking de hardware ainda representa o xG no dispositivo e precisa ser acertado. | Alta | Alto | Arquitetura e requisitos consolidaram a fronteira; falta alinhar o benchmarking de hardware. A evidência será um evento de exemplo com origem, campos, responsável por cada cálculo e política de retenção aceitos pelo grupo. Responsável: frente de arquitetura e requisitos, ainda na Sprint 1. |
+| R02 | **Não conseguir demonstrar o ganho operacional prometido.** A proposta de valor relaciona a automação à redução do trabalho manual, mas o tempo atual de marcação por partida e o custo dessa atividade não foram informados. | Alta | Alto | Solicitar ao parceiro uma medida agregada do processo atual, sem publicar dados restritos. A comparação da Sprint 2 deve registrar tempo humano de revisão e tempo automático para a mesma amostra. Responsáveis: frente de proposta de valor e Footstats. |
+| R03 | **A validação não representar o uso real.** O projeto pretende comparar a saída automática com o histórico da Footstats, mas ainda não há uma amostra confirmada nem uma métrica conhecida de acerto da marcação manual. | Alta | Alto | Definir com a Footstats uma amostra de transmissões e marcações históricas, mantida fora do repositório. A evidência será um protocolo com separação entre desenvolvimento e validação, janela temporal de tolerância e métricas por evento. Responsáveis: visão computacional, validação e Footstats, na Sprint 2. |
+| R04 | **O modelo não detectar finalizações de forma confiável em vídeo de transmissão.** Câmera lenta, cortes de plano, close-ups e grafismos fazem parte desse tipo de vídeo e continuam presentes mesmo no clipe recortado. O [SoccerNet-v2](https://openaccess.thecvf.com/content/CVPR2021W/CVSports/papers/Deliege_SoccerNet-v2_A_Dataset_and_Benchmarks_for_Holistic_Understanding_of_Broadcast_CVPRW_2021_paper.pdf) trata os replays como uma tarefa própria, o que dimensiona o que vai aparecer quando a entrada passar a ser a transmissão completa. | Alta | Alto | Comparar os candidatos sobre a mesma amostra e medir precisão, recall e F1 por evento. Rebotes e cortes de plano devem aparecer como grupos separados na análise de erros. Responsável: frente de modelos de visão computacional, na Sprint 2. |
+| R05 | **O pipeline não dar conta do volume de clipes, e perder o ritmo da transmissão quando o escopo crescer.** Os materiais em revisão sobre hardware, sistema operacional e execução alertam para fila crescente, disputa por memória e redução de frequência por aquecimento. Os alvos atuais de 40 ms, 50 ms e 30 FPS usam grãos diferentes e ainda não podem ser comparados diretamente. | Média | Alto | Os requisitos devem fixar uma unidade de medida por etapa. Depois, o pipeline deve rodar continuamente por 90 minutos processando clipes em sequência, registrando vazão, latência percentil 95, temperatura, energia e memória. Responsáveis: benchmarking, execução e requisitos, na Sprint 2. |
+| R06 | **O modelo escolhido não ser exportável para o runtime recomendado.** A pesquisa converge para ONNX e TensorRT, mas operadores não suportados podem cair para a CPU ou impedir a construção da engine. A própria [matriz de suporte do TensorRT](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/support-matrix.html) condiciona a compatibilidade à versão, à plataforma e ao hardware. | Média | Alto | Exportar o modelo real, construir a engine no hardware alvo e comparar sua saída com a versão de referência. A evidência precisa mostrar que todos os operadores esperados executam no acelerador e registrar qualquer plugin necessário. Responsáveis: runtime e estratégia de execução, na Sprint 2. |
+| R07 | **A quantização reduzir a qualidade justamente nos casos mais difíceis.** A pesquisa propõe INT8 para diminuir latência e memória, mas trata os ganhos como hipótese. A literatura registra que o benefício depende do modelo e dos dados de calibração, com possível perda de qualidade ([Gholami et al., 2021](https://arxiv.org/abs/2103.13630)). | Média | Alto | Executar FP32 ou FP16 e INT8 sobre a mesma amostra, usando o mesmo pré-processamento. A decisão deve considerar recall de finalizações e dos elementos pequenos usados nas features, além da média geral. Responsável: frente de quantização e otimização, na Sprint 2. |
+| R08 | **Persistência local e clipes competirem com o modelo pelos recursos do dispositivo.** A Proposta A grava o evento antes do envio e pode reter uma janela curta para revisão. No hardware de 8 GB pesquisado, buffers, runtime, banco local e escrita em disco compartilham recursos; a retenção também envolve material restrito da Footstats. | Média | Alto | Medir memória residente e escrita em disco durante o teste prolongado, simular reinicialização e definir prazo de retenção, acesso e exclusão dos clipes com o parceiro. A evidência deve comparar banco local e log somente anexável antes da escolha. Responsáveis: arquitetura, hardware e Footstats, na Sprint 2. |
+| R09 | **O hardware inicial não estar disponível ou não sustentar a carga pelo custo previsto.** As pesquisas convergem para Jetson Orin Nano como ponto de partida e Orin NX como alternativa, mas também registram custo do kit completo, disponibilidade irregular e diferenças entre placas citadas nas demais páginas. | Média | Alto | Fechar a lista completa de módulo, carrier, refrigeração e armazenamento, confirmar disponibilidade e executar o mesmo benchmark no candidato principal e no substituto disponível. A escolha deve sair do resultado sustentado, não do número de TOPS. Responsáveis: benchmarking de hardware e sistema operacional, na Sprint 2. |
+| R10 | **Falhas de rede gerarem perda ou duplicidade de eventos.** A arquitetura usa persistência local, webhook e API, mas a entrega em tempo quase real exige reenvio sem contar novamente a mesma finalização. | Média | Alto | Definir o id de lance como chave idempotente e testar desconexão, reconexão, reenvio e webhook duplicado. A evidência será a chegada de um único registro no banco geral depois de cada cenário. Responsáveis: arquitetura da borda e da nuvem, na Sprint 2. |
+| R11 | **Uma atualização futura piorar o modelo ou deixar uma unidade indisponível.** A pesquisa de rollout propõe shadow, canary e atualização A/B. A documentação da NVIDIA confirma que a redundância de sistema usa duas cópias para permitir recuperação ([NVIDIA, Update and Redundancy](https://docs.nvidia.com/jetson/archives/r34.1/DeveloperGuide/text/SD/Bootloader/UpdateAndRedundancy.html)). | Média | Médio | Depois de existir uma versão estável, executar a candidata em shadow sobre a mesma entrada, definir uma regra de promoção e testar rollback após falha de atualização. Responsável: estratégia de execução e rollout, em sprint posterior à primeira versão integrada. |
+
+O risco R01 vem antes dos benchmarks. Antes de comparar modelos ou placas, o grupo precisa
+usar o mesmo contrato de evento e a mesma definição de sucesso. Caso contrário, cada frente
+pode apresentar um resultado correto para um sistema diferente. R02 e R03 dependem do
+parceiro e precisam ser encaminhados em paralelo, porque sustentam a proposta de valor e a
+validação de qualidade.
+
+Na Sprint 2, a amostra de validação deve ser comum aos testes de modelo, runtime, quantização
+e hardware. Isso permite separar as causas. Se o recall cair antes da exportação, o problema
+está no modelo ou nos dados. Se a qualidade for preservada, mas a fila crescer ao longo da
+partida, a investigação passa para runtime, hardware e política de amostragem. O mesmo teste
+prolongado também produz as medidas de memória, temperatura e energia pedidas pela pesquisa.
+
+Os riscos de integração e rollout entram depois que esse caminho básico estiver estável. A
+persistência local, o id de lance e o rollback só cumprem seu papel quando forem exercitados
+em falhas reais de conexão e atualização. A matriz será revista com essas evidências nas
+sprints seguintes: um risco só muda de prioridade quando houver resultado medido ou decisão
+do parceiro que sustente a mudança.
