@@ -1,0 +1,155 @@
+---
+title: Requisitos Funcionais
+description: Definição das principais funcionalidades e comportamentos esperados do sistema
+---
+
+## Introdução
+
+Os requisitos funcionais descrevem as principais funcionalidades que o sistema deve realizar para que a solução proposta atenda às necessidades do projeto.
+
+Esses requisitos foram definidos com base no **[Canvas de Proposta de Valor](../../cpv-e-valor)** desenvolvido pelo grupo e no **[TAPI do projeto](https://drive.google.com/file/d/1r8uEtU28otpnQcLTxX-hLU_KvgQE2C-G/view?usp=sharing)**, considerando principalmente a necessidade de automatizar a análise das finalizações, reduzir a dependência do processo manual e permitir que os dados sejam processados e disponibilizados de forma mais rápida.
+
+A solução recebe como entrada um vídeo que já contém uma finalização. A partir desse vídeo, o sistema deve identificar o momento em que a finalização começa, analisar o lance e extrair as informações necessárias para gerar as métricas relacionadas à finalização. Ao final do processamento, os resultados devem ser organizados e enviados como dados estruturados.
+
+Para organizar o desenvolvimento, os requisitos foram classificados utilizando as prioridades **Must, Should e Could**, seguindo a lógica do método MoSCoW:
+
+* **Must:** funcionalidade necessária para o funcionamento do MVP.
+* **Should:** funcionalidade importante para a solução, mas que não impede o funcionamento principal caso não esteja disponível inicialmente.
+* **Could:** funcionalidade complementar, que agrega valor à solução e pode ser implementada posteriormente.
+
+## Tabela de Requisitos Funcionais
+
+| ID       | Requisito Funcional                                                                                                                              | Prioridade |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| **RF01** | O sistema deve receber um vídeo que contenha uma finalização para iniciar o processo de análise.                                                 | Must       |
+| **RF02** | O sistema deve realizar o pré-processamento dos quadros do vídeo antes de encaminhá-los para a análise.                                          | Must       |
+| **RF03** | O sistema deve detectar no vídeo os elementos necessários para realizar a análise da finalização.                                                | Must       |
+| **RF04** | O sistema deve identificar o momento em que a finalização presente no vídeo se inicia.                                                           | Must       |
+| **RF05** | O sistema deve analisar a finalização identificada e extrair as informações necessárias para gerar as métricas do lance.                         | Must       |
+| **RF06** | O sistema deve calcular as métricas definidas para a finalização a partir das informações extraídas do vídeo.                                    | Must       |
+| **RF07** | O sistema deve associar as métricas calculadas à finalização correspondente.                                                                     | Must       |
+| **RF08** | O sistema deve gerar um evento estruturado contendo as informações e métricas obtidas para a finalização processada.                             | Must       |
+| **RF09** | O sistema deve enviar ao backend o evento estruturado gerado a partir da finalização processada.                                                 | Must       |
+| **RF10** | O sistema deve registrar as informações e métricas das finalizações processadas para utilização posterior.                                       | Should     |
+| **RF11** | O sistema deve disponibilizar os dados das finalizações processadas para consulta pelas demais partes da aplicação.                              | Should     |
+| **RF12** | O sistema deve permitir a comparação dos resultados gerados pelo modelo com os dados utilizados como referência.                                 | Should     |
+| **RF13** | O sistema deve registrar informações relacionadas ao processamento realizado em cada vídeo de finalização.                                       | Should     |
+| **RF14** | O sistema deve disponibilizar métricas relacionadas ao funcionamento da solução, como quantidade de vídeos processados e tempo de processamento. | Could      |
+
+## RF01 — Recebimento do vídeo da finalização
+
+O sistema deve ser capaz de receber um vídeo que contenha uma finalização para iniciar o processo de análise.
+
+A identificação da ocorrência de uma finalização dentro de uma partida completa não faz parte desta etapa, pois os vídeos utilizados como entrada já possuem uma finalização selecionada.
+
+**Prioridade:** Must
+
+## RF02 — Pré-processamento dos quadros do vídeo
+
+O sistema deve preparar os quadros recebidos do vídeo antes de encaminhá-los para os modelos responsáveis pela análise.
+
+Essa etapa deve ser executada no dispositivo de borda e deve preparar as imagens para as etapas seguintes do processamento.
+
+**Prioridade:** Must
+
+## RF03 — Detecção dos elementos da finalização
+
+O sistema deve identificar nos quadros do vídeo os elementos necessários para realizar a análise da finalização.
+
+As informações encontradas nessa etapa devem ser utilizadas pelas etapas seguintes para entender o lance e permitir a extração das métricas.
+
+**Prioridade:** Must
+
+## RF04 — Identificação do início da finalização
+
+O sistema deve analisar o vídeo recebido e identificar o momento em que a finalização se inicia.
+
+Como o vídeo recebido já contém uma finalização, o objetivo não é encontrar diferentes finalizações dentro de uma partida, mas identificar dentro daquele vídeo quando começa o lance que deve ser analisado.
+
+**Prioridade:** Must
+
+## RF05 — Extração das informações da finalização
+
+Após identificar o início da finalização, o sistema deve analisar o lance e extrair as informações necessárias para gerar as métricas definidas para o projeto.
+
+Essas informações devem ser obtidas a partir dos quadros relacionados à finalização identificada.
+
+**Prioridade:** Must
+
+## RF06 — Cálculo das métricas da finalização
+
+O sistema deve utilizar as informações extraídas do vídeo para calcular as métricas definidas para a finalização.
+
+Os valores produzidos devem representar as características obtidas pelo sistema durante a análise daquele lance.
+
+**Prioridade:** Must
+
+## RF07 — Associação das métricas à finalização
+
+O sistema deve relacionar as métricas calculadas à finalização que foi analisada.
+
+Essa associação permite manter reunidas as informações produzidas durante o processamento de cada vídeo e preparar os dados para as próximas etapas da aplicação.
+
+**Prioridade:** Must
+
+## RF08 — Geração do evento estruturado
+
+O sistema deve gerar um evento estruturado para cada finalização processada, reunindo as informações e métricas produzidas durante a análise do lance.
+
+A geração desse evento permite que os resultados sejam utilizados pelo restante da aplicação sem a necessidade de encaminhar o vídeo original.
+
+**Prioridade:** Must
+
+## RF09 — Envio do evento para o backend
+
+O sistema deve enviar ao backend o evento estruturado produzido a partir da finalização.
+
+Essa comunicação permite que os dados gerados pelo processamento realizado na borda continuem seu fluxo dentro da aplicação e sejam tratados pelos demais componentes.
+
+**Prioridade:** Must
+
+## RF10 — Registro das finalizações processadas
+
+O sistema deve registrar as informações e métricas das finalizações que já foram processadas.
+
+Esse registro permite preservar os resultados produzidos e possibilita que essas informações sejam utilizadas posteriormente sem a necessidade de processar novamente o vídeo.
+
+**Prioridade:** Should
+
+## RF11 — Consulta dos dados processados
+
+O sistema deve disponibilizar os dados das finalizações processadas para consulta pelas demais partes da aplicação.
+
+A consulta permite recuperar os resultados já registrados e utilizá-los nas demais funcionalidades da solução.
+
+**Prioridade:** Should
+
+## RF12 — Comparação com os dados de referência
+
+O sistema deve permitir que os resultados produzidos pelo modelo sejam comparados com os dados utilizados como referência durante a validação.
+
+Essa comparação deve permitir verificar se as informações e métricas extraídas automaticamente estão próximas dos valores utilizados como referência para o projeto.
+
+**Prioridade:** Should
+
+## RF13 — Registro das informações de processamento
+
+O sistema deve registrar informações relacionadas ao processamento realizado em cada vídeo de finalização.
+
+Essas informações devem permitir acompanhar a execução da solução durante os testes e auxiliar na identificação de possíveis problemas durante o processamento.
+
+**Prioridade:** Should
+
+## RF14 — Disponibilização de métricas de processamento
+
+O sistema deve disponibilizar métricas relacionadas ao funcionamento da solução, como a quantidade de vídeos de finalizações processados e o tempo necessário para cada processamento.
+
+Essa funcionalidade complementa o fluxo principal e contribui para acompanhar o desempenho da solução ao longo dos testes.
+
+**Prioridade:** Could
+
+## Conclusão
+
+Os requisitos funcionais apresentados definem o fluxo esperado da solução a partir do recebimento de um vídeo que já contém uma finalização. O sistema deve identificar quando essa finalização começa, analisar o lance, extrair as informações necessárias e gerar suas respectivas métricas.
+
+A partir desse processamento, os resultados são organizados em um evento estruturado e encaminhados para as demais partes da aplicação. Dessa forma, os requisitos mantêm o desenvolvimento direcionado ao escopo atual do projeto, sem considerar a detecção de finalizações ao longo de uma partida completa.
