@@ -1,6 +1,7 @@
 {
   "title": "Pesquisa",
   "pages": [
+    "benchmarking_OS",
     "benchmarking",
     "modelos-visao-computacional",
     "runtimes-e-formatos",

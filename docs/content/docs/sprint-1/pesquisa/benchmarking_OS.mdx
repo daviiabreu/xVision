@@ -1,0 +1,141 @@
+---
+title: Benchmarking de sistemas operacionais
+description: Sistema operacional e ambiente de execução em contêiner
+---
+
+## Benchmarking de Sistemas Operacionais e Ambiente de Execução
+
+## 1. Introdução
+
+Este documento avalia e justifica a escolha do sistema operacional e do ambiente de execução em contêiner para o projeto. O objetivo do projeto é detectar finalizações em vídeo de futebol e estimar o valor de xG em um dispositivo de borda, enviando ao sistema central apenas o evento estruturado.
+
+A pesquisa cobre exclusivamente as camadas de sistema operacional e containerização, pressupondo a plataforma NVIDIA Jetson Orin Nano como referência de hardware e analisando o ecossistema de software que a suporta.
+
+A questão central desta pesquisa é: qual sistema operacional oferece compatibilidade completa com a cadeia de software necessária ao pipeline (SDK NVIDIA, runtimes de inferência e containerização)?
+
+---
+
+## 2. O Sistema Operacional como Base da Cadeia de Software
+
+A escolha do sistema operacional em um dispositivo de borda com aceleração de hardware não é uma decisão isolada: ela determina, de forma encadeada, quais camadas do stack ficam disponíveis.
+
+Na família NVIDIA Jetson, o JetPack SDK é o pacote integrado que inclui o sistema operacional, os drivers da GPU, CUDA, cuDNN, TensorRT, VPI e o DeepStream SDK. A versão do JetPack define quais versões de CUDA estão disponíveis; a versão de CUDA condiciona quais versões de TensorRT podem ser usadas. Cada camada impõe restrições às camadas seguintes.
+
+Sistemas operacionais alternativos como Windows IoT e FreeRTOS não possuem BSP (Board Support Package) oficial para a família Jetson e não expõem as APIs de aceleração da GPU Ampere. A análise dessas alternativas é apresentada na seção 4 como comparativo negativo, para delimitar o espaço de decisão.
+
+---
+
+## 3. Linux / JetPack
+
+Linux é o sistema operacional dominante em dispositivos de edge computing com IA em plataformas NVIDIA, por razões técnicas e ecossistêmicas concretas:
+
+- **CUDA, TensorRT e DeepStream** são distribuídos exclusivamente para Linux no contexto da família Jetson. Qualquer outra escolha implica abrir mão da aceleração por hardware nativa.
+- **GStreamer e OpenCV** são originalmente Linux-first, com suporte completo a aceleração por hardware.
+- **Containerização:** Docker e NVIDIA Container Runtime têm suporte completo e produtivo no Linux para Jetson.
+- **Comunidade:** a maior parte da documentação técnica para pipelines de visão computacional em dispositivos NVIDIA embarcados pressupõe Linux como ambiente de execução.
+
+No contexto da Jetson Orin Nano, "Linux" significa a plataforma integrada JetPack / Jetson Linux.
+
+### 3.1 JetPack 6.2 vs. JetPack 7.2
+
+O JetPack não é apenas uma distribuição Linux: é um SDK completo que inclui Jetson Linux (L4T), CUDA Toolkit, cuDNN, TensorRT, VPI, suporte ao DLA e o DeepStream SDK. Duas versões são relevantes para o projeto:
+
+| Critério | JetPack 6.2 | JetPack 7.2 |
+| --- | --- | --- |
+| Ubuntu | 22.04 LTS (suporte até 2032 ESM) | 24.04 LTS (suporte até 2034 ESM) |
+| Kernel | 5.15 | 6.8 |
+| CUDA | 12.6 | 13.x |
+| TensorRT | 10.3 | Compatível com CUDA 13 |
+| Suporte Orin Nano | Maduro, extensamente documentado | Adicionado em junho de 2026 |
+| Ecossistema de contêineres | Alto (jetson-containers, NGC) | Em desenvolvimento para Orin |
+| Risco de incompatibilidade | Baixo | Moderado a alto |
+| Instalação na Orin Nano | SD Card / SDK Manager | ISO unificada |
+
+O JetPack 7.2 traz Ubuntu 24.04 com horizonte de suporte mais longo e kernel 6.8, mas o suporte à família Orin foi adicionado recentemente, com menor quantidade de documentação, exemplos e contêineres testados. A regra geral em sistemas embarcados é preferir a versão mais estável com documentação disponível, exceto quando um recurso específico da versão mais nova é mandatório — o que não ocorre neste projeto.
+
+Hipótese inicial: JetPack 6.2 (Jetson Linux 36.4.3 / Ubuntu 22.04 / CUDA 12.6 / TensorRT 10.3). A ser revisada se JetPack 7.2 demonstrar compatibilidade total com o stack necessário durante os experimentos da Sprint 2.
+
+---
+
+## 4. Alternativas de Sistema Operacional
+
+As alternativas abaixo foram avaliadas e descartadas como sistema operacional principal do dispositivo de borda. A análise é apresentada para delimitar o espaço de decisão e justificar a unicidade do caminho Linux/JetPack.
+
+### 4.1 Windows IoT
+
+O Windows IoT não possui BSP oficial para a família Jetson, que utiliza processadores ARM NVIDIA Tegra com BSP exclusivo para Linux (L4T). CUDA para Windows existe para GPUs discretas em PCs, mas não está disponível para a Jetson. TensorRT e DeepStream tampouco são distribuídos para Windows na Jetson. A aceleração disponível seria DirectML ou OpenVINO, nenhuma compatível com a GPU Ampere da Jetson Orin Nano.
+
+### 4.2 FreeRTOS
+
+FreeRTOS é um RTOS minimalista para microcontroladores, com memória na ordem de kilobytes. Não possui suporte a CUDA, GPU, GStreamer, OpenCV, TensorRT ou memória virtual suficiente para carregar modelos de deep learning. O determinismo temporal de um RTOS não compensa a ausência total de suporte a inferência de redes neurais.
+
+### 4.3 Tabela comparativa — Sistemas Operacionais
+
+| Sistema Operacional | Suporte Jetson | CUDA / TensorRT | Viabilidade |
+| --- | --- | --- | --- |
+| Linux / JetPack 6.2 | Oficial e completo | Completo | Recomendado |
+| Linux / JetPack 7.2 | Recente (jun/2026) | Em maturação para Orin | Monitorar |
+| Windows IoT | Sem BSP oficial | Inexistente na Jetson | Não viável |
+| FreeRTOS | Sem suporte | Inexistente | Não viável |
+
+---
+
+## 5. Containerização
+
+O NVIDIA Container Runtime, incluído no JetPack, estende o Docker para permitir que contêineres acessem a GPU, os aceleradores e os dispositivos do host. Ele monta as bibliotecas NVIDIA do host no contêiner em tempo de execução, de modo que a versão de CUDA no contêiner deve ser compatível com o driver instalado.
+
+Benefícios diretos para o projeto:
+
+- **Reprodutibilidade:** o ambiente de execução é descrito em um Dockerfile versionado, eliminando diferenças entre estações de desenvolvimento e o dispositivo de borda.
+- **Isolamento de dependências:** versões de CUDA, TensorRT e Python ficam fixadas no contêiner, sem conflito com o sistema base.
+- **Portabilidade entre dispositivos Jetson:** um contêiner construído para JetPack 6.2 pode ser reaproveitado em outro dispositivo com o mesmo JetPack sem reconfiguração do ambiente.
+- **Separação entre desenvolvimento e deployment:** o modelo treinado e o pipeline de inferência podem ser empacotados e distribuídos como imagem de contêiner.
+
+---
+
+## 6. Middleware de Comunicação
+
+Após a detecção e extração de características, o evento estruturado (finalização + atributos do lance) precisa ser enviado ao sistema central. A escolha do protocolo de comunicação é uma decisão de ambiente de execução que depende diretamente do sistema operacional e do pipeline adotado, e por isso é incluída aqui.
+
+| Opção | Complexidade | Latência | Adequação ao MVP |
+| --- | --- | --- | --- |
+| REST/HTTP (FastAPI) | Baixa | Média | Recomendada |
+| MQTT | Baixa | Baixa | Nativo no DeepStream |
+| gRPC | Média | Baixa | Para fases futuras |
+
+Para o MVP, REST/HTTP via FastAPI ou MQTT são igualmente viáveis. O DeepStream expõe nativamente um `nvmsgbroker` que suporta MQTT, o que pode simplificar a integração caso o pipeline seja baseado em DeepStream (ver documento de runtimes). Caso o pipeline use GStreamer + ONNX Runtime diretamente, REST/HTTP é a opção de menor fricção.
+
+---
+
+## 7. Decisão Inicial
+
+| Componente | Decisão |
+| --- | --- |
+| Sistema operacional | JetPack 6.2 / Jetson Linux 36.4.3 / Ubuntu 22.04 |
+| Containerização | Docker + NVIDIA Container Runtime |
+| Comunicação | REST/HTTP (FastAPI) ou MQTT — a definir com base no pipeline de inferência |
+
+**Justificativa:** o JetPack 6.2 é a única versão com suporte maduro, extensamente documentado e ecossistema de contêineres consolidado para a Orin Nano em agosto de 2026. O JetPack 7.2 será reavaliado caso demonstre compatibilidade completa com o stack necessário. A containerização via NVIDIA Container Runtime é adotada desde o início para garantir reprodutibilidade entre desenvolvimento e deployment.
+
+**Decisões ainda abertas:**
+
+- Manter JetPack 6.2 ou migrar para JetPack 7.2 após validação de compatibilidade.
+- Protocolo de comunicação do evento estruturado (REST vs. MQTT), dependente da escolha de pipeline de inferência.
+
+---
+
+## Referências
+
+**[1]** NVIDIA. *JetPack SDK 6.2*. Disponível em: [developer.nvidia.com/embedded/jetpack-sdk-62](https://developer.nvidia.com/embedded/jetpack-sdk-62). Acesso em: ago. 2026.
+
+**[2]** NVIDIA. *JetPack Downloads*. Disponível em: [developer.nvidia.com/embedded/jetpack/downloads](https://developer.nvidia.com/embedded/jetpack/downloads). Acesso em: ago. 2026.
+
+**[3]** NVIDIA. *DeepStream SDK*. Disponível em: [developer.nvidia.com/deepstream-sdk](https://developer.nvidia.com/deepstream-sdk). Acesso em: ago. 2026.
+
+**[4]** NVIDIA. *NVIDIA Container Runtime para Jetson (Cloud-Native)*. Disponível em: [developer.nvidia.com/embedded/jetson-cloud-native](https://developer.nvidia.com/embedded/jetson-cloud-native). Acesso em: ago. 2026.
+
+**[5]** NVIDIA. *NVIDIA Unveils Its Most Affordable Generative AI Supercomputer*. Disponível em: [blogs.nvidia.com/blog/jetson-generative-ai-supercomputer](https://blogs.nvidia.com/blog/jetson-generative-ai-supercomputer). Acesso em: ago. 2026.
+
+**[6]** dusty-nv. *jetson-containers*. GitHub. Disponível em: [github.com/dusty-nv/jetson-containers](https://github.com/dusty-nv/jetson-containers). Acesso em: ago. 2026.
+
+**[7]** RUTTER, P.; TURNER, J.; CONLEY, M. *Edge AI Deployment Beyond Models: A BSP-Aware Systems Framework for Industrial Embedded Platforms*. arXiv:2605.26119, 2026.
