@@ -1,6 +1,48 @@
 ---
-title: Introdução
-description: Introdução ao projeto
+title: Introdução do Projeto
+description: Contextualização do xVision, problema identificado e proposta de solução
 ---
 
-Placeholder.
+## Introdução
+
+O **xVision** é um projeto desenvolvido em parceria com a **Footstats** que busca automatizar a análise de finalizações em vídeos de partidas de futebol por meio de **visão computacional e edge computing**.
+
+A Footstats é uma empresa brasileira especializada na coleta, processamento e distribuição de dados e estatísticas de futebol. Atualmente, parte desse processo depende de analistas que assistem aos vídeos das partidas e realizam manualmente a marcação dos eventos de jogo, incluindo as informações relacionadas às finalizações.
+
+A partir desse cenário, o xVision propõe utilizar visão computacional para automatizar parte dessa análise. O sistema recebe como entrada um **vídeo que já contém uma finalização** e deve identificar o momento em que ela começa. A partir disso, o vídeo é analisado para extrair as informações necessárias e gerar as métricas relacionadas ao lance.
+
+Parte desse processamento é realizada na borda, permitindo que o vídeo seja analisado próximo à sua fonte. Após o processamento, apenas os **dados estruturados resultantes da análise** seguem para o restante da aplicação, evitando a necessidade de enviar o vídeo bruto.
+
+## Problema
+
+Atualmente, a análise das finalizações depende de um processo manual, no qual analistas precisam assistir aos vídeos e registrar as informações dos lances.
+
+Esse processo limita a quantidade de análises que podem ser realizadas ao mesmo tempo, já que o aumento no número de partidas também aumenta a quantidade de trabalho necessário. Além disso, diferentes analistas podem realizar marcações de formas diferentes, trazendo variações para os resultados produzidos.
+
+## Proposta
+
+O **xVision** busca automatizar parte desse processo por meio da análise dos vídeos de finalizações.
+
+A solução recebe um vídeo que já contém uma finalização, realiza o processamento dos seus quadros e identifica o momento em que o lance começa. A partir dessa identificação, são extraídas as informações necessárias para gerar as métricas da finalização.
+
+Ao final do processamento, os resultados são organizados em dados estruturados e enviados para o restante da aplicação.
+
+## Objetivo
+
+O principal objetivo do **xVision** é desenvolver uma solução capaz de **identificar automaticamente o início de uma finalização e extrair as informações necessárias para gerar suas métricas**.
+
+Com isso, busca-se diminuir a dependência da análise manual, tornar o processamento mais rápido e gerar informações de forma mais padronizada.
+
+## Escopo
+
+O escopo atual do xVision está concentrado na análise de **finalizações**.
+
+O sistema não recebe uma partida completa com o objetivo de procurar todas as finalizações que aconteceram. A entrada já corresponde a um vídeo que contém uma finalização, e a responsabilidade da solução é identificar quando esse lance começa e realizar sua análise.
+
+Outros eventos de uma partida, como passes e dribles, não fazem parte do escopo atual e podem ser considerados em futuras evoluções da solução.
+
+## Resultado esperado
+
+Ao final do projeto, espera-se que o **xVision** seja capaz de receber vídeos contendo finalizações, identificar automaticamente o início do lance, realizar seu processamento e gerar as informações necessárias para sua análise.
+
+Dessa forma, o projeto busca demonstrar a possibilidade de automatizar uma parte do processo atualmente realizado de forma manual pela Footstats, criando também uma base que possa ser evoluída e utilizada em análises futuras.
