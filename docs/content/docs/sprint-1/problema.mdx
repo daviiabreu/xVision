@@ -1,6 +1,34 @@
 ---
 title: Problema
-description: O problema apresentado pelo parceiro
+description: Definição e modelagem do problema apresentado pela Footstats
 ---
 
-Placeholder.
+&emsp; O parceiro deste projeto é a Footstats, empresa brasileira de dados e estatísticas de futebol com cobertura de mais de 50 ligas no Brasil e no mundo, que coleta, processa e distribui estatísticas ao vivo para clientes como o Grupo Globo, o Cartola FC e a Sport Radar (Footstats, 2026). Entre as métricas que ela produz está o xG (_Expected Goal_), que estima a probabilidade de uma finalização virar gol a partir das características do lance, como posição, ângulo em relação ao gol, parte do corpo utilizada e situação de jogo. É em torno da produção dessa métrica que o problema deste projeto — batizado de Edge xG e conduzido pela equipe xVision — se organiza.
+
+## O Problema
+
+&emsp; Hoje, a marcação do xG na Footstats depende de uma fila de analistas que assistem ao vídeo de cada partida e registram, lance a lance, as finalizações e suas características (Footstats, 2026). Esse processo manual carrega três limitações que se reforçam. A vazão fica presa ao número de analistas disponíveis, o que forma fila e atrasa a entrega do dado; o custo sobe na mesma medida em que o volume de jogos cresce, já que cada partida adicional exige mais horas de análise; e a marcação carrega a variabilidade de quem assiste, porque depende de julgamento humano e nem sempre sai consistente entre analistas. O efeito combinado é que o modelo trava a escala: em rodadas cheias ou em janelas com muitos campeonatos simultâneos, a fila cresce e o xG chega mais tarde aos clientes, e para quem entrega estatística em tempo real esse atraso é perda direta de valor do produto.
+
+&emsp; A saída óbvia — centralizar todo o vídeo em um servidor e processá-lo na nuvem — esbarra em duas paredes ao mesmo tempo. O vídeo das partidas é conteúdo confidencial da Footstats e não pode circular abertamente, o que torna seu transporte e retenção um risco a ser evitado; e mover a transmissão inteira de cada jogo consome banda de rede de forma proporcional ao volume, justamente o gargalo que se quer eliminar. O problema, portanto, não é apenas detectar uma finalização e estimar seu xG, mas fazê-lo sem depender de enviar o vídeo bruto para longe de onde ele nasce.
+
+## Modelagem do Problema
+
+&emsp; Modelado de forma enxuta, o sistema é uma transformação que consome o vídeo de uma partida e emite, para cada finalização, um evento estruturado contendo o instante do lance, suas características geométricas e o xG estimado — uma saída que é ordens de magnitude menor que a entrada, condensando noventa minutos de vídeo em algumas dezenas de eventos. O que dá forma ao problema é a exigência de que essa transformação aconteça na borda, perto da fonte do vídeo, de modo que apenas o evento estruturado atravesse a rede e o vídeo bruto permaneça no dispositivo (Footstats, 2026).
+
+&emsp; Essa exigência introduz a decisão de engenharia central do projeto: onde traçar a fronteira entre borda e retaguarda. O TAPI estabelece que a captura, o pré-processamento dos quadros e a detecção do evento de finalização devem rodar no dispositivo de borda, mas permite que a estimativa do xG, computacionalmente mais pesada, rode no próprio dispositivo ou em uma máquina auxiliar local, conforme a capacidade do hardware escolhido (Footstats, 2026). Definir essa fronteira não é um detalhe de implementação, e sim parte do problema a resolver, porque precisa ser justificada com medidas concretas de latência, banda e custo — o que conversa diretamente com a pesquisa de [benchmarking de hardware](./pesquisa/benchmarking) e com as [estratégias de execução e rollout](./pesquisa/estrategias-de-execucao) deste artefato.
+
+&emsp; Um segundo traço da modelagem é que nem toda etapa da análise precisa rodar em todo quadro, e é essa observação que torna o problema tratável na borda. A detecção barata roda continuamente sobre o vídeo, mas os modelos mais caros só são acionados nos poucos instantes que importam: um modelo pesado de características do lance é chamado apenas nos quadros candidatos a finalização, e o modelo de xG roda uma única vez por lance. Estimar o xG, porém, exige registrar a geometria do campo no quadro inteiro, já que a posição e o ângulo em relação ao gol são features derivadas dessa geometria — o que impede soluções que descartem o quadro completo antes da análise e ancora o problema em um pipeline que precisa preservar o frame até o ponto de extração das características.
+
+## Restrições e Fronteiras
+
+&emsp; O problema é deliberadamente estreito. O foco é exclusivamente a finalização: dribles, passes e demais eventos ficam como visão futura e estão fora deste escopo (Footstats, 2026). O caráter é de prova de conceito acadêmica, o que exclui o deploy em ambiente de produção da Footstats, a integração com sua infraestrutura proprietária — a entrega do evento é feita a um receptor de teste que simula o sistema central — e a construção de hardware, uma vez que a plataforma de borda será disponibilizada conforme o combinado com o Inteli. A validação se dá contra partidas e lances previamente marcados pela equipe de dados da Footstats, o que fornece um _ground truth_ conhecido para medir a qualidade da detecção e da estimativa.
+
+&emsp; A execução na borda não é uma característica meramente desejável, e sim uma condição de viabilidade que restringe as decisões de arquitetura. Como o hardware alvo é um dispositivo de recursos restritos, os modelos precisam ser leves o suficiente para caber no orçamento de memória, energia e latência do dispositivo, com resposta por lance na casa de poucos segundos — restrição que puxa o projeto para técnicas de otimização como a [quantização](./pesquisa/quantizacao-e-otimizacao). Vale, por fim, uma ressalva honesta que decorre do próprio recorte: o benefício de economia de banda só se materializa quando o dispositivo está fisicamente junto à fonte do vídeo, de modo que o protótipo demonstra a viabilidade técnica do processamento na borda, enquanto a economia de banda permanece uma propriedade do cenário de implantação, e não do teste.
+
+## Conclusão
+
+&emsp; O problema estará resolvido, no escopo do MVP, quando o sistema for capaz de receber o vídeo de um lance, detectar automaticamente a finalizaçãos, estimar um valor de xG para ela e emitir esses resultados como eventos estruturados, mantendo o vídeo bruto na borda e operando dentro dos envelopes de latência e energia do hardware escolhido. O critério que fecha a definição é a comparação contra o _ground truth_ humano da Footstats: detectar e estimar com erro aceitável em relação à marcação manual, demonstrando ganho de tempo frente ao processo atual. A tradução desses objetivos em números verificáveis é desenvolvida nas seções de [requisitos](./requisitos) e [hipóteses](./hipoteses) e na [pesquisa](./pesquisa) que sustenta as decisões técnicas do projeto.
+
+## Bibliografia
+
+1. FOOTSTATS. Termo de Abertura de Projeto (TAPI) — Edge xG: detecção e estimativa de finalizações em tempo quase real com visão computacional na borda. São Paulo: Footstats, 2026. Documento interno restrito.
