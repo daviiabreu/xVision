@@ -5,7 +5,7 @@
     "benchmarking",
     "modelos-visao-computacional",
     "runtimes-e-formatos",
-    "estrategias-de-execucao",
+    "estrategias-execucao-e-rollout",
     "quantizacao-e-otimizacao"
   ]
 }
