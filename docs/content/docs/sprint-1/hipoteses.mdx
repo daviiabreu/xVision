@@ -1,6 +1,104 @@
 ---
 title: Hipóteses
-description: Hipóteses da proposta e como serão testadas
+description: Hipóteses da proposta e como serão testadas na Sprint 2
 ---
 
-Placeholder.
+## Hipótese Central
+
+> **Um pipeline de visão computacional baseado em YOLO com runtime acelerado por hardware consegue extrair os parâmetros de xG de uma finalização dentro do orçamento de tempo definido com o parceiro (RNF-01), com queda de acurácia inferior ao limiar acordado em relação ao baseline em precisão total — viabilizando a substituição do processo manual da Footstats.**
+
+A escolha do hardware de borda (família e modelo específico) é uma das decisões que a Sprint 2 fecha, portanto a hipótese central não a antecipa. Os valores numéricos de latência e acurácia usados nas sub-hipóteses abaixo são **hipóteses de trabalho da equipe**, não limites acordados com o parceiro; o RNF-01 e o RNF-03 registram explicitamente que esses valores dependem de validação com a Footstats.
+
+---
+
+## Decisões em Aberto que a Sprint 2 Fecha
+
+| Decisão | O que testar |
+|---|---|
+| YOLOv8n vs. YOLO26n | Head-to-head no mesmo clip de futebol, no mesmo hardware |
+| TensorRT INT8 vs. FP32 | Latência, throughput e acurácia nos dois regimes |
+| ByteTrack vs. BoT-SORT | Qual perde menos identidades em oclusões de jogadores |
+| Hardware primário (Orin Nano 8 GB) vs. alternativa (Orin NX 16 GB) e contingência (RK3588) | Qual atinge o orçamento de latência do RNF-01 com margem térmica segura |
+
+---
+
+## Sub-hipóteses Mensuráveis
+
+### H1 — Latência
+
+**Afirmação:** TensorRT INT8 entrega latência de inferência por frame compatível com o orçamento de tempo do RNF-01, com ganho de pelo menos 3 vezes sobre o baseline PyTorch FP32 na mesma plataforma.
+
+**Fonte:** Mauluana et al. [1] mediu aceleração de aproximadamente 4 vezes com INT8 em Jetson Xavier NX. A pesquisa de runtimes [3] confirma que TensorRT, TorchScript e PyTorch são os únicos runtimes que acessam a GPU do Jetson — os demais, incluindo TFLite, executam na CPU.
+
+**Dependência:** O valor absoluto de referência (RNF-01) ainda aguarda confirmação com o parceiro. O critério de aceite desta hipótese é relativo: ganho medido de pelo menos 3 vezes sobre o baseline FP32, independentemente do valor absoluto.
+
+**Critério de aceite:** p50 da latência de inferência com TensorRT INT8 menor ou igual a um terço da p50 com PyTorch FP32, medido em 100 frames de teste.
+
+---
+
+### H2 — Acurácia
+
+**Afirmação:** A queda de mAP do modelo FP32 para INT8 via PTQ (Post-Training Quantization) fica dentro da faixa de 3,4% a 5,7% observada na literatura, mantendo-se abaixo do limiar a confirmar com a Footstats (RNF-03).
+
+**Fonte:** Mauluana et al. [1] reporta queda de 3,4% em condições favoráveis e até 5,7% em cenários menos favoráveis no mesmo hardware. A pesquisa de quantização [2] identifica PTQ como ponto de partida; QAT (Quantization-Aware Training) é o plano B caso a queda supere o limiar acordado.
+
+**Dependências:**
+
+- A amostra de referência (dataset de finalizações da Footstats) ainda não existe — o RNF-03 está marcado como pendente do parceiro. O baseline FP32 só pode ser medido após a entrega desse dataset.
+- O limiar de acurácia aceitável também depende de validação com o parceiro (RNF-03).
+
+**Critério de aceite:** mAP₅₀ do modelo INT8 maior ou igual a 95% do mAP₅₀ do modelo FP32 no mesmo conjunto de validação, quando esse conjunto estiver disponível. Até lá, o experimento usa dataset público de futebol como proxy, com resultado marcado como preliminar.
+
+---
+
+### H3 — Estabilidade Térmica
+
+**Afirmação:** O pipeline TensorRT com DeepStream sustenta throughput sem throttling térmico durante sessão contínua de 90 minutos, representando uma partida completa (RNF-04, RNF-05).
+
+**Fonte:** Benchmark da TIER IV [4] reporta aceleração de até 3 vezes ao migrar de ONNX Runtime para TensorRT em FP16. A pesquisa de runtimes [3] aponta o DeepStream SDK como camada de pipeline com decodificação de vídeo acelerada por hardware no Jetson.
+
+**Nota:** A pesquisa de estratégias de rollout [5] está em desenvolvimento; a referência acima é à pesquisa de runtimes, não àquela branch.
+
+**Critério de aceite:** Variação de latência menor ou igual a 15% entre o primeiro e o último minuto da sessão de 90 minutos; sem eventos de thermal throttle registrados pelo `tegrastats`.
+
+---
+
+### H4 — Rastreamento
+
+**Afirmação:** ByteTrack ou BoT-SORT mantém a identidade dos jogadores em pelo menos 90% dos frames durante oclusões típicas de futebol.
+
+**Fonte:** A pesquisa de modelos de visão computacional [6] identifica oclusão como principal desafio de tracking em futebol. BoT-SORT adiciona compensação de movimento de câmera, relevante quando o ângulo de filmagem varia.
+
+**Critério de aceite:** HOTA (Higher Order Tracking Accuracy) maior ou igual a 0,70 e taxa de troca de identidade menor ou igual a 10% nos clips de teste.
+
+---
+
+## Critério de Validação Global (Pass / Fail)
+
+O experimento da Sprint 2 **passa** se **H1 e H2 forem ambos verdadeiros** nas condições mensuráveis disponíveis.
+
+- H3 e H4 são métricas de qualidade secundárias — orientam ajustes de configuração, não invalidam a abordagem.
+- Se H1 falhar no Orin Nano 8 GB mas passar no Orin NX 16 GB, o experimento valida a hipótese central e define o hardware mínimo viável — a abordagem não é descartada.
+- Se a queda de acurácia de H2 superar 5,7%, o plano B é QAT; se superar o limiar acordado com o parceiro, a hipótese central é revista.
+
+---
+
+## O que Esta Hipótese Não Testa (Fora do Escopo da Sprint 2)
+
+- Integração com o backend da Footstats
+- Identificação de jogadores individuais (fora do escopo do produto)
+- Cálculo final de xG no dispositivo de borda
+- Comparação de sistemas operacionais Linux no Jetson (tratado em pesquisa separada)
+- Implantação multi-câmera (Proposta B da arquitetura — sprint futura)
+
+---
+
+## Referências
+
+1. Mauluana et al. (2026) — experimento de quantização INT8 em Jetson Xavier NX: aceleração de 4 vezes, redução de 75% de memória, queda de 3,4% a 5,7% de acurácia. Detalhes em [Quantização e Otimização](./pesquisa/quantizacao-e-otimizacao).
+2. Pesquisa de quantização e otimização — trade-offs INT8/INT4, PTQ vs. QAT. Ver [Quantização e Otimização](./pesquisa/quantizacao-e-otimizacao).
+3. Pesquisa de runtimes e formatos de modelo — comparativo de runtimes no Jetson, caminho PyTorch → ONNX → TensorRT, DeepStream SDK. Ver [Runtimes e Formatos](./pesquisa/runtimes-e-formatos).
+4. TIER IV (apud pesquisa de runtimes) — migração ONNX Runtime para TensorRT FP16 com aceleração de até 3 vezes. Ver [Runtimes e Formatos](./pesquisa/runtimes-e-formatos).
+5. Pesquisa de estratégias de execução e rollout — em desenvolvimento. Ver [Estratégias de Execução e Rollout](./pesquisa/estrategias-execucao-e-rollout).
+6. Pesquisa de modelos de visão computacional — seleção de modelo de detecção, tracking e tarefas do pipeline. Ver [Modelo de Visão Computacional](./pesquisa/modelo-visao-computacional).
+7. Pesquisa de benchmarking de hardware — comparativo Orin Nano 8 GB, Orin NX 16 GB, RK3588 e outros; note aumento de preços da linha Jetson em julho de 2026. Ver [Benchmarking de Hardware](./pesquisa/benchmarking).
