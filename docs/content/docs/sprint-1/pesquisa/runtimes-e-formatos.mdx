@@ -3,4 +3,123 @@ title: Runtimes e formatos de modelo
 description: Runtimes de inferência e formatos de modelo para a borda
 ---
 
-Placeholder.
+## Runtimes
+
+Dentro do "ciclo de vida" de um programa, o *runtime* é a etapa final, na qual um código já escrito na memória é executado pela máquina. Nessa etapa, uma camada de software chamada runtime fica responsável pelo gerenciamento de memória, pela interface com o Sistema Operacional, por bibliotecas padrão etc. Basicamente, um intermediário entre a aplicação e o SO.
+
+No caso de runtimes de modelos  baseados em máquina virtual/bytecode (ex.: o interpretador Python, o ONNX Runtime), o programa é compilado para uma representação intermediária (IR) neutra, e um runtime específico de cada OS/hardware traduz esse IR para chamadas nativas daquela máquina. Isso não é regra geral: em compilação nativa direta (C, Rust), a tradução para código de máquina já acontece uma vez, em tempo de build, e o runtime que resta em tempo de execução (a runtime library da linguagem) só cuida do gerenciamento de recursos, sem precisar traduzir nada.
+
+Da mesma forma, sistemas de runtime para modelos de Deep Learning são extremamente importantes para o desenvolvimento/treino de modelos, o deploy e fluxos de trabalho intensivos, porque permitem que diferentes microcomputadores e computadores executem o mesmo modelo de acordo com as capacidades específicas do seu hardware, sem que o modelo precise ser reescrito para cada plataforma.
+
+## Runtimes para Deep Learning
+
+- **ONNX Runtime**: motor de inferência de alta performance, mantido pela Microsoft, para rodar modelos no formato ONNX. É multiplataforma (Windows, Linux, macOS, Android, iOS, navegador via WebAssembly) e delega a execução a diferentes *execution providers* plugáveis (CPU, CUDA, TensorRT, DirectML, OpenVINO, CoreML, entre outros), escolhendo o backend mais adequado ao hardware disponível.
+- **NVIDIA TensorRT**: runtime e compilador de inferência da NVIDIA, voltado especificamente a GPUs NVIDIA. Compila o grafo do modelo (geralmente a partir de ONNX) em um `.engine` otimizado para a GPU exata do dispositivo, com fusão de operadores e suporte a precisão reduzida (FP16, INT8). Entrega a maior performance possível em hardware NVIDIA, mas não é portável para outros fabricantes.
+- **Intel OpenVINO**: toolkit da Intel para inferência otimizada em CPUs, GPUs integradas e NPUs Intel. Recebe o modelo como um IR próprio (`.xml` + `.bin`), tipicamente convertido a partir de ONNX ou TensorFlow.
+- **TensorFlow Lite / LiteRT**: runtime da Google para inferência em dispositivo (mobile, embarcado, navegador), a partir de um único arquivo `.tflite`. Foi desenhado para minimizar o tamanho do binário e o consumo de memória em CPUs ARM e em aceleradores de baixo consumo (ex.: Google Coral Edge TPU), com suporte a quantização INT8.
+- **Apple Core ML**: runtime nativo de inferência da Apple, otimizado para Apple Silicon, aproveitando o Apple Neural Engine, a CPU e a GPU do dispositivo.
+
+## Formatos de Serialização de Modelos
+
+Os formatos de entrada de um runtime se dividem em três categorias, de acordo com o que armazenam:
+
+1. **Apenas os pesos** (tensor-only): guardam só os valores numéricos, sem descrever a arquitetura — o código de quem carrega o modelo precisa recriar a estrutura antes de preencher os pesos. Exemplos: `.safetensors` (Hugging Face, seguro e com carregamento zero-copy) e `.pt`/`.pth` (PyTorch, baseado em pickle).
+2. **Grafo computacional + pesos**: além dos números, guardam a sequência de operações do modelo, permitindo execução sem depender do código-fonte original. Exemplos: **ONNX** (formato de interchange aberto, pensado para treinar em um framework e implantar em outro), **TorchScript** (grafo estático nativo do PyTorch) e **TensorFlow SavedModel** (grafo, pesos e assinaturas de entrada/saída).
+3. **Compilados/otimizados para hardware específico**: já passaram por um compilador de inferência e normalmente não são portáveis entre fabricantes de hardware. Exemplos: **TensorRT Engine** (`.engine`/`.plan`, específico de uma GPU NVIDIA e versão de driver), **TFLite/LiteRT** (`.tflite`, flatbuffer com grafo e pesos para o interpretador da Google) e **OpenVINO IR** (`.xml` + `.bin`).
+
+Na prática, ONNX costuma funcionar como o formato-ponte: o modelo é treinado em PyTorch/TensorFlow, exportado para ONNX, e a partir dele convertido para o formato compilado específico do hardware de destino (TensorRT Engine, TFLite, OpenVINO IR).
+
+## Comparação
+
+### Tabela 1 — Runtimes de inferência
+
+| Runtime | Mantenedor | Hardware-alvo principal | Formato de entrada | Pontos fortes | Limitações |
+|---|---|---|---|---|---|
+| ONNX Runtime | Microsoft (open-source) | CPU, GPU (via execution providers), mobile, browser | `.onnx` | Multiplataforma, troca de backend sem mudar o modelo, boa cobertura de operadores | Otimização por hardware depende da qualidade do execution provider usado |
+| TensorRT | NVIDIA | GPUs NVIDIA (inclui Jetson) | ONNX → `.engine` compilado | Melhor performance possível em GPU NVIDIA, quantização FP16/INT8 madura | Vendor-locked, engine específico de uma GPU/versão de driver |
+| OpenVINO | Intel | CPU, iGPU e NPU Intel | ONNX/TF → IR (`.xml`+`.bin`) | Forte em CPU/edge Intel, bom para IoT | Fora do ecossistema Intel, ganho é limitado |
+| TensorFlow Lite / LiteRT | Google | Mobile, microcontroladores, edge TPU | `.tflite` | Binário leve, baixo consumo de memória, ótimo em CPUs ARM sem GPU dedicada | GPU delegate limitado a GPUs mobile; não aproveita GPUs discretas/Tensor Cores |
+| Core ML | Apple | Apple Silicon (Neural Engine, GPU, CPU) | `.mlmodel`/`.mlpackage` | Integração profunda com o hardware Apple | Só roda em dispositivos Apple |
+
+### Tabela 2 — Formatos de arquivo de modelo
+
+| Formato | O que armazena | Portabilidade | Quantização | Caso de uso típico |
+|---|---|---|---|---|
+| ONNX | Grafo + pesos | Alta — entre frameworks e a maioria dos runtimes | Suporta INT8/FP16 | Ponte entre treino e deploy |
+| TorchScript | Grafo + pesos | Média — ecossistema PyTorch/LibTorch | Suporta | Deploy sem depender do interpretador Python |
+| TensorFlow SavedModel | Grafo + pesos + assinaturas | Média — ecossistema TensorFlow | Suporta | Serving via TensorFlow Serving |
+| TFLite / LiteRT | Grafo + pesos compilados | Baixa — específico do interpretador LiteRT | Nativo (INT8 comum) | Mobile e microcontroladores |
+| Safetensors | Só pesos | Alta como dado, mas exige código+config externos | Depende do esquema aplicado antes | Distribuição segura de pesos (Hugging Face) |
+| TensorRT Engine | Grafo compilado + pesos | Nenhuma — amarrado a uma GPU/driver específicos | FP16/INT8 nativo | Inferência de máxima performance em GPU NVIDIA |
+
+## Contexto de Edge Computing
+
+O projeto usa a família **NVIDIA Jetson** como hardware de borda. O escopo do grupo: captura de vídeo, pré-processamento dos quadros, detecção da finalização e classificação/extração das características do lance (situação de jogo, lotação da área de chute, jogador olhou para a bola, assistência ) rodam na Jetson; o resultado, as informações estruturadas necessárias ao cálculo do xG, não o vídeo bruto, é enviado a um banco de dados estruturado. A estimativa de xG em si não roda na borda conforme a [arquitetura](/docs/sprint-1/arquitetura) indica.
+
+Essa carga, detecção + classificação em vídeo, é o cenário mais comum de deployment em Jetson via **TensorRT**: o hardware tem GPU NVIDIA com Tensor Cores, e o TensorRT é o runtime construído para explorá-los. Benchmarks recentes confirmam essa vantagem: a documentação oficial da Ultralytics para Jetson (testada em AGX Thor, AGX Orin e Orin Nano) mostra que, entre todos os formatos de exportação avaliados, apenas TensorRT, TorchScript e PyTorch usam a GPU do dispositivo e garantem o melhor desempenho, os demais formatos, incluindo o TFLite, rodam apenas na CPU. Um benchmark acadêmico de 2024 (Alqahtani, Cheema e Toosi) mediu resultados na mesma direção ao avaliar modelos de detecção de objetos em um Jetson Orin Nano. Com a Jetson definida, TensorRT é a escolha recomendada para o(s) modelo(s) de detecção e classificação.
+
+A **NVIDIA DeepStream SDK** se encaixa diretamente nesse pipeline: nativa da Jetson, entrega captura/decodificação de vídeo acelerada por hardware, um plugin de inferência (`nvinfer`) que já usa TensorRT internamente, e mecanismos nativos para extrair a metadata estruturada (bounding boxes, classes, atributos do lance) e enviá-la para fora do pipeline via message broker (Kafka, MQTT) ou API REST, para consumo por um banco de dados. "Pré-processar, classificar e enviar as informações para um banco de dados estruturado" é o caso de uso de referência do DeepStream.
+
+Caminho de deploy recomendado:
+
+1. Treinar/ajustar o(s) modelo(s) de detecção e classificação, exportando para **ONNX** como formato-ponte.
+2. Compilar o ONNX para **TensorRT** (via `trtexec` ou pelo plugin `nvinfer` do DeepStream) para rodar detecção e classificação na Jetson.
+3. Estruturar as características extraídas e enviá-las ao banco de dados, usando os mecanismos de metadata/message broker do DeepStream ou um serviço equivalente.
+
+O modelo específico de Jetson (Nano, Xavier, Orin etc.) ainda muda os números de latência e throughput — vale medir essas métricas no dispositivo final antes de fechar o pipeline, como o documento do parceiro pede.
+
+## Estado da Arte
+
+### Diretamente relevante ao projeto — inferência de borda em NVIDIA Jetson
+
+A combinação de TensorRT e DeepStream descrita na seção anterior permanece o caminho consolidado para detecção e classificação baseada em vídeo em hardware Jetson. Desenvolvimentos recentes reforçam essa escolha e adicionam precisão ao cenário ao redor.
+
+**Novos runtimes de borda em maturidade de produção.** ExecuTorch 1.0 (Meta/PyTorch, outubro de 2024) é o sucessor de produção do PyTorch Mobile. Exporta modelos diretamente do PyTorch via `torch.export`, preservando os operadores ATen sem etapa de conversão intermediária; o grafo exportado é otimizado offline para o hardware alvo e executado por um runtime C++ portátil que escala de microcontroladores a smartphones. Um estudo publicado em maio de 2026 comparou o ExecuTorch contra llama.cpp, ONNX Runtime, LiteRT e Core ML em dispositivos Snapdragon 8 Elite, Tensor G4 e Apple A17 Pro, com tarefas de classificação de imagem e modelos de linguagem compactos. O ExecuTorch é hoje um concorrente validado empiricamente dos runtimes cobertos neste documento.
+
+**Formatos de NPU de fabricante em borda embarcada.** Além dos formatos da Tabela 2, dois formatos específicos de fabricante são usados ativamente em deployments embarcados: **RKNN** (Rockchip) consiste em um runtime C/C++ com driver de kernel dedicado que interage diretamente com a NPU Rockchip; **QNN context binary** (Qualcomm) é compilado para a arquitetura exata do dispositivo alvo via Qualcomm AI Engine Direct SDK. Nenhum dos dois é relevante para o caminho NVIDIA Jetson, mas ambos aparecem em hardware embarcado concorrente.
+
+**Atualizações de execution providers do ONNX Runtime.** O execution provider do OpenVINO atingiu a versão v5.8, rastreando o OpenVINO 2025.3.0. Foram adicionados um execution provider para hardware Qualcomm (QNN) e um para WebGPU (exposto via Windows ML), ampliando o conjunto de hardware que o ONNX Runtime consegue atingir sem alterações no modelo.
+
+**Benchmarks de detecção de objetos em hardware de borda.** O MLPerf Inference v6.0 (abril de 2026) adicionou uma tarefa dedicada de detecção de objetos para sistemas de borda, diretamente aplicável a pipelines de detecção em vídeo. Resultados publicados do YOLO26 em NPU Hexagon (via QNN) indicam throughput 2–4× superior ao baseline PyTorch em CPU para entradas de 640–1024 px, chegando a ~3,4× na tarefa de detecção — referência concreta do ganho obtido ao sair de inferência apenas em CPU para um acelerador dedicado, mesmo fora do ecossistema NVIDIA.
+
+**Benchmark de borda ultra-baixo consumo.** O MLPerf Tiny v1.4 (julho de 2026) ampliou a suíte de quatro para cinco tarefas. Um resultado de destaque foi o ColibriNPU (ASYGN), completando uma inferência com 22,2 microjoules — consumo baixo o suficiente para uma pilha CR2032 sustentar uma inferência por segundo por mais de três anos.
+
+**Compiladores genéricos de borda.** O Apache TVM segue ativo como framework geral de compilação Python-first. O IREE (compilador baseado em MLIR voltado a escalar do datacenter até a borda) foi aceito como projeto sandbox pela LF AI & Data Foundation em maio de 2024, mas sua documentação descreve o projeto como ainda distante do uso cotidiano. Na prática, os runtimes dominantes em deployments de borda em produção continuam sendo os verticais de fabricante (TensorRT, RKNN-Toolkit, QNN, LiteRT); compiladores genéricos MLIR/TVM permanecem mais presentes em pesquisa.
+
+---
+
+### Panorama mais amplo — descobertas fora do escopo direto do projeto
+
+Os itens abaixo documentam desenvolvimentos significativos em infraestrutura de inferência que não são relevantes para o pipeline na Jetson, mas oferecem contexto sobre a direção do campo.
+
+**Inferência no navegador.** O WebGPU atingiu suporte completo nos principais navegadores no início de 2026. A API WebNN (acesso direto a NPUs pelo navegador) alcançou o status de Candidate Recommendation no W3C em janeiro de 2026; o Chrome 146 (fevereiro de 2026) a promoveu para origin trial. A Microsoft descontinuou o DirectML em favor do roteamento do WebNN via Windows ML, que por sua vez delega para OpenVINO e outros execution providers — posicionando o WebNN como uma camada de abstração sobre os runtimes de borda existentes, não como um runtime concorrente.
+
+**Runtimes de modelos de linguagem em dispositivo.** LiteRT-LM (Google, 2026) é uma camada de orquestração sobre o LiteRT dedicada a modelos de linguagem em dispositivo: gerencia KV-cache, estado de sessão e conversação multi-turno. Combina quantização avançada com kernels XNNPACK e MLDrift para rodar em CPU, GPU e NPU. Um lançamento de abril de 2026 adicionou suporte a Multi-Token Prediction via decodificação especulativa, reportando mais de 2× de throughput de decodificação em GPUs mobile sem perda de qualidade.
+
+**Serving de LLMs em datacenter.** vLLM (UC Berkeley, open-source) aborda o desperdício de memória de KV-cache em sistemas anteriores com paged attention, reduzindo o descarte de cache para menos de 4% segundo os autores; o artigo original relata throughput 14–24× superior ao Hugging Face Transformers e 2,2–2,5× superior ao TGI em benchmarks de serving, com batching contínuo e API compatível com OpenAI. TensorRT-LLM (NVIDIA) é um runtime baseado em compilador que gera kernels fundidos por modelo e por shape, com suporte a in-flight batching, paged KV cache, quantização (FP8, FP4/NVFP4, INT4) e paralelismo tensor/pipeline/expert. SGLang utiliza RadixAttention — uma árvore de prefixos para reuso de KV cache — e relata throughput até 6,4× maior e latência até 3,7× menor que os baselines em cargas com prefixo compartilhado. NVIDIA Dynamo 1.0 (entrou em produção em março de 2026) é um framework de inferência distribuída em escala de datacenter, com serving desagregado, roteamento ciente de KV cache, cache KV multi-camada e transferência não bloqueante de KV cache entre GPUs via NIXL. Um benchmark da NVIDIA de março de 2025 com DeepSeek-R1 em racks GB200 NVL72 reportou ganho de 30× em throughput em relação à geração anterior.
+
+## Referências
+
+ALQAHTANI, Daghash K.; CHEEMA, Aamir; TOOSI, Adel N. **Benchmarking Deep Learning Models for Object Detection on Edge Computing Devices**. arXiv:2409.16808, 2024. Disponível em: [https://arxiv.org/abs/2409.16808](https://arxiv.org/abs/2409.16808). Acesso em: 10 ago. 2026.
+
+DIGITALOCEAN. **Optimize Production with PyTorch/TF, ONNX, TensorRT & LiteRT**. [s.d.]. Disponível em: [https://www.digitalocean.com/community/tutorials/ai-model-deployment-optimization](https://www.digitalocean.com/community/tutorials/ai-model-deployment-optimization). Acesso em: 10 ago. 2026.
+
+GOOGLE. **LiteRT (TensorFlow Lite)**. [s.d.]. Disponível em: [https://ai.google.dev/edge/litert](https://ai.google.dev/edge/litert). Acesso em: 10 ago. 2026.
+
+INTEL. **OpenVINO Documentation**. [s.d.]. Disponível em: [https://docs.openvino.ai/](https://docs.openvino.ai/). Acesso em: 10 ago. 2026.
+
+IONOS. **Runtime Environments: explanation and examples**. [s.d.]. Disponível em: [https://www.ionos.com/digitalguide/websites/web-development/what-is-a-runtime-environment/](https://www.ionos.com/digitalguide/websites/web-development/what-is-a-runtime-environment/). Acesso em: 10 ago. 2026.
+
+LEARNOPENCV. **Model Weights File Formats in Machine Learning**. [s.d.]. Disponível em: [https://learnopencv.com/model-weights-file-formats-in-machine-learning/](https://learnopencv.com/model-weights-file-formats-in-machine-learning/). Acesso em: 10 ago. 2026.
+
+MICROSOFT. **ONNX Runtime**. [s.d.]. Disponível em: [https://onnxruntime.ai/](https://onnxruntime.ai/). Acesso em: 10 ago. 2026.
+
+NVIDIA. **DeepStream SDK**. [s.d.]. Disponível em: [https://developer.nvidia.com/deepstream-sdk](https://developer.nvidia.com/deepstream-sdk). Acesso em: 10 ago. 2026.
+
+NVIDIA. **TensorRT**. [s.d.]. Disponível em: [https://developer.nvidia.com/tensorrt](https://developer.nvidia.com/tensorrt). Acesso em: 10 ago. 2026.
+
+ULTRALYTICS. **Model Deployment Options Compared**. [s.d.]. Disponível em: [https://docs.ultralytics.com/guides/model-deployment-options](https://docs.ultralytics.com/guides/model-deployment-options). Acesso em: 10 ago. 2026.
+
+ULTRALYTICS. **YOLO on NVIDIA Jetson: Setup & Benchmarks**. [s.d.]. Disponível em: [https://docs.ultralytics.com/guides/nvidia-jetson](https://docs.ultralytics.com/guides/nvidia-jetson). Acesso em: 10 ago. 2026.
+
+WIKIPEDIA. **Program lifecycle phase**. [s.d.]. Disponível em: [https://en.wikipedia.org/wiki/Program_lifecycle_phase](https://en.wikipedia.org/wiki/Program_lifecycle_phase). Acesso em: 10 ago. 2026.
