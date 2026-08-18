@@ -3,7 +3,7 @@ title: Benchmarking de hardware embarcado
 description: Plataformas de Edge Computing, memória e armazenamento
 ---
 
-## 1. Introdução
+## Introdução
 
 O projeto propõe detectar automaticamente finalizações em vídeos de futebol e estimar o xG (Expected Goal) de cada lance usando visão computacional em um dispositivo de borda. O sistema deve enviar ao backend central apenas o evento estruturado (finalização detectada + xG estimado), nunca o vídeo bruto.
 
@@ -11,15 +11,15 @@ Esta seção investiga a camada de hardware da arquitetura: classes de plataform
 
 > **Qual hardware, específico ou não, compatível com Linux oferece o melhor equilíbrio entre latência sustentada, capacidade e largura de banda de memória, throughput de armazenamento, curvas térmicas e de energia, compatibilidade com os runtimes investigados, para um pipeline de visão computacional de um único stream de vídeo?**
 
-Frequentemente, discussões sobre os "melhores" hardwares se centram no números de pico (como TOPS e FLOPS - acrônimos para Trillions of Operations Per Second e Floating Point Operations Per Second), e ignoram análises dos dispositivos como um sistema integrado, considerando decode do vídeo, banda de memória, barramento, comportamento térmico, dentre outros gargalos antes mesmo da própria capacidade de cálculo do dispositivo. A literatura de benchmarking de Edge Computing (computação em borda) é consistente nesse ponto: sob carga sustentada, envelopes térmicos e de potência e a largura de banda de memória atuam como restrições primárias, superando as especificações de compute de pico [[Ref. 4]](#ref-4).
+Frequentemente, discussões sobre os "melhores" hardwares se centram nos números de pico (como TOPS e FLOPS - acrônimos para Trillions of Operations Per Second e Floating Point Operations Per Second, medidos no clock de pico e frequentemente contando uma multiplicação-acumulação como duas operações), e ignoram análises dos dispositivos como um sistema integrado, considerando decode do vídeo, banda de memória, barramento, comportamento térmico, dentre outros gargalos antes mesmo da própria capacidade de cálculo do dispositivo. A literatura de benchmarking de Edge Computing (computação em borda) é consistente nesse ponto: sob carga sustentada, envelopes térmicos e de potência e a largura de banda de memória atuam como restrições primárias, superando as especificações de compute de pico [[Ref. 4]](#ref-4).
 
 **NOTA:** O documento de software e sistemas operacionais adota a NVIDIA Jetson Orin Nano como hardware de referência. Esta seção não pode assumir essa escolha como dada (se assumisse, as duas pesquisas se justificariam circularmente). O objetivo aqui é derivar a classe de hardware a partir dos requisitos da carga de trabalho, explorando o que o mercado adota(ria) para projetos similares.
 
 ---
 
-## 2. Contexto e Requisitos
+## Contexto e Requisitos
 
-### 2.1 Fluxo de dados na perspectiva do hardware
+### Fluxo de dados na perspectiva do hardware
 
 O caminho de um frame dentro do dispositivo atravessa peças distintas, e cada travessia tem custo:
 
@@ -45,74 +45,74 @@ CPU ── modelo de xG + serialização
 Rede ── evento estruturado
 ```
 
-Aponta-se duas observações sobre o fluxo acima:
+Apontamos duas observações sobre o fluxo acima:
 
-1. Nenhuma unidade conversa diretamente com outra: **todas passam pela memória**. A largura de banda do subsistema de memória é, portanto, um recurso compartilhado e disputado, não um detalhe de ficha técnica.
-2. O acelerador não executa o pipeline inteiro, uma vez que as etapas de baixo volume de processamento permanecem na CPU (tracking, ou seja, associação de detecções entre frames e atualização do filtros), lógica de identificação do lance, modelo de xG e serialização. Um dispositivo com acelerador potente e CPU fraca pode ficar limitado pela CPU.
+1) Nenhuma unidade conversa diretamente com outra: todas passam pela memória. A largura de banda do subsistema de memória é, portanto, um recurso compartilhado e disputado, não um detalhe de ficha técnica.
+2) O acelerador não executa o pipeline inteiro, uma vez que as etapas de baixo volume de processamento permanecem na CPU (tracking, ou seja, associação de detecções entre frames e atualização dos filtros), lógica de identificação do lance, modelo de xG e serialização. Um dispositivo com acelerador potente e CPU fraca pode ficar limitado pela CPU.
 
-### 2.2 O hardware em um sistema integrado
+### O hardware em um sistema integrado
 
-Assim como a camada de software, o hardware não é um componente único, mas um conjunto de subsistemas interdependentes. Descreve-se abaixo, a função de cada um deles, considerando, especialmente, sua aplicação no contexto System on Chip (SoC):
+Assim como a camada de software, o hardware não é um componente único, mas um conjunto de subsistemas interdependentes. Descrevemos abaixo a função de cada um deles, considerando, especialmente, sua aplicação no contexto System on Chip (SoC):
 
-**CPU:** Poucos núcleos, cada um com execução fora de ordem, predição de desvios e caches grandes. É a unidade adequada para lógica irregular e sequencial. Em SoCs ARM é comum a configuração *big.LITTLE* (núcleos de alto desempenho combinados com núcleos de baixo consumo); os núcleos pequenos não são adequados ao trabalho de visão computacional, e a fixação de afinidade de thread aos núcleos grandes é requisito de reprodutibilidade nas medições.
+**CPU:** Poucos núcleos, adequados a lógica irregular e sequencial. Em SoCs ARM é comum a configuração *big.LITTLE* (núcleos de alto desempenho combinados com núcleos de baixo consumo); os núcleos pequenos não são adequados ao trabalho de visão computacional, e a fixação de afinidade de thread aos núcleos grandes é requisito de reprodutibilidade nas medições.
 
 **GPU integrada (Graphics Processing Unit):** Milhares de threads simples, projetada para álgebra linear densa e paralela. O atributo decisivo não é a contagem de FLOPS, mas a programabilidade: uma GPU que expõe uma API (como CUDA, OpenCL) permite migrar também pré-processamento e operações customizadas para ela. Uma GPU restrita a gráficos não permite.
 
-**NPU (Neural Processing Unit):** Conjunto fixo de operações implementado em silício, com eficiência energética muito superior à da GPU para as operações que suporta. Duas sub-arquiteturas explicam comportamentos opostos: NPUs baseadas em array de multiplicadores a partir da DRAM são limitadas pela banda de memória (gargalo), já NPUs de tipo *dataflow*, ou seja, com SRAM interna, mantêm os pesos no gravados no chip e quase não tocam a DRAM, o que produz eficiência alta ao custo de um teto rígido no tamanho do modelo.
+**NPU (Neural Processing Unit):** Conjunto fixo de operações implementado em silício, com eficiência energética muito superior à da GPU para as operações que suporta.
 
 **DLA (Deep Learning Accelerator):** Acelerador dedicado presente ao lado da GPU em alguns SoCs. Permite executar um segundo modelo em paralelo, liberando a GPU.
 
-**Subsistema de memória:** Aqui, há 2 vertentes importantes para levarmos em consideração, digam-se, capacidade de armazenamento (GB) e largura de banda (GB/s) são requisitos independentes. Em plataformas com memória unificada, CPU e acelerador endereçam a mesma DRAM, de maneira a não haver cópia entre eles, mas há contenção pela mesma banda. Em plataformas com acelerador discreto, cada tensor atravessa um barramento (PCIe ou USB) e o acelerador pode ter memória própria.
+**Subsistema de memória:** Aqui, há duas vertentes importantes para levarmos em consideração, a saber, capacidade de armazenamento (GB) e largura de banda (GB/s) são requisitos independentes. Em plataformas com memória unificada, CPU e acelerador endereçam a mesma DRAM (*Dynamic Random Access Memory*), de maneira a não haver cópia entre eles, mas há contenção pela mesma banda. Em plataformas com acelerador discreto, cada tensor atravessa um barramento (PCIe ou USB) e o acelerador pode ter memória própria, o que elimina a contenção mas insere um teto que pode ser inferior ao fluxo de frames. Não há opção dominante: a escolha depende de onde está o gargalo medido.
 
 **Subsistema de armazenamento:** Mídia de boot e de dados, como microSD, eMMC, NVMe.
 
-### 2.3 A arquitetura em cascata como alavanca de dimensionamento
+### A arquitetura em cascata como alavanca de dimensionamento
 
-A cascata é a maior alavanca de dimensionamento de hardware no projeto com a Footstats. Nem toda etapa precisa rodar em todo frame: a detecção roda continuamente, o modelo pesado de keypoints roda apenas nos frames candidatos a finalização, e o modelo de xG roda uma vez por lance. Como o escopo do projeto se restringe à finalização, essa estrutura pode reduzir significantemente o compute necessário.
+A cascata é a maior alavanca de dimensionamento de hardware no projeto com a Footstats. Nem toda etapa precisa rodar em todo frame: a detecção roda continuamente, o modelo pesado de keypoints roda apenas nos frames candidatos a finalização, e o modelo de xG roda uma vez por lance. Como o escopo do projeto se restringe à finalização, essa estrutura pode reduzir significativamente o compute necessário.
 
 Consequência para a escolha de hardware: o requisito não é "muitos TOPS", e sim (a) acelerador com latência de inferência medida dentro do orçamento para o modelo escolhido, (b) CPU com folga suficiente para o pós-processamento, (c) banda de memória que não estrangule (a) nem (b), e (d) estabilidade térmica ao longo da operação contínua.
 
-### 2.4 Requisitos do sistema
+### Requisitos do sistema
 
 | Tipo | Requisitos |
 |---|---|
-| **Mandatórios** | Linux embarcado com suporte oficial do fabricante (Board Support Package mantido); acelerador de inferência com compilador/runtime oficial suportado; compatibilidade com pelo menos um dos runtimes investigados na pesquisa de software (TensorRT, ONNX Runtime com Execution Provider adequado); ≥ 8 GB de RAM; armazenamento com throughput adequado para gravação de vídeo de teste; suporte a Python 3 e a containers |
-| **Desejáveis** | Memória unificada entre CPU e acelerador (evita cópias via barramento); suporte a FP16 **e** INT8 em silício; acelerador secundário (Deep Learning Accelerator) para execução paralela de modelos; boot e trabalho a partir de NVMe; modos de potência configuráveis e instrumentação de energia on-board; disponibilidade no Brasil ou já presente no laboratório do Inteli |
+| **Mandatórios** | Linux embarcado com suporte oficial do fabricante (Board Support Package, ou BSP, mantido); acelerador de inferência com compilador/runtime oficial suportado; compatibilidade com pelo menos um dos runtimes investigados na pesquisa de software (TensorRT, ONNX Runtime com Execution Provider adequado); ≥ 8 GB de RAM; armazenamento com throughput adequado para gravação de vídeo de teste; suporte a Python 3 e a containers |
+| **Desejáveis** | Memória unificada entre CPU e acelerador (evita cópias via barramento); suporte a FP16 e INT8 em silício; acelerador secundário (Deep Learning Accelerator) para execução paralela de modelos; boot e trabalho a partir de NVMe; modos de potência configuráveis e instrumentação de energia on-board; disponibilidade no Brasil ou já presente no laboratório do Inteli |
 | **Fora de escopo** | Construção de hardware (o TAPI exclui explicitamente); certificação industrial; redundância; enclosure para operação em campo |
 
 ---
 
-## 3. Classes de Hardware Embarcado
+## Classes de Hardware Embarcado
 
 Antes de comparar placas específicas, é necessário eliminar classes inteiras que não atendem aos requisitos mandatórios. Essa etapa é o equivalente, no domínio de hardware, à eliminação de Windows IoT, FreeRTOS e Android feita na pesquisa de software.
 
-### 3.1 Microcontrolador / MCU com acelerador de TinyML
+### Microcontrolador / MCU com acelerador de TinyML
 
-Plataformas de microcontrolador de 32 bits (tipicamente ARM Cortex-M, sob os perfis ARMv7-M e ARMv8-M, ou núcleos RISC-V equivalentes) com aceleradores de TinyML operam com memória na ordem de centenas de kilobytes a poucos megabytes e não executam Linux completo — a ausência de MMU, e não apenas a escassez de memória, já as exclui. Não há espaço para buffers de frame 1080p, nem para um interpretador Python, nem para um decodificador de vídeo de propósito geral. O requisito de "Linux embarcado" do artefato exclui essa classe por definição. Portanto, consideramos uma opção **não viável**.
+Plataformas de microcontrolador de 32 bits (tipicamente ARM Cortex-M, sob os perfis ARMv7-M e ARMv8-M, ou núcleos RISC-V equivalentes) com aceleradores de TinyML operam com memória na ordem de centenas de kilobytes a poucos megabytes e não executam Linux completo; a ausência de MMU (*Memory Management Unit*), e não apenas a escassez de memória, já as exclui. Não há espaço para buffers de frame 1080p, nem para um interpretador Python, nem para um decodificador de vídeo de propósito geral. Portanto, consideramos essa classe não viável.
 
-### 3.2 SoC com GPU embarcada e memória unificada
+### SoC com GPU embarcada e memória unificada
 
-Classe em que CPU e GPU programável compartilham a mesma DRAM, com blocos dedicados de encode/decode de vídeo e, em alguns modelos, aceleradores de deep learning adicionais (abordaremos esse assunto mais a frente). É a classe com maior maturidade de ferramental para pipelines de vídeo com IA, e a única em que o stack investigado na pesquisa de software (TensorRT, DeepStream, ONNX Runtime com TensorRT EP) está disponível integralmente. Envelope de potência tipicamente entre 7 W e 40 W. Consideramos uma opção viável.
+Classe em que CPU e GPU programável compartilham a mesma memória DRAM, com blocos dedicados de encode/decode de vídeo e, em alguns modelos, aceleradores de deep learning adicionais (abordaremos esse assunto mais à frente). É a classe com maior maturidade de ferramental para pipelines de vídeo com IA, e a única em que o stack investigado na pesquisa de software (TensorRT, DeepStream, ONNX Runtime com TensorRT EP) está disponível integralmente. Envelope de potência tipicamente entre 7 W e 40 W. Portanto, consideramos essa classe viável.
 
-### 3.3 SoC com NPU integrada
+### SoC com NPU integrada
 
-Classe em que o acelerador é uma NPU de função fixa dentro do SoC, geralmente acompanhada de uma GPU de propósito gráfico. Boa eficiência energética e custo consideravelmente menor. O ponto crítico é o ferramental: o compilador é proprietário do fabricante do SoC, a cobertura de operadores é menor, e operações não suportadas caem para a CPU. Além disso, o kernel costuma ser um *vendor kernel* fora da árvore principal do Linux, o que limita atualizações. Viável, com risco de ferramental.
+Classe em que o acelerador é uma NPU de função fixa dentro do SoC, geralmente acompanhada de uma GPU de propósito gráfico. Boa eficiência energética e custo consideravelmente menor. O ponto crítico é o ferramental: o compilador é proprietário do fabricante do SoC, a cobertura de operadores é menor, e operações não suportadas caem para a CPU. Além disso, o kernel costuma ser um *vendor kernel* fora da árvore principal do Linux, o que limita atualizações. Portanto, consideramos essa classe viável, com risco de ferramental.
 
-### 3.4 Single Board Computer de propósito geral + acelerador
+### Single Board Computer de propósito geral + acelerador
 
-Classe em que o acelerador é um chip separado, conectado por PCIe ou USB. Vantagens: custo baixo, eficiência energética do acelerador muito alta, e a possibilidade de escolher acelerador e host independentemente. Desvantagens estruturais: todo tensor atravessa o barramento, não há memória unificada, e em plataformas com poucas linhas PCIe o acelerador compete com o armazenamento. Consideramos viável, mas com dificuldade de implementação.
+Classe em que o acelerador é um chip separado, conectado por PCIe ou USB. Vantagens: custo baixo, eficiência energética do acelerador muito alta, e a possibilidade de escolher acelerador e host independentemente. Desvantagens estruturais: todo tensor atravessa o barramento, não há memória unificada, e em plataformas com poucas linhas PCIe o acelerador compete com o armazenamento. Portanto, consideramos essa classe viável, com dificuldade de implementação.
 
-### 3.5 x86 compacto
+### x86 compacto
 
 Mini-PCs e SBCs x86 de baixo consumo, com GPU integrada ou NPU. Fora do escopo de "borda" em consumo, mas com a maior maturidade de software de todas as classes (qualquer distribuição Linux, sem vendor kernel, ecossistema Python completo em x86_64).
 
-Esta classe merece atenção específica. O TAPI autoriza explicitamente que a estimativa de xG rode "no próprio dispositivo ou em uma máquina auxiliar local". Isso significa que a arquitetura de hardware do projeto pode ter duas camadas, e não uma, onde um dispositivo de borda para captura, pré-processamento e detecção, e opcionalmente uma máquina auxiliar local para as etapas mais pesadas. A fronteira entre as duas é precisamente a decisão de engenharia que o TAPI pede que o projeto justifique com medidas de latência, banda e custo. Portanto, consideramos essa opção viável, com observação para alteração de arquitetura.
+Esta classe merece atenção específica. O TAPI autoriza explicitamente que a estimativa de xG rode "no próprio dispositivo ou em uma máquina auxiliar local", ou seja, a arquitetura pode ter duas camadas em vez de uma: um dispositivo de borda para captura, pré-processamento e detecção, e opcionalmente uma máquina auxiliar local para as etapas mais pesadas. Distribuir dessa forma relaxa a restrição de compute e permite modelos maiores, ao custo de introduzir uma travessia de rede no caminho crítico e de tornar a arquitetura menos "de borda". A fronteira entre as duas camadas é precisamente a decisão de engenharia que o TAPI pede que o projeto justifique com medidas de latência, banda e custo. Portanto, consideramos essa classe viável, com observação para alteração de arquitetura.
 
-### 3.6 Câmera inteligente / inferência no sensor
+### Câmera inteligente / inferência no sensor
 
-Sensores de imagem com acelerador embutido, que entregam metadados em vez de frames. Ponto de projeto radicalmente diferente e o mais eficiente em banda, mas com teto severo de tamanho de modelo e sem acesso ao frame completo, incompatível com a extração de features geométricas do lance (posição e ângulo em relação ao gol exigem registro do campo no frame inteiro). Então, consideramos não viável para o MVP, registrada aqui para delimitar o espectro de soluções.
+Sensores de imagem com acelerador embutido, que entregam metadados em vez de frames. Ponto de projeto radicalmente diferente e o mais eficiente em banda, mas com teto severo de tamanho de modelo e sem acesso ao frame completo, incompatível com a extração de features geométricas do lance (posição e ângulo em relação ao gol exigem registro do campo no frame inteiro). Portanto, consideramos essa classe não viável para o MVP (*Minimum Viable Product*), registrada aqui para delimitar o espectro de soluções.
 
-### 3.7 Tabela comparativa — classes de hardware
+### Tabela comparativa — classes de hardware
 
 | Classe | Acelerador | Memória | Decode HW | Maturidade de runtime | Consumo típico | Custo relativo | Viabilidade |
 |---|---|---|---|---|---|---|---|
@@ -125,69 +125,39 @@ Sensores de imagem com acelerador embutido, que entregam metadados em vez de fra
 
 ---
 
-## 4. Alternativas Candidatas
+## Alternativas Candidatas
 
 Plataformas representativas das classes viáveis, selecionadas por disponibilidade comercial, existência de documentação oficial e presença na literatura de benchmarking.
 
-### 4.1 SoC com GPU embarcada — classe Jetson Orin Nano
+### SoC com GPU embarcada — classe Jetson Orin Nano
 
-Módulo com CPU ARM de 6 núcleos e GPU com 1024 núcleos CUDA e 32 Tensor Cores. Memória de 8 GB LPDDR5 em barramento de 128 bits, com largura de banda de 102 GB/s, e desempenho declarado de 67 TOPS em INT8 no modo "Super" habilitado a partir do JetPack 6.2 [[Ref. 8]](#ref-8). Envelope de potência configurável entre 7 W e 25 W [[Ref. 7]](#ref-7). Armazenamento por microSD ou NVMe externo.
+Trata-se de um módulo com CPU ARM de 6 núcleos e GPU de 1024 núcleos CUDA e 32 Tensor Cores, que endereça 8 GB de LPDDR5 em barramento de 128 bits e, com isso, dispõe de 102 GB/s de largura de banda. O desempenho declarado é de 67 TOPS em INT8 no modo "Super", habilitado a partir do JetPack 6.2 [[Ref. 8]](#ref-8), dentro de um envelope de potência configurável entre 7 W e 25 W [[Ref. 7]](#ref-7). O armazenamento se dá por microSD ou por NVMe externo.
 
-**Pontos fortes:** memória unificada com a maior banda entre os candidatos; blocos NVDEC para decode de H.264 e H.265; acesso integral ao stack TensorRT/DeepStream/ONNX Runtime TRT EP; ecossistema de containers maduro; instrumentação de energia on-board; presença consolidada na literatura de benchmarking, onde aparece como a plataforma mais rápida e mais eficiente em energia por requisição entre os dispositivos de borda avaliados, apesar do maior consumo em repouso [[Ref. 3]](#ref-3).
+Dispõe de blocos NVDEC para decode de H.264 e H.265 e de instrumentação de energia on-board, mas não traz DLA, presente apenas a partir do Orin NX.
 
-**Pontos de risco:** ausência de DLA no Orin Nano (presente **apenas a partir do Orin NX**); apenas 8 GB de RAM, sem variante maior nesse módulo; aumento recente de preço (ver 4.6); disponibilidade irregular.
+### SoC com GPU embarcada — classe Jetson Orin NX
 
-### 4.2 SoC com GPU embarcada — classe Jetson Orin NX
+Este módulo escalona a classe anterior, uma vez que mantém a mesma GPU de 1024 núcleos CUDA e 32 Tensor Cores, mas eleva a CPU a 8 núcleos e acrescenta dois motores NVDLA v2.0 e um acelerador de visão. Endereça 16 GB de LPDDR5 em 128 bits, o que lhe garante até 102,4 GB/s de largura de banda a uma frequência máxima de 3200 MHz [[Ref. 6](#ref-6), datasheet oficial], e declara 100 TOPS na versão de 16 GB, elevados a 157 TOPS no modo Super, enquanto a versão de 8 GB vai de 70 a 117 TOPS. O envelope de potência é configurável entre 10 W e 40 W [[Ref. 7]](#ref-7), e a plataforma suporta PCIe Gen4 e NVMe, com múltiplos motores NVENC e NVDEC. Os dois DLAs permitem executar a detecção na GPU e o modelo de keypoints em paralelo, o que casa com a arquitetura em cascata descrita anteriormente. Vale notar que se trata de um módulo, e não de um kit, de maneira que carrier board, cooler e armazenamento precisam ser adquiridos separadamente.
 
-Escalonamento da classe anterior: CPU de 8 núcleos, mesma GPU de 1024 núcleos CUDA e 32 Tensor Cores, mais dois motores NVDLA v2.0 e um acelerador de visão. Memória de 16 GB LPDDR5 em 128 bits, com largura de banda de até 102,4 GB/s e frequência máxima de 3200 MHz [[Ref. 6](#ref-6) — datasheet oficial]. Desempenho declarado de 100 TOPS na versão 16 GB, elevado a 157 TOPS no modo Super; a versão 8 GB vai de 70 a 117 TOPS. Envelope de potência configurável entre 10 W e 40 W [[Ref. 7]](#ref-7). Suporte a PCIe Gen4 e a NVMe, com múltiplos motores NVENC/NVDEC.
+### SoC com NPU integrada — classe RK3588
 
-**Pontos fortes:** o dobro da RAM com a mesma banda, o que resolve o principal limite do Orin Nano; dois DLAs permitem executar detecção na GPU e um segundo modelo (keypoints) em paralelo, o que casa exatamente com a arquitetura em cascata descrita em 2.3; múltiplos streams de decode simultâneos; mais linhas PCIe.
+O SoC combina uma CPU octa-core em configuração big.LITTLE (quatro Cortex-A76 e quatro Cortex-A55) com uma GPU e uma NPU integrada de 6 TOPS em INT8, cuja faixa de precisões vai de INT4 a TF32, das quais INT8 e FP16 são as que interessam a este projeto. O motor de mídia decodifica até 8K a 60 fps e codifica 8K a 30 fps, e a plataforma admite até 32 GB de LPDDR4, LPDDR4x ou LPDDR5, além de PCIe 3.0 e SATA 3.0. O armazenamento se dá por eMMC 5.1, já que a família não suporta UFS e fica limitada à interface eMMC, mais lenta. Quanto ao ferramental, o compilador é o RKNN-Toolkit2, proprietário, e o kernel é um *vendor kernel* fora da árvore principal do Linux.
 
-**Pontos de risco:** é um módulo, não um kit — exige carrier board, cooler e armazenamento adquiridos separadamente; custo substancialmente maior; envelope térmico maior exige refrigeração ativa.
+### Single Board Computer + acelerador discreto — classe Raspberry Pi 5 + NPU em HAT
 
-### 4.3 SoC com NPU integrada — classe RK3588
+O host reúne uma CPU de quatro núcleos a 2,4 GHz, GPU VideoCore VII e memória LPDDR4X em barramento de 32 bits, e expõe uma única linha PCIe 2.0 além do slot microSD [[Ref. 5]](#ref-5). O acelerador é adicionado por meio de um HAT (*Hardware Attached on Top*, a placa de expansão que se acopla ao conector do host): as variantes disponíveis oferecem 13 TOPS (Hailo-8L) e 26 TOPS (Hailo-8), esta última operando em PCIe Gen 3 [[Ref. 9](#ref-9), [Ref. 10](#ref-10)]. Uma geração mais recente traz um acelerador Hailo-10H com 40 TOPS em INT4 e 8 GB de LPDDR4X própria a bordo, o que aproxima o conjunto de trabalho do modelo da NPU em vez de forçá-lo pela memória do sistema [[Ref. 10]](#ref-10).
 
-SoC com CPU octa-core em configuração big.LITTLE (quatro Cortex-A76 e quatro Cortex-A55), GPU e NPU integrada de 6 TOPS em INT8, com suporte a INT4/INT8/INT16/FP16/BF16/TF32. Motor de mídia com decode de até 8K a 60 fps e encode de 8K a 30 fps. Suporte a até 32 GB de LPDDR4/LPDDR4x/LPDDR5, PCIe 3.0 e SATA 3.0. Armazenamento por eMMC 5.1 — a família **não suporta UFS**, ficando limitada à interface eMMC, mais lenta.
+A especificação oficial lista apenas um decodificador HEVC 4Kp60, sem decodificador de H.264 em hardware [[Ref. 5]](#ref-5), e vídeo de transmissão de futebol é entregue predominantemente em H.264: o decode recairia em software sobre os mesmos núcleos responsáveis por pré-processamento, NMS (*Non-Maximum Suppression*, ou seja, a supressão de detecções sobrepostas), tracking e homografia, materializando o gargalo descrito no fluxo de dados na perspectiva do hardware. A linha PCIe 2.0 única ainda é disputada entre o acelerador e o SSD NVMe, e o barramento de memória de 32 bits a 4267 MT/s rende cerca de 17 GB/s teóricos.
 
-**Interface de memória e banda derivada.** O datasheet especifica a interface DRAM como **quatro canais de 16 bits**, e não como um barramento de 128 bits [[Ref. 11]](#ref-11). O total efetivo é, portanto, de 64 bits — metade do barramento dos candidatos Jetson. Aplicando a mesma derivação usada em 4.4 para o Raspberry Pi 5, com LPDDR4x a 4267 MT/s:
-
-```text
-4 canais × 16 bits × 4267 MT/s ÷ 8 = 34,1 GB/s (teórico, LPDDR4x-4267)
-4 canais × 16 bits × 5500 MT/s ÷ 8 = 44,0 GB/s (teórico, LPDDR5-5500)
-```
-
-O pico teórico fica, então, em cerca de **um terço** do dos candidatos Jetson na configuração LPDDR4x mais comum nas placas comerciais. Medições independentes com a ferramenta `mbw` em placas RK3588 relatam algo entre 9 e 11 GB/s de banda sustentada, ou seja, aproximadamente 26% a 33% do pico teórico, com a ressalva de que o *vendor kernel* aplica escalonamento dinâmico de frequência de memória e reduz o clock da DRAM em repouso, o que contamina medições feitas sem fixar o governador. Esses valores são de comunidade, não de fabricante, e entram aqui como ordem de grandeza a confirmar, não como número de projeto.
-
-**Pontos fortes:** capacidade de memória potencialmente maior que a dos candidatos Jetson; motor de decode de vídeo generoso; custo de plataforma significativamente menor; suporte a Linux (Ubuntu, Debian, Buildroot) além de Android; NPU com suporte amplo de precisões numéricas, incluindo FP16, o que reduz a dependência de quantização.
-
-**Pontos de risco:** o ferramental é o problema central. O compilador é o RKNN-Toolkit2, proprietário e com cobertura de operadores menor que a do TensorRT; a integração com ONNX Runtime não passa por um Execution Provider de primeira classe, o que rompe a estratégia de portabilidade adotada na pesquisa de software; e o kernel é *vendor kernel* fora da árvore principal. Soma-se agora um risco de arquitetura, e não apenas de ferramental: a plataforma combina **muita capacidade com pouca banda**, que é exatamente o par assimétrico descrito em 8.4. Suportar 32 GB não ajuda um pipeline cujas camadas são limitadas por banda, e o argumento de "capacidade maior que a do Jetson" é, isoladamente, enganoso.
-
-### 4.4 Single Board Computer + acelerador discreto — classe Raspberry Pi 5 + NPU em HAT
-
-Host com CPU de quatro núcleos a 2,4 GHz, GPU VideoCore VII, memória LPDDR4X em barramento de 32 bits, uma única linha PCIe 2.0 e slot microSD [[Ref. 5]](#ref-5). O acelerador é adicionado via HAT: as variantes disponíveis oferecem 13 TOPS (Hailo-8L) e 26 TOPS (Hailo-8), esta última operando em PCIe Gen 3 [[Ref. 9](#ref-9), [Ref. 10](#ref-10)]; uma geração mais recente traz um acelerador Hailo-10H com 40 TOPS em INT4 e 8 GB de LPDDR4X própria a bordo, aproximando o conjunto de trabalho do modelo da NPU em vez de forçá-lo pela memória do sistema [[Ref. 10]](#ref-10).
-
-**Pontos fortes:** menor custo absoluto entre os candidatos; eficiência energética do acelerador muito alta; documentação oficial de qualidade; disponibilidade excelente, inclusive no Brasil; a variante com memória dedicada no acelerador contorna parcialmente a limitação de banda do host.
-
-**Pontos de risco:**
-
-1. **O Raspberry Pi 5 não possui decodificador de H.264 em hardware.** A especificação oficial lista apenas um decodificador HEVC 4Kp60 [[Ref. 5]](#ref-5); o decode de H.264 é feito em software. Vídeo de transmissão de futebol é entregue predominantemente em H.264. Isso significa que, nesta plataforma, o decode consumiria de um a dois dos quatro núcleos de CPU continuamente — os mesmos núcleos responsáveis por pré-processamento, NMS, tracking e homografia. É a materialização exata do gargalo descrito em 2.2.
-2. **Barramento único.** Uma linha PCIe 2.0 é disputada entre o acelerador e o SSD NVMe. Existem HATs com switch PCIe para acomodar ambos, ao custo de operar em Gen 2.
-3. **Banda de memória.** O barramento de 32 bits a 4267 MT/s resulta em cerca de 17 GB/s teóricos — aproximadamente um sexto da banda dos candidatos Jetson (ver 5.3).
-4. **Sem memória unificada com o acelerador.** Todo tensor atravessa o barramento em ambos os sentidos (mais latência).
-
-### 4.5 x86 compacto — segunda camada
+### x86 compacto — segunda camada
 
 Mini-PC de baixo consumo com GPU integrada, executando Linux padrão e OpenVINO ou ONNX Runtime. Não compete como dispositivo de borda pelo consumo, mas é o candidato natural à "máquina auxiliar local" que o TAPI traz. Sua função na arquitetura proposta é receber o tensor ou o recorte de frames candidatos a finalização e executar as etapas mais pesadas, caso a medição demonstre que não cabem no dispositivo de borda.
 
-**Caminho de execução.** O OpenVINO cobre CPU, GPU integrada e NPU como dispositivos de primeira classe e aceita modelos em ONNX diretamente, e a Intel publica pacotes pré-construídos do **OpenVINO Execution Provider para ONNX Runtime** a cada release, com compatibilidade mantida para as três versões mais recentes do toolkit [[Ref. 12]](#ref-12). Isso importa para a decisão da seção 6: esta é a única alternativa fora da classe Jetson que preserva o padrão de acesso adotado na pesquisa de software — ONNX Runtime na frente, Execution Provider de fabricante atrás —, ainda que trocando o backend. A migração custa reconversão e recalibração do modelo, mas não a reescrita do código de inferência. Vale a ressalva de que GPU e NPU exigem instalação manual de drivers e podem demandar versão específica de kernel Linux, com suporte de NPU documentado para Ubuntu 22.04 e 24.04 [[Ref. 12]](#ref-12).
+### Contexto de custo e disponibilidade
 
-**Ponto forte decisivo:** ausência de vendor kernel e de arquitetura ARM, o que elimina de uma vez a classe de riscos de disponibilidade de pacotes Python e de imagens de container identificada na pesquisa de software.
+Em julho de 2026 a NVIDIA elevou os preços de toda a linha Jetson, em módulos e kits de desenvolvimento, com aumentos de até 101% e sem comunicado oficial. O kit Orin Nano Super, candidato primário deste documento, passou de US$ 249 para US$ 399 (+60%). Observadores atribuem o movimento à alta no preço de memória DRAM, da qual as placas Jetson dependem fortemente [[Ref. 13]](#ref-13). O aumento não desqualifica a classe Jetson, mas altera substancialmente a margem de custo-benefício frente às alternativas RK3588 e SBC com acelerador, descritas acima.
 
-### 4.6 Contexto de custo e disponibilidade (agosto de 2026)
-
-Em julho de 2026 a NVIDIA elevou os preços de toda a linha Jetson, em módulos e kits de desenvolvimento, com aumentos de até 101%, sem comunicado oficial. O kit Orin Nano Super passou de US$ 249 para US$ 399 (+60%); o kit AGX Orin de US$ 1.999 para US$ 3.499 (+75%); o kit AGX Thor de US$ 3.499 para US$ 5.499 (+57%); o módulo AGX Orin 32 GB dobrou, de US$ 899 para US$ 1.799. Observadores atribuem o movimento à alta no preço de memória DRAM, da qual as placas Jetson dependem fortemente [[Ref. 13]](#ref-13). O aumento não desqualifica a classe Jetson, mas altera substancialmente a margem de custo-benefício frente às alternativas RK3588 e SBC com acelerador, descritas acima.
-
-### 4.7 Tabela comparativa — plataformas candidatas
+### Tabela comparativa — plataformas candidatas
 
 | Critério | Jetson Orin Nano 8 GB | Jetson Orin NX 16 GB | RK3588 | Pi 5 + NPU em HAT | x86 compacto |
 |---|---|---|---|---|---|
@@ -195,38 +165,32 @@ Em julho de 2026 a NVIDIA elevou os preços de toda a linha Jetson, em módulos 
 | **Acelerador principal** | GPU Ampere, 1024 CUDA + 32 Tensor | GPU Ampere, 1024 CUDA + 32 Tensor | NPU 6 TOPS INT8 | NPU externa 13/26/40 TOPS | iGPU / NPU |
 | **Acelerador secundário** | — | 2× NVDLA v2 + PVA v2 | GPU Mali-G610 | — | — |
 | **TOPS declarado (INT8)** | 67 (Super); 40 antes | 100; 157 (Super) | 6 | 26 (Hailo-8); 40 em INT4 (10H) | varia |
-| **Topologia do acelerador** | Integrado, memória unificada | Integrado, memória unificada | Integrado, memória unificada | **Discreto, via PCIe** | Integrado |
+| **Topologia do acelerador** | Integrado, memória unificada | Integrado, memória unificada | Integrado, memória unificada | Discreto, via PCIe | Integrado |
 | **Precisões em silício** | FP32/FP16/INT8 | FP32/FP16/INT8 | INT4/INT8/INT16/FP16/BF16/TF32 | INT8 (INT4 no 10H) | FP32/FP16/INT8 |
 | **RAM** | 8 GB LPDDR5, 128 bits | 16 GB LPDDR5, 128 bits | até 32 GB LPDDR4x/5 | 4–16 GB LPDDR4X, 32 bits | 8–32 GB DDR5 |
-| **Banda de memória (pico teórico)** | **102 GB/s** | **até 102,4 GB/s** | ~34 GB/s (derivado, 4× 16 bits) | ~17 GB/s (derivado, 32 bits) | 40–80 GB/s |
-| **Decode H.264 em HW** | NVDEC | NVDEC (múltiplos) | até 8K60 | **software** | ✅ |
+| **Banda de memória (pico teórico)** | 102 GB/s | até 102,4 GB/s | ~34 GB/s (derivado, 4× 16 bits) | ~17 GB/s (derivado, 32 bits) | 40–80 GB/s |
+| **Decode H.264 em HW** | NVDEC | NVDEC (múltiplos) | até 8K60 | software | ✅ |
 | **Decode H.265 em HW** | ✅ | ✅ | ✅ | 4Kp60 | ✅ |
 | **Armazenamento** | microSD, NVMe | NVMe, PCIe Gen4 | eMMC 5.1, SATA 3.0, NVMe | microSD SDR104, NVMe via HAT | NVMe |
-| **Linhas PCIe** | limitadas | Gen4, múltiplas | Gen3 | **1× Gen2** | múltiplas |
+| **Linhas PCIe** | limitadas | Gen4, múltiplas | Gen3 | 1× Gen2 | múltiplas |
 | **Runtime primário** | TensorRT | TensorRT | RKNN-Toolkit2 | HailoRT | OpenVINO / ORT |
 | **Compatível com ONNX Runtime EP** | TensorRT EP | TensorRT EP | sem EP de 1ª classe | via runtime próprio | OpenVINO EP |
 | **Kernel** | Jetson Linux (L4T), suportado | Jetson Linux (L4T), suportado | vendor kernel | Raspberry Pi OS, suportado | mainline |
 | **Envelope de potência** | 7–25 W | 10–40 W | 5–15 W | 5–15 W | 15–65 W |
-| **Latência medida, YOLOv8n** [[Ref. 3]](#ref-3) | **16 ms** | não avaliado | não avaliado | 76 ms (AI HAT+) | não avaliado |
-| **Energia por requisição, YOLOv8n** [[Ref. 3]](#ref-3) | **0,13 mWh** | não avaliado | não avaliado | 0,20 mWh (AI HAT+) | não avaliado |
+| **Latência medida, YOLOv8n** [[Ref. 3]](#ref-3) | 16 ms | não avaliado | não avaliado | 76 ms (AI HAT+) | não avaliado |
+| **Energia por requisição, YOLOv8n** [[Ref. 3]](#ref-3) | 0,13 mWh | não avaliado | não avaliado | 0,20 mWh (AI HAT+) | não avaliado |
 | **Disponibilidade no Brasil** | irregular | irregular | média | boa | boa |
 | **Viabilidade** | Candidato primário | Escalonamento | Alternativa de custo | Decode inviabiliza | 2ª camada |
 
-**Sobre as duas linhas medidas.** Os valores vêm de [[Ref. 3]](#ref-3), que avalia nove plataformas de borda sob condições idênticas, e são reproduzidos aqui como a única evidência empírica direta disponível entre os candidatos — as demais linhas da tabela são especificação de fabricante ou derivação. Três ressalvas de leitura são necessárias:
-
-1. A energia por requisição é reportada **excluindo a energia de base**, e a energia de base separa as plataformas na direção oposta: o Jetson Orin Nano registra a maior de todas, 362 mWh, contra 217 mWh do Raspberry Pi 5 [[Ref. 3]](#ref-3). A conclusão de que o Jetson é o mais eficiente vale para carga ativa, não para um dispositivo que passa a maior parte do tempo ocioso. Como o regime deste projeto é de rajada, com longos intervalos entre lances, **a energia de base pode dominar o consumo diário**, e é por isso que o experimento 7 da seção 7 mede energia por trecho e potência média, e não energia por inferência.
-2. O mesmo estudo mede o Raspberry Pi 5 sem acelerador em 1,02 mWh e 316 ms para o mesmo modelo, o que dimensiona quanto do resultado da linha do Pi 5 é mérito do acelerador Hailo e não do host.
-3. YOLOv8n é um detector menor e mais leve que o previsto para a cascata deste projeto, e a medição é por imagem isolada, sem decode nem pós-processamento no caminho. Os números ordenam as plataformas; não dimensionam o pipeline.
-
 ---
 
-## 5. Memória
+## Memória
 
 Nesta seção, a comparação de hardware oferece uma visão sobre capacidade e largura de banda das memórias utilizadas no hardware. Ambas são requisitos independentes e, portanto, cada uma delas pode ser o gargalo por si só.
 
-### 5.1 Capacidade: orçamento explícito
+### Capacidade: orçamento explícito
 
-A pergunta principal centra-se em: "o modelo cabe?". Para isso, assumiremos alguns valores arbitrários, mas não irrealistas, para realizar alguns calculos:
+A pergunta principal centra-se em: "o modelo cabe?". Para isso, assumiremos alguns valores arbitrários, mas não irrealistas, para realizar alguns cálculos:
 
 | Consumidor | Estimativa | Observação |
 |---|---|---|
@@ -238,13 +202,13 @@ A pergunta principal centra-se em: "o modelo cabe?". Para isso, assumiremos algu
 | Fila de buffers de frame | ~100 MB | 30 frames 1080p em NV12 ≈ 93 MB; em RGB seria o dobro |
 | Interpretador Python, OpenCV, bibliotecas | 0,4–0,8 GB | |
 | Modelo de xG | < 10 MB | Modelo tabular |
-| **Total estimado** | **2,1–4,0 GB** | |
+| **Total estimado** | 2,1–4,0 GB | |
 
 **Conclusões do orçamento:**
 
 8 GB é suficiente para o MVP com folga razoável, com acesso apenas por SSH e saída do pipeline via rede ou disco. Rodar ambiente gráfico consome uma fração significativa do orçamento, tanto em RAM quanto em banda de memória, já que o framebuffer sai do mesmo pool unificado usado pelos pesos e ativações.
 
-### 5.2 Largura de banda: por que é frequentemente o gargalo real
+### Largura de banda: por que é frequentemente o gargalo real
 
 Uma camada de rede neural pode ser limitada pelo compute (muitas operações por byte movido) ou pela memória (poucas operações por byte movido). A razão entre as duas quantidades é a intensidade aritmética, e o modelo relaciona intensidade aritmética, banda de memória disponível e desempenho atingível. Estudos de benchmarking em plataformas heterogêneas de borda aplicam explicitamente esse modelo e mostram uma hierarquia consistente de desempenho entre CPU, CPU/NPU e CPU/GPU, tanto na região limitada por memória quanto na limitada por compute [[Ref. 2]](#ref-2).
 
@@ -252,172 +216,142 @@ Duas implicações práticas, contraintuitivas e diretamente relevantes ao proje
 
 1) Modelos com menos operações não são necessariamente mais rápidos, ou seja, arquiteturas ditas eficientes para mobile empregam intensivamente convoluções *depthwise* e *pointwise*, que têm intensidade aritmética baixa. Essas camadas são limitadas pela banda de memória, não pelo cálculo, e por isso utilizam mal um acelerador de pico alto. Um modelo com menos FLOPs pode apresentar latência maior em um dado chip do que um modelo com mais FLOPs e camadas mais densas. A métrica válida é latência medida do modelo no chip, não contagem de operações.
 
-2) A natureza do gargalo muda ao migrar do datacenter para a borda. Caracterizações sistemáticas de inferência em GPUs embarcadas mostram que kernels que são limitados por compute em GPUs de datacenter transitam para limitados por memória em dispositivos de borda, devido a cache reduzido e à banda inferior da LPDDR, exibindo sensibilidade elevada à largura de banda de memória. Isso significa que **benchmarks obtidos em GPU de desktop não transferem** para a plataforma embarcada, e a medição precisa ser feita no dispositivo final.
+2) A natureza do gargalo muda ao migrar do datacenter para a borda. Caracterizações sistemáticas de inferência em GPUs embarcadas mostram que kernels que são limitados por compute em GPUs de datacenter transitam para limitados por memória em dispositivos de borda, devido a cache reduzido e à banda inferior da LPDDR, exibindo sensibilidade elevada à largura de banda de memória. Isso significa que benchmarks obtidos em GPU de desktop não transferem para a plataforma embarcada, e a medição precisa ser feita no dispositivo final.
 
-Há ainda um resultado que interessa diretamente à escolha entre GPU e NPU: em operações limitadas por memória, como multiplicação matriz-vetor, a NPU apresentou latência 58,54% inferior à da GPU, atribuída ao uso mais eficiente de Direct Memory Access; em operações limitadas por compute, como multiplicação matriz-matriz, a GPU foi superior, com 22,6% menos latência e o dobro do throughput; e para produto escalar, com pouco paralelismo, a CPU obteve a menor latência de todas [[Ref. 2]](#ref-2). A conclusão do estudo é que o ganho real está em explorar as unidades de forma heterogênea, distribuindo cada etapa para a unidade adequada, o que reforça a arquitetura em cascata e a preferência por plataformas com múltiplas unidades de compute acessíveis.
+Há ainda um resultado que interessa à escolha entre GPU e NPU: nenhuma das duas domina a outra em todo o espectro, porque a NPU leva vantagem nas operações limitadas por memória e a GPU nas limitadas por compute [[Ref. 2]](#ref-2). O ganho real está em explorar as unidades de forma heterogênea, distribuindo cada etapa para a unidade adequada, o que reforça a arquitetura em cascata e a preferência por plataformas com múltiplas unidades de compute acessíveis.
 
-### 5.3 Comparações de memória
+### Comparações de memória
 
 | Plataforma | Capacidade | Tipo e barramento | Banda (pico teórico) | Topologia | Suficiente para o MVP? |
 |---|---|---|---|---|---|
 | Jetson Orin Nano 8 GB | 8 GB (fixo) | LPDDR5, 128 bits | 102 GB/s [[Ref. 8]](#ref-8) | Unificada | Sim, headless |
 | Jetson Orin NX 16 GB | 16 GB | LPDDR5, 128 bits | até 102,4 GB/s [[Ref. 6]](#ref-6) | Unificada | Sim, com folga |
-| RK3588 | até 32 GB | LPDDR4x / LPDDR5, **4× 16 bits (64 bits totais)** [[Ref. 11]](#ref-11) | ~34 GB/s em LPDDR4x-4267; ~44 GB/s em LPDDR5-5500 (derivado) | Unificada | Capacidade sim, **banda é a restrição** |
+| RK3588 | até 32 GB | LPDDR4x / LPDDR5, 4× 16 bits (64 bits totais) [[Ref. 11]](#ref-11) | ~34 GB/s em LPDDR4x-4267; ~44 GB/s em LPDDR5-5500 (derivado) | Unificada | Capacidade sim, banda é a restrição |
 | Pi 5 + NPU em HAT | 4–16 GB no host; 8 GB no acelerador na geração mais recente | LPDDR4X-4267, 32 bits [[Ref. 5]](#ref-5) | ~17 GB/s (derivado do spec) | Dedicada, via 1× PCIe | Capacidade sim, banda em dúvida |
 | x86 compacto | 8–32 GB | DDR5 | 40–80 GB/s | Unificada | Sim |
 
-Duas leituras importam mais que a ordenação em si.
-
-A primeira é que **a hierarquia de banda é mais acentuada que a de capacidade**, e as duas apontam em direções opostas. A RK3588 admite quatro vezes a RAM do Orin Nano com um terço da banda; o Pi 5 admite o dobro da RAM com um sexto. Se o pipeline for limitado por banda, como a §5.2 argumenta ser o caso típico na borda, a capacidade excedente dessas plataformas não se converte em desempenho — ela apenas permite carregar modelos que rodarão devagar. É o cenário descrito em 8.4, e a razão pela qual a capacidade não aparece isolada como critério em 6.
-
-A segunda é que **pico teórico não é banda disponível ao pipeline**. Em memória unificada, CPU e acelerador disputam o mesmo controlador, de modo que a banda efetiva para a inferência é o pico menos o que decode, pré-processamento e pós-processamento estiverem consumindo no mesmo instante. Essa contenção é tratável, e não apenas observável: trabalhos de otimização energética em plataformas Jetson mostram que a **frequência de memória é uma variável de ajuste independente das frequências de CPU e GPU**, com efeito próprio sobre latência e consumo, e que o ponto ótimo varia conforme o modelo e a carga [[Ref. 14]](#ref-14). Duas consequências práticas para este documento: qualquer número de banda medido no experimento 6 só é interpretável junto com o modo de potência ativo, e o modo de potência passa a ser parâmetro de otimização da Sprint 2, não apenas metadado de medição.
-
 ---
 
-## 6. Critérios de Decisão
+## Critérios de Decisão
 
-1) Compatibilidade com os runtimes investigados: A pesquisa de software convergiu para TensorRT acessado via ONNX Runtime com o Execution Provider correspondente. Uma plataforma sem esse caminho não é uma plataforma mais lenta: é uma plataforma que invalida a decisão de software e obriga a refazer conversão, calibração e validação do modelo em ferramental diferente. Critério eliminatório.
+1) Compatibilidade com os runtimes investigados: A pesquisa de software convergiu para TensorRT acessado via ONNX Runtime com o Execution Provider (EP) correspondente. Uma plataforma sem esse caminho não é uma plataforma mais lenta: é uma plataforma que invalida a decisão de software e obriga a refazer conversão, calibração e validação do modelo em ferramental diferente. Critério eliminatório.
 
 2) Precisão em silício e preservação de qualidade em objetos pequenos: Uma plataforma restrita a INT8 obriga a quantizar integralmente, e a perda de quantização se concentra justamente em objetos pequenos, ou seja, a bola em plano aberto de transmissão. Suporte a FP16 em silício preserva a opção de manter o detector, ou parte dele, em precisão maior, e essa opção vale mais neste projeto do que TOPS adicionais.
 
-3) Memória: banda e capacidade: A largura de banda é a restrição primária identificada na literatura de borda [[Ref. 2](#ref-2), [Ref. 4](#ref-4)], e a inferência em lote aumenta tanto a pressão de banda quanto o pico de residência. Capacidade e banda seguem sendo requisitos independentes, como argumentado em 8.4.
+3) Memória: banda e capacidade: A largura de banda é a restrição primária identificada na literatura de borda [[Ref. 2](#ref-2), [Ref. 4](#ref-4)], e a inferência em lote aumenta tanto a pressão de banda quanto o pico de residência. Capacidade e banda seguem sendo requisitos independentes, como argumentado no trade-off entre capacidade e banda de memória.
 
 4) Custo e disponibilidade: Relevante, mas subordinado aos anteriores e parcialmente fora do controle do grupo no desenvolvimento do projeto, já que a plataforma será definida conforme o TAPI.
 
-### 6.1 Avaliação das alternativas
+### Avaliação das alternativas
 
-**Jetson Orin Nano 8 GB.** Atende ao primeiro critério integralmente, com TensorRT nativo, Execution Provider de primeira classe para ONNX Runtime e Jetson Linux com suporte oficial do fabricante. Atende ao segundo, com FP32, FP16 e INT8 em silício, o que permite decidir a precisão por modelo da cascata em vez de aceitar uma imposição da plataforma. Atende ao terceiro com 102 GB/s em memória unificada, a maior banda entre os candidatos de baixo consumo. Cede apenas no quarto, já que o kit passou de US$ 249 para US$ 399 [[Ref. 13]](#ref-13). Fica ainda a ressalva de que a capacidade de 8 GB é fixa e não deixa margem generosa para lotes grandes com dois modelos residentes, ponto que os experimentos da seção 7 devem resolver.
+**Jetson Orin Nano 8 GB:** Atende ao primeiro critério integralmente, com TensorRT nativo, Execution Provider de primeira classe para ONNX Runtime e Jetson Linux com suporte oficial do fabricante. Atende ao segundo, com FP32, FP16 e INT8 em silício, o que permite decidir a precisão por modelo da cascata em vez de aceitar uma imposição da plataforma. Atende ao terceiro com 102 GB/s em memória unificada, a maior banda entre os candidatos de baixo consumo. Cede apenas no quarto, já que o kit passou de US$ 249 para US$ 399 [[Ref. 13]](#ref-13). Fica ainda a ressalva de que a capacidade de 8 GB é fixa e não deixa margem generosa para lotes grandes com dois modelos residentes, ponto que os experimentos dos critérios de sucesso devem resolver.
 
-**Jetson Orin NX 16 GB.** Estritamente superior à anterior em memória e compute, e idêntica em ferramental, o que a torna a plataforma de escalonamento natural: o dobro de RAM é exatamente o recurso que a inferência em lote consome. O que a impede de ser a escolha inicial é o quarto critério, pois exige módulo mais carrier board, e o custo do conjunto não se justifica enquanto não houver evidência medida de que 8 GB são insuficientes.
+**Jetson Orin NX 16 GB:** Supera estritamente a anterior em memória e compute, e a iguala em ferramental, o que a torna a plataforma de escalonamento natural: o dobro de RAM é exatamente o recurso que a inferência em lote consome. O que a impede de ser a escolha inicial é o quarto critério, pois exige módulo mais carrier board, e o custo do conjunto não se justifica enquanto não houver evidência medida de que 8 GB são insuficientes.
 
-**x86 compacto.** Maturidade de software máxima e nenhum vendor kernel, o que a torna a de execução mais previsível. Atende parcialmente ao primeiro critério: o OpenVINO Execution Provider para ONNX Runtime é mantido pela Intel com pacotes publicados a cada release [[Ref. 12]](#ref-12), de modo que o padrão de acesso da pesquisa de software é preservado, mas o backend é outro e a conversão e a calibração do modelo precisam ser refeitas. O consumo de 15 a 65 W também a afasta da definição de borda que o TAPI pede que o projeto demonstre. Permanece como segunda camada, papel que o TAPI autoriza explicitamente e que a seção 8.6 discute.
+**x86 compacto:** Oferece maturidade de software máxima e nenhum vendor kernel, o que a torna a de execução mais previsível. Atende parcialmente ao primeiro critério: o OpenVINO Execution Provider para ONNX Runtime é mantido pela Intel com pacotes publicados a cada release [[Ref. 12]](#ref-12), de modo que o padrão de acesso da pesquisa de software é preservado, mas o backend é outro e a conversão e a calibração do modelo precisam ser refeitas. O consumo de 15 a 65 W também a afasta da definição de borda que o TAPI pede que o projeto demonstre. Permanece como segunda camada, papel que o TAPI autoriza explicitamente.
 
-**RK3588.** Vai bem no segundo e no quarto critérios, com boa relação entre custo e capacidade, decode em hardware robusto e suporte a INT4, INT8, INT16, FP16, BF16 e TF32. Falha no primeiro: o RKNN-Toolkit2 é proprietário, não há Execution Provider de primeira classe para ONNX Runtime, e o kernel é de fabricante, fora da árvore principal. Fica agora também abaixo do esperado no terceiro, e essa é uma mudança em relação à leitura inicial: a interface de memória é de quatro canais de 16 bits, isto é, 64 bits totais [[Ref. 11]](#ref-11), o que coloca o pico teórico em cerca de 34 GB/s — um terço do dos candidatos Jetson —, apesar de a plataforma admitir até quatro vezes a capacidade. É o caso didático de 8.4, onde muita RAM convive com pouca banda. Segue como a alternativa de contingência coerente, não por ser fraca em hardware, mas porque o custo que ela transfere é de horas de engenharia, e esse é justamente o custo que um módulo acadêmico com prazo fixo não pode absorver.
+**RK3588:** Vai bem no segundo e no quarto critérios, com boa relação entre custo e capacidade, decode em hardware robusto e uma faixa ampla de precisões em silício, de INT4 a TF32. Falha no primeiro: o RKNN-Toolkit2 é proprietário, não há Execution Provider de primeira classe para ONNX Runtime, e o kernel é de fabricante, fora da árvore principal. Fica agora também abaixo do esperado no terceiro, e essa é uma mudança em relação à leitura inicial: a interface de memória é de quatro canais de 16 bits, isto é, 64 bits totais [[Ref. 11]](#ref-11), o que coloca o pico teórico em cerca de 34 GB/s, um terço do dos candidatos Jetson, apesar de a plataforma admitir até quatro vezes a capacidade. É o caso didático do trade-off entre capacidade e banda de memória, onde muita RAM convive com pouca banda. Segue como contingência coerente, não por ser fraca em hardware, mas porque o custo que ela transfere é de horas de engenharia, o recurso mais escasso em um módulo com prazo fixo.
 
-**Raspberry Pi 5 com NPU em HAT.** Vence o quarto critério com folga, sendo a mais barata e a mais eficiente em energia por inferência entre as candidatas, e reprova nos dois primeiros, que são os que decidem. O acelerador é INT8 puro, sem FP16 em silício, o que obriga a quantizar toda a cascata e concentra a perda justamente na classe "bola". O HailoRT não oferece Execution Provider de primeira classe para ONNX Runtime, o que rompe a estratégia de portabilidade adotada na pesquisa de software. No terceiro critério também fica atrás: o acelerador é discreto, todo tensor atravessa uma única linha PCIe Gen2, e a banda de memória do host, cerca de 17 GB/s, é aproximadamente um sexto da dos candidatos Jetson. Soma-se a isso a ausência de decodificador de H.264 em hardware [[Ref. 5]](#ref-5), que joga o decode sobre a mesma CPU responsável por NMS, tracking e homografia.
+**Raspberry Pi 5 com NPU em HAT:** Vence o quarto critério com folga, sendo a mais barata e a mais eficiente em energia por inferência entre as candidatas, e reprova nos dois primeiros, que são os que decidem. O acelerador é INT8 puro, sem FP16 em silício, o que obriga a quantizar toda a cascata e concentra a perda justamente na classe "bola". O HailoRT não oferece Execution Provider de primeira classe para ONNX Runtime, o que rompe a estratégia de portabilidade adotada na pesquisa de software. No terceiro critério também fica atrás: o acelerador é discreto, todo tensor atravessa uma única linha PCIe Gen2, e a banda de memória do host, cerca de 17 GB/s, é aproximadamente um sexto da dos candidatos Jetson. Soma-se a isso a ausência de decodificador de H.264 em hardware [[Ref. 5]](#ref-5), que joga o decode sobre a mesma CPU responsável por NMS, tracking e homografia.
 
-Da aplicação dos critérios emerge uma ordenação estável: as duas plataformas Jetson ocupam o topo por serem as únicas a atravessar os dois primeiros critérios sem ressalva; o x86 compacto vem em seguida, com papel distinto; a RK3588 fica como contingência; e a configuração com acelerador discreto é descartada. A ordenação reflete características documentadas e, no caso do Jetson Orin Nano e do Raspberry Pi 5 com acelerador, medições de terceiros em condições distintas das deste projeto [[Ref. 3]](#ref-3) — não medições próprias —, de modo que os experimentos da seção 7 podem alterá-la. Duas lacunas permanecem explicitamente abertas: a **banda sustentada real** da RK3588, cujo pico teórico foi derivado em 4.3 mas cuja fração efetivamente entregue depende de um kernel de fabricante com escalonamento dinâmico de frequência de memória; e a **ausência de medição de energia e latência** para RK3588, Orin NX e x86 compacto, que não figuram no estudo comparativo usado nas duas linhas medidas de 4.7. Nenhuma das duas altera a ordenação, porque o critério eliminatório já decide antes de chegar a elas, mas ambas ficam registradas para não sugerir uma cobertura empírica que a tabela não tem. De acordo com os critérios, portanto, a proposta de escolha para o projeto é a **Jetson Orin Nano 8 GB**.
+Da aplicação dos critérios surge o ranking: as duas plataformas Jetson ocupam o topo por serem as únicas a atravessar os dois primeiros critérios sem ressalva; o x86 compacto vem em seguida, com papel distinto; a RK3588 fica como contingência; e a configuração com acelerador discreto é descartada. A ordenação reflete características documentadas e, no caso do Jetson Orin Nano e do Raspberry Pi 5 com acelerador, medições de terceiros em condições distintas das deste projeto [[Ref. 3]](#ref-3), e não medições próprias, de modo que os experimentos dos critérios de sucesso podem alterá-la. Duas lacunas permanecem explicitamente abertas: a banda sustentada real da RK3588, cujo pico teórico foi derivado na descrição da própria classe mas cuja fração efetivamente entregue depende de um kernel de fabricante com escalonamento dinâmico de frequência de memória; e a ausência de medição de energia e latência para RK3588, Orin NX e x86 compacto, que não figuram no estudo comparativo usado nas duas linhas medidas da tabela comparativa de plataformas candidatas. Nenhuma das duas altera a ordenação, porque o critério eliminatório decide antes de chegar a elas. De acordo com os critérios, portanto, a proposta de escolha para o projeto é a Jetson Orin Nano 8 GB.
 
 ---
 
-## 7. Critérios de Sucesso Preliminares
+## Critérios de Sucesso Preliminares
 
-Experimentos que convertem as hipóteses deste documento em medições verificáveis na Sprint 2. A metodologia acompanha a prática estabelecida de comparação empírica de plataformas de borda, que mede consumo real de energia e não apenas latência [[Ref. 1]](#ref-1). Dois pontos valem para todos os itens. O **modo de potência deve ser declarado** em qualquer resultado, sob pena de as medições não serem comparáveis — a exigência não é formalidade de relatório, já que as frequências de CPU, GPU e memória são variáveis independentes de ajuste em plataformas Jetson e cada combinação produz um par latência-energia distinto para o mesmo modelo [[Ref. 14]](#ref-14). Pela mesma razão, o modo de potência entra nos experimentos 6 e 7 como variável a varrer, e não apenas como constante a registrar. E o **estado térmico inicial**, frio ou aquecido, precisa ser registrado, porque sob carga em rajada o mesmo trecho apresenta tempos diferentes conforme o clock de boost disponível.
+Experimentos que convertem as hipóteses deste documento em medições verificáveis na Sprint 2. A metodologia acompanha a prática estabelecida de comparação empírica de plataformas de borda, que mede consumo real de energia e não apenas latência [[Ref. 1]](#ref-1). Dois pontos valem para todos os itens. O modo de potência deve ser declarado em qualquer resultado, sob pena de as medições não serem comparáveis. A exigência não é formalidade de relatório, já que as frequências de CPU, GPU e memória são variáveis independentes de ajuste em plataformas Jetson e cada combinação produz um par latência-energia distinto para o mesmo modelo [[Ref. 14]](#ref-14). Pela mesma razão, o modo de potência entra nos experimentos 6 e 7 como variável a varrer, e não apenas como constante a registrar. E o estado térmico inicial, frio ou aquecido, precisa ser registrado, porque sob carga em rajada o mesmo trecho apresenta tempos diferentes conforme o clock de boost disponível.
 
 O trecho de referência para todos os experimentos é um recorte de 10 segundos em 1080p a 30 fps em torno de uma finalização (sujeito a mudanças a depender das condições dos vídeos fornecidos pelo parceiro). A fila de referência é o conjunto de trechos de uma partida, entre 20 e 30 lances, processados em sequência e sem intervalo.
 
 | # | Experimento | Condição de sucesso |
 |---|---|---|
-| 1 | Tempo até o resultado por trecho, instrumentado por etapa (decode, pré, detector, keypoints, pós, xG) | p95 abaixo da duração do próprio trecho, ou seja, razão ≥ 1× tempo real, com meta de 3×; identificar a etapa dominante |
+| 1 | Tempo até o resultado por trecho, instrumentado por etapa (decode, pré, detector, keypoints, pós, xG) | p95, ou seja, o percentil 95, abaixo da duração do próprio trecho, ou seja, razão ≥ 1× tempo real, com meta de 3×; identificar a etapa dominante |
 | 2 | Custo fixo por trecho (carga do engine, criação de contexto, primeira inferência) comparado ao regime estável | Custo fixo < 10% do tempo total do trecho com processo residente; quantificar o custo de iniciar por lance, para justificar ou dispensar o requisito de residência |
 | 3 | Drenagem da fila de referência | Tempo do último trecho não excede o do quinto em mais de 10%; sem crescimento monotônico de memória entre trechos |
 | 4 | Decode de 1080p H.264 comparando bloco dedicado e software, medindo uso de CPU e tempo por trecho | Com bloco dedicado, < 15% de um núcleo e sem fallback silencioso; quantificar em quanto o decode em software encarece o trecho e o quanto rouba da CPU de pós-processamento |
-| 5 | Pico de memória residente (RSS mais memória do acelerador), com lote 1 e com o maior lote útil | < 70% da capacidade total nos dois casos, validando o orçamento de 5.1 e determinando o teto de lote |
+| 5 | Pico de memória residente (RSS mais memória do acelerador), com lote 1 e com o maior lote útil | < 70% da capacidade total nos dois casos, validando o orçamento de capacidade e determinando o teto de lote |
 | 6 | Banda de memória efetiva sob carga do pipeline completo | Medir e comparar com o pico teórico; identificar se o pipeline é limitado por banda, sobretudo com lote maior que 1 |
 | 7 | Energia por trecho processado e potência média, por modo de potência | Registrar em J/trecho e W; a unidade útil nesta carga é energia por trecho, não por inferência |
 | 8 | Temperatura de junção partindo do estado frio e ao longo da drenagem da fila | Sem atingir o limiar de throttling durante a fila completa; registrar se o clock de boost se mantém por um trecho inteiro |
 | 9 | Compilação do modelo para o alvo, com relatório de operadores | 100% dos operadores executados no acelerador, sem fallback para CPU |
-| 10 | Queda de qualidade pós-quantização, **desagregada por classe** | ΔmAP aceitável **na classe "bola" isoladamente**, não apenas na média |
+| 10 | Queda de qualidade pós-quantização, desagregada por classe | ΔmAP aceitável na classe "bola" isoladamente, não apenas na média |
 
 ---
 
-## 8. Trade-offs
+## Trade-offs
 
-### 8.1 Pico versus sustentado
+### GPU versus NPU: flexibilidade contra eficiência
 
-TOPS declarado é medido em INT8, sem esparsidade, no clock de pico, com utilização ideal, e frequentemente contando uma multiplicação-acumulação como duas operações. A utilização real em redes convolucionais fica muito abaixo disso, porque camadas de baixa intensidade aritmética são limitadas pela banda de memória. Sob carga sustentada, envelope térmico, potência e banda de memória governam o desempenho, superando as especificações de compute de pico [[Ref. 4]](#ref-4). Consequência: a comparação entre plataformas por TOPS declarado não sustenta decisão.
+A GPU programável executa praticamente qualquer modelo, incluindo operações não convencionais, e permite migrar pré e pós-processamento para o acelerador; consome mais energia. A NPU é mais eficiente por watt nas operações que suporta, especialmente as limitadas por memória [[Ref. 2]](#ref-2), mas uma operação não suportada pelo compilador provoca particionamento do grafo e o retorno daquela parte à CPU, com transferências de ida e volta que podem tornar o resultado pior que a execução puramente em CPU. Os suspeitos habituais nesse cenário são NMS, formas dinâmicas de tensor, amostragem em grade (usada em warping e homografia, relevante para este projeto) e ativações não padronizadas.
 
-Em regime de rajada, como o deste projeto, entra um segundo efeito. O dispositivo passa parte relevante do tempo em clock de boost, e o número de pico torna-se momentaneamente menos irreal do que seria em vídeo contínuo. Isso não reabilita a comparação por TOPS; apenas move o ponto de medição, que exige o registro do estado térmico inicial junto com cada número reportado.
+Soma-se a esse quadro a questão de precisão. NPUs restritas a INT8 não oferecem a opção de manter parte da cascata em FP16, e essa opção vale mais neste projeto do que eficiência energética, pelas razões do segundo critério de decisão.
 
-### 8.2 GPU versus NPU: flexibilidade contra eficiência
+### Capacidade versus banda de memória
 
-A GPU programável executa praticamente qualquer modelo, incluindo operações não convencionais, e permite migrar pré e pós-processamento para o acelerador; consome mais energia. A NPU é mais eficiente por watt nas operações que suporta, especialmente as limitadas por memória [[Ref. 2]](#ref-2), mas uma operação não suportada pelo compilador provoca particionamento do grafo e o retorno daquela parte à CPU, com transferências de ida e volta que podem tornar o resultado pior que a execução puramente em CPU. Os suspeitos habituais nesse cenário são NMS, formas dinâmicas de tensor, amostragem em grade — usada em warping e homografia, relevante para este projeto — e ativações não padronizadas.
+São requisitos independentes e frequentemente confundidos. Uma plataforma com muita RAM e pouca banda pode carregar modelos grandes e executá-los lentamente. Uma com pouca RAM e banda alta executa modelos pequenos rapidamente, mas não escala para múltiplos modelos. O orçamento de capacidade responde à primeira pergunta; o experimento 6 dos critérios de sucesso, à segunda. A inferência em lote é justamente o parâmetro que consome os dois recursos ao mesmo tempo, e por isso o teto de lote precisa sair de medição.
 
-Soma-se a esse quadro a questão de precisão. NPUs restritas a INT8 não oferecem a opção de manter parte da cascata em FP16, e essa opção vale mais neste projeto do que eficiência energética, pelas razões do segundo critério de 6.1.
+### Premissa de economia de banda
 
-### 8.3 Memória unificada versus memória dedicada
-
-Unificada elimina cópias, mas cria contenção de banda entre CPU e acelerador. Dedicada elimina a contenção, mas insere um barramento com teto que pode ser inferior ao fluxo de frames, forçando o pré-processamento a ocorrer antes da travessia. Não há opção dominante; a escolha depende de onde está o gargalo medido.
-
-### 8.4 Capacidade versus banda de memória
-
-São requisitos independentes e frequentemente confundidos. Uma plataforma com muita RAM e pouca banda pode carregar modelos grandes e executá-los lentamente. Uma com pouca RAM e banda alta executa modelos pequenos rapidamente, mas não escala para múltiplos modelos. O orçamento de 5.1 responde à primeira pergunta; o experimento 6 da seção 7, à segunda. A inferência em lote é justamente o parâmetro que consome os dois recursos ao mesmo tempo, e por isso o teto de lote precisa sair de medição.
-
-Os candidatos deste documento ilustram o ponto de forma quase caricata. A RK3588 admite **quatro vezes** a capacidade do Jetson Orin Nano com **um terço** da banda, e o Raspberry Pi 5 admite o dobro com um sexto (4.3, 4.4 e 5.3). Uma comparação feita apenas por gigabytes ordenaria as três plataformas exatamente ao contrário de como as ordena uma comparação feita por GB/s. Como as camadas de baixa intensidade aritmética que dominam detectores modernos são limitadas por banda, e não por capacidade (5.2), é a segunda ordenação que prediz latência — e é por isso que 6 lista banda e capacidade juntas em um único critério, mas trata a banda como a metade que decide.
-
-### 8.5 Maturidade de ferramental versus custo de plataforma
-
-As alternativas de menor custo (RK3588, SBC com acelerador discreto) apresentam economia relevante de hardware, especialmente após o aumento de preços da linha Jetson [[Ref. 13]](#ref-13), mas transferem o custo para horas de engenharia: compiladores com cobertura de operadores menor, vendor kernels, menos exemplos funcionando e ausência de Execution Provider de primeira classe para ONNX Runtime — o que rompe justamente a estratégia de portabilidade adotada na pesquisa de software. Em um módulo acadêmico com prazo fixo, horas de engenharia são o recurso mais escasso.
-
-### 8.6 Uma camada versus duas camadas
-
-Concentrar tudo no dispositivo de borda maximiza a fidelidade ao objetivo declarado do TAPI e minimiza a banda de rede. Distribuir entre borda e máquina auxiliar local relaxa a restrição de compute e permite modelos maiores, ao custo de introduzir uma travessia de rede no caminho crítico e de tornar a arquitetura menos "de borda". O TAPI autoriza explicitamente a segunda opção e pede que a fronteira seja justificada com medidas — o que a torna um resultado esperado do projeto, não uma ambiguidade a evitar.
-
-### 8.7 Premissa de economia de banda
-
-Vale registrar honestamente: se, no protótipo, o vídeo chegar ao dispositivo pela rede (RTSP ou arquivo), o argumento de economia de banda do TAPI não se sustenta naquele arranjo — ele vale apenas quando o dispositivo está fisicamente junto à fonte de vídeo. O protótipo demonstra a **viabilidade técnica** do processamento na borda; a economia de banda é uma propriedade do cenário de implantação, não do protótipo. Declarar isso é preferível a reivindicar um benefício que o setup de teste não produz.
+Vale registrar honestamente: se, no protótipo, o vídeo chegar ao dispositivo pela rede (por RTSP ou por arquivo), o argumento de economia de banda do TAPI não se sustenta naquele arranjo, pois vale apenas quando o dispositivo está fisicamente junto à fonte de vídeo. O protótipo demonstra a viabilidade técnica do processamento na borda; a economia de banda é uma propriedade do cenário de implantação, não do protótipo. Declarar isso é preferível a reivindicar um benefício que o setup de teste não produz.
 
 Há um segundo ponto na mesma direção. Se os trechos já chegam recortados por um sistema a montante, então o maior redutor de banda de todo o pipeline, que é o descarte dos frames sem finalização, acontece fora do dispositivo de borda. O que resta ao dispositivo economizar é a diferença entre enviar o trecho e enviar o evento estruturado, que é real e significativa, mas de ordem menor do que a redução já feita a montante.
 
 ---
 
-## 9. Riscos e Incertezas
+## Riscos e Incertezas
 
-### 9.1 Plataforma e disponibilidade
+### Plataforma e disponibilidade
 
-O risco de maior impacto desta categoria é logístico, e não técnico: o hardware escolhido pode não estar no laboratório do Inteli, ou não chegar dentro do prazo de importação. A mitigação é anterior à decisão, ou seja, confirmar o inventário institucional **antes** de fechá-la e manter uma segunda opção documentada e viável, papel que a RK3588 cumpre. Some-se a isso o reajuste de preços da linha Jetson [[Ref. 13]](#ref-13), que torna razoável preferir uma plataforma já disponível institucionalmente à teoricamente ideal, e o fato de que o custo relevante é o do conjunto — módulo, carrier board, refrigeração e armazenamento —, e não o do módulo isolado, item frequentemente subestimado em orçamento.
+O risco de maior impacto desta categoria é logístico, e não técnico: o hardware escolhido pode não estar no laboratório do Inteli, ou não chegar dentro do prazo de importação. A mitigação é anterior à decisão, ou seja, confirmar o inventário institucional antes de fechá-la e manter uma segunda opção documentada e viável, papel que a RK3588 cumpre. Some-se a isso o reajuste de preços da linha Jetson [[Ref. 13]](#ref-13), que torna razoável preferir uma plataforma já disponível institucionalmente à teoricamente ideal, lembrando que o custo relevante é o do conjunto, e não o do módulo isolado.
 
-Há ainda uma incerteza de entrada de impacto alto: **o formato dos trechos**. Codec, resolução, container, duração típica e critério de recorte determinam boa parte deste documento. Se os trechos vierem em H.265 em vez de H.264, um dos argumentos contra a plataforma de 4.4 deixa de valer, já que o bloco de HEVC existe naquele hardware. Se vierem com duração muito menor que dez segundos, o custo fixo medido no experimento 2 passa a dominar o tempo total. Se o recorte não incluir margem antes do chute, o modelo de keypoints perde o contexto geométrico necessário. Solicitar amostras representativas o quanto antes é a mitigação de maior retorno de todo o projeto.
+Há ainda uma incerteza de entrada de impacto alto: o formato dos trechos. Codec, resolução, container, duração típica e critério de recorte determinam boa parte deste documento. Se os trechos vierem em H.265 em vez de H.264, um dos argumentos contra a plataforma Raspberry Pi 5 com NPU em HAT deixa de valer, já que o bloco de HEVC existe naquele hardware. Se vierem com duração muito menor que dez segundos, o custo fixo medido no experimento 2 passa a dominar o tempo total. Se o recorte não incluir margem antes do chute, o modelo de keypoints perde o contexto geométrico necessário. Solicitar amostras representativas o quanto antes é a mitigação de maior retorno de todo o projeto.
 
-### 9.2 Desempenho, térmica e energia
+### Desempenho, térmica e energia
 
-O risco térmico não se apresenta como throttling ao longo de dezenas de minutos de carga contínua, porque o regime é de rajada. O que resta é o aquecimento durante a drenagem da fila de uma partida inteira, de probabilidade média e impacto médio, coberto pelo experimento 8 e mitigado por refrigeração ativa e pela declaração do modo de potência em toda medição. O que a rajada introduz, em compensação, é **variação de tempo por trecho conforme o estado térmico inicial**: o mesmo trecho processado a frio e processado depois de outros vinte produz números diferentes, e reportar a média deles esconde exatamente o efeito que se quer observar. A mitigação é reportar p95 com estado térmico declarado, nunca a média, e fixar afinidade de thread para eliminar variância de escalonamento.
+O risco térmico não se apresenta como throttling ao longo de dezenas de minutos de carga contínua, porque o regime é de rajada. O que resta é o aquecimento durante a drenagem da fila de uma partida inteira, de probabilidade média e impacto médio, coberto pelo experimento 8 e mitigado por refrigeração ativa e pela declaração do modo de potência em toda medição. O que a rajada introduz, em compensação, é variação de tempo por trecho conforme o estado térmico inicial: o mesmo trecho processado a frio e depois de outros vinte produz números diferentes, e reportar a média deles esconde o efeito que se quer observar. Daí a exigência de reportar p95 com estado térmico declarado, nunca a média.
 
-Há ainda dois riscos de desempenho de probabilidade alta. O primeiro é o pipeline ser limitado pela banda de memória, e não pelo acelerador, agravado pelo uso de lote maior que 1 e coberto pelo experimento 6 com análise roofline no dispositivo alvo. O segundo é a CPU saturar no pós-processamento antes de o acelerador saturar, o que a instrumentação por etapa do experimento 1 revela e a migração do pré-processamento para o acelerador mitiga. Por fim, há um risco metodológico de probabilidade alta e fácil de cometer, que é usar benchmarks de GPU de desktop como base de dimensionamento: eles não transferem para a plataforma embarcada, pelas razões de 5.2, e a única resposta é medir no alvo.
+Há ainda dois riscos de desempenho de probabilidade alta. O primeiro é o pipeline ser limitado pela banda de memória, e não pelo acelerador, agravado pelo uso de lote maior que 1 e coberto pelo experimento 6 com análise roofline no dispositivo alvo. O segundo é a CPU saturar no pós-processamento antes de o acelerador saturar, o que a instrumentação por etapa do experimento 1 revela e a migração do pré-processamento para o acelerador mitiga.
 
-### 9.3 Memória e armazenamento
+### Memória e armazenamento
 
-O risco central é o orçamento de 5.1 estar subestimado e levar a OOM sob carga, com impacto alto. A inferência em lote é consumidora direta de ativações intermediárias, e o teto de lote precisa sair de medição, e não de estimativa. O experimento 5 cobre os dois regimes, e a operação headless somada ao monitoramento contínuo de RSS é obrigatória.
+O risco central é o orçamento de capacidade estar subestimado e levar a estouro de memória, ou OOM, sob carga, com impacto alto. A inferência em lote é consumidora direta de ativações intermediárias, e o teto de lote precisa sair de medição, e não de estimativa. O experimento 5 cobre os dois regimes, e a operação headless somada ao monitoramento contínuo da memória residente do processo, o RSS, é obrigatória.
 
 O crescimento de memória ao longo da operação é o segundo risco, e decorre do modo de execução residente: um processo que atende trechos por horas ou dias tem muito mais oportunidade de acumular vazamento do que um processo de vida curta. A drenagem de fila do experimento 3 é o teste desse comportamento, e o critério de ausência de crescimento monotônico entre trechos existe por essa razão.
 
-Do lado do armazenamento, a capacidade não é restrição, já que um conjunto de validação de trechos curtos fica na ordem de dezenas de gigabytes. O que permanece é o microSD como gargalo de I/O e ponto de falha, de probabilidade alta e mitigação trivial, que é migrar boot e trabalho para NVMe desde o início; e a contenção de barramento entre acelerador, armazenamento e captura, média em geral e alta na plataforma da seção 4.4, razão pela qual linhas PCIe livres entram como critério de seleção. Permanece também a restrição de confidencialidade sobre reter vídeo no dispositivo, a alinhar com a Footstats quanto a política de retenção e criptografia em repouso: trechos curtos reduzem o volume retido, mas não mudam a natureza do dado.
+Do lado do armazenamento, o que permanece é o microSD como gargalo de I/O e ponto de falha, de probabilidade alta e mitigação trivial, que é migrar boot e trabalho para NVMe desde o início; e a contenção de barramento entre acelerador, armazenamento e captura, média em geral e alta na plataforma Raspberry Pi 5 com NPU em HAT, razão pela qual linhas PCIe livres entram como critério de seleção. Permanece também a restrição de confidencialidade sobre reter vídeo no dispositivo, a alinhar com a Footstats quanto a política de retenção e criptografia em repouso: trechos curtos reduzem o volume retido, mas não mudam a natureza do dado.
 
-### 9.4 Compatibilidade com os runtimes investigados
+### Compatibilidade com os runtimes investigados
 
-Esta é a categoria de maior risco agregado, e é a razão de a compatibilidade de runtime encabeçar a lista de critérios de 6.1. O risco de impacto alto é operadores do modelo não suportados pelo compilador do alvo, com fallback silencioso para CPU. A mitigação é executar o experimento 9 **antes** de fixar a plataforma e inspecionar o relatório de partição do grafo, em vez de supor que uma compilação terminada sem erro signifique que tudo roda no acelerador. Os suspeitos habituais estão listados em 8.2, e a amostragem em grade usada em warping e homografia é o mais provável neste projeto.
+Esta é a categoria de maior risco agregado, e é a razão de a compatibilidade de runtime encabeçar a lista de critérios de decisão. O risco de impacto alto é operadores do modelo não suportados pelo compilador do alvo, com fallback silencioso para CPU. A mitigação é executar o experimento 9 antes de fixar a plataforma e inspecionar o relatório de partição do grafo, em vez de supor que uma compilação terminada sem erro signifique que tudo roda no acelerador. Os suspeitos habituais estão listados no trade-off entre GPU e NPU, e a amostragem em grade usada em warping e homografia é o mais provável neste projeto.
 
-Com probabilidade alta nas alternativas de menor custo está a ausência de Execution Provider de primeira classe para ONNX Runtime, o que rompe a estratégia de portabilidade adotada na pesquisa de software; restringir os candidatos primários a plataformas com EP maduro é a mitigação, com o custo de migração documentado como em 8.5. Na alternativa RK3588 especificamente, o vendor kernel fora da árvore principal limita atualizações e suporte, e o horizonte do BSP precisa ser verificado antes da decisão. Em ARM64, a ausência de pacotes Python ou de imagens de container para a arquitetura é um incômodo recorrente de impacto médio, resolvido fixando versões em Dockerfile e validando o ambiente completo antes de iniciar o desenvolvimento.
+Com probabilidade alta nas alternativas de menor custo está a ausência de Execution Provider de primeira classe para ONNX Runtime, o que rompe a estratégia de portabilidade adotada na pesquisa de software; restringir os candidatos primários a plataformas com EP maduro é a mitigação, ao custo de hardware mais caro. Na alternativa RK3588 especificamente, o vendor kernel fora da árvore principal limita atualizações e suporte, e o horizonte do BSP precisa ser verificado antes da decisão.
 
-O risco mais consequente da categoria, porém, é a perda de qualidade concentrada em objetos pequenos após a quantização, pelo motivo dado no segundo critério de 6.1: sem pressão de tempo real, a qualidade é o recurso escasso, e uma plataforma que só executa INT8 não deixa saída. O experimento 10, com ΔmAP desagregado por classe, é o que separa uma quantização gratuita de uma que destrói justamente a detecção da bola.
+O risco mais consequente da categoria, porém, é a perda de qualidade em objetos pequenos após a quantização, pelo motivo dado no segundo critério de decisão. O experimento 10, com ΔmAP desagregado por classe, é o que separa uma quantização gratuita de uma que destrói a detecção da bola.
 
 ---
 
-## 10. Decisão Inicial
+## Decisão Inicial
 
 É importante destacar que esta é uma hipótese de trabalho para o início do módulo, não uma decisão final. Portanto, abaixo destacamos algumas decisões feitas e medições ainda a serem feitas, consequentemente levando a alteração do escopo do projeto, a depender de seus resultados.
 
 | Componente | Decisão inicial |
 |---|---|
-| Classe de hardware | SoC com GPU embarcada e memória unificada (seção 3.2) |
+| Classe de hardware | SoC com GPU embarcada e memória unificada |
 | Plataforma primária a validar | Jetson Orin Nano 8 GB, modo Super, operação headless |
 | Modo de execução | Processo residente, com engine carregado entre trechos; inferência em lote quando o trecho permitir |
 | Caminho de escalonamento | Jetson Orin NX 16 GB, caso os experimentos 1, 5 ou 6 demonstrem limite de compute ou de memória |
 | Segunda camada (opcional) | x86 compacto como máquina auxiliar local, se o experimento 1 indicar que a cascata completa não cabe no orçamento de tempo por trecho |
 | Memória | 8 GB LPDDR5, 102 GB/s; operação headless obrigatória; 16 GB caso o projeto evolua para múltiplos streams ou para lotes que não caibam em 8 GB |
 | Armazenamento | NVMe para boot e trabalho, por latência e confiabilidade; microSD apenas para o primeiro boot; capacidade não é restrição com um conjunto de validação de trechos curtos |
-| Alternativa de contingência | RK3588, caso a plataforma primária seja inviável por custo ou disponibilidade, aceitando o custo de migração de runtime documentado em 8.5 |
-| Descartado | SBC + acelerador discreto na configuração da seção 4.4, por acúmulo de fatores: acelerador restrito a INT8, ausência de EP de primeira classe, barramento PCIe Gen2 de uma linha e decode de H.264 em software |
+| Alternativa de contingência | RK3588, caso a plataforma primária seja inviável por custo ou disponibilidade, aceitando o custo de migração de runtime e de horas de engenharia |
+| Descartado | SBC + acelerador discreto na configuração Raspberry Pi 5 com NPU em HAT, por acúmulo de fatores: acelerador restrito a INT8, ausência de EP de primeira classe, barramento PCIe Gen2 de uma linha e decode de H.264 em software |
 
-**Justificativa.** A classe de SoC com GPU embarcada é a única entre as viáveis que oferece simultaneamente acesso integral aos runtimes selecionados na pesquisa de software, precisão FP16 e INT8 em silício, e a maior largura de banda de memória entre os candidatos de baixo consumo. Os dois primeiros são os critérios de maior precedência em 6.1; o terceiro é a restrição identificada como primária na literatura de benchmarking em borda [[Ref. 2](#ref-2), [Ref. 4](#ref-4)], e é ainda mais exigida pela inferência em lote. O decode em hardware entra como vantagem operacional relevante, mas não como razão determinante: o volume de vídeo por partida é baixo o suficiente para que o decode em software seja factível, ainda que oneroso para a CPU que executa o pós-processamento.
+**Justificativa.** A classe de SoC com GPU embarcada é a única entre as viáveis que oferece simultaneamente acesso integral aos runtimes selecionados na pesquisa de software, precisão FP16 e INT8 em silício, e a maior largura de banda de memória entre os candidatos de baixo consumo. Os dois primeiros são os critérios de maior precedência na avaliação das alternativas; o terceiro é a restrição identificada como primária na literatura de benchmarking em borda [[Ref. 2](#ref-2), [Ref. 4](#ref-4)], e é ainda mais exigida pela inferência em lote. O decode em hardware entra como vantagem operacional relevante, mas não como razão determinante: o volume de vídeo por partida é baixo o suficiente para que o decode em software seja factível, ainda que oneroso para a CPU que executa o pós-processamento.
 
-A comparação com as demais classes sustenta a escolha. O microcontrolador com TinyML e a câmera inteligente estão eliminados por definição, um por não executar Linux nem comportar buffers de frame, o outro por não entregar o frame completo de que a extração de features geométricas depende. A classe de SoC com NPU integrada é tecnicamente competente e mais barata, mas paga em ferramental proprietário e vendor kernel, o que a mantém como contingência e não como primária. A classe x86 compacta é a de maior maturidade e menor risco de execução, e por isso permanece explicitamente no desenho como segunda camada opcional, papel que o TAPI autoriza. E a classe de SBC com acelerador discreto fica descartada, pelas razões detalhadas a seguir.
+A Jetson Orin Nano é o ponto de partida por ser a de menor custo e complexidade dentro da classe recomendada, e por ser a única candidata com evidência empírica favorável já publicada: no estudo comparativo de nove plataformas de borda sob condições idênticas, ela registra 16 ms e 0,13 mWh por requisição com YOLOv8n, contra 76 ms e 0,20 mWh do Raspberry Pi 5 com AI HAT+ e 316 ms e 1,02 mWh do mesmo host sem acelerador [[Ref. 3]](#ref-3). Essa vantagem, porém, é de carga ativa, e é a razão de o experimento 7 existir: a mesma plataforma tem a maior energia de base do conjunto, 362 mWh contra 217 mWh do Raspberry Pi 5. Em um regime de rajada com longos períodos ociosos, o consumo diário pode inverter a ordenação que a energia por requisição sugere, e essa é uma hipótese a medir, não um resultado a assumir. O escalonamento para a Jetson Orin NX fica condicionado a evidência de limite, e não é adotado preventivamente: 8 GB são suficientes segundo o orçamento de capacidade, e o único vetor que empurra na direção do dobro de RAM é o tamanho do lote, que é medição, e não estimativa, que deve decidir.
 
-A plataforma da seção 4.1 é o ponto de partida por ser a de menor custo e complexidade dentro da classe recomendada, e por ser a única candidata com evidência empírica favorável já publicada: no estudo comparativo de nove plataformas de borda sob condições idênticas, ela registra 16 ms e 0,13 mWh por requisição com YOLOv8n, contra 76 ms e 0,20 mWh do Raspberry Pi 5 com AI HAT+ e 316 ms e 1,02 mWh do mesmo host sem acelerador [[Ref. 3]](#ref-3). A ressalva de 4.7 vale integralmente aqui e é a razão de o experimento 7 existir: essa vantagem é de carga ativa, e a mesma plataforma tem a **maior energia de base** do conjunto, 362 mWh contra 217 mWh do Raspberry Pi 5. Em um regime de rajada com longos períodos ociosos, o consumo diário pode inverter a ordenação que a energia por requisição sugere, e essa é uma hipótese a medir, não um resultado a assumir. O escalonamento para a plataforma de 4.2 fica condicionado a evidência de limite, e não é adotado preventivamente: 8 GB são suficientes segundo o orçamento de 5.1, e o único vetor que empurra na direção do dobro de RAM é o tamanho do lote, que é medição, e não estimativa, que deve decidir.
-
-**Sobre o descarte da configuração de 4.4**, ele decorre de três fatores independentes, e não de preferência. O acelerador executa apenas INT8, sem FP16 em silício, o que força quantização integral exatamente onde a perda se concentra em objetos pequenos, ou seja, na bola. Todo tensor atravessa uma única linha PCIe Gen2, com a banda do host em cerca de um sexto da dos candidatos Jetson. E o runtime não oferece Execution Provider de primeira classe para ONNX Runtime, o que reprova a plataforma no critério de maior precedência de 6.1. Some-se a ausência de decodificador de H.264 em hardware [[Ref. 5]](#ref-5), que em um pipeline onde a CPU já responde por NMS, tracking e homografia transfere a ela mais uma tarefa, contrariando o requisito derivado em 2.3.
-
-**Convergência com a pesquisa de software.** A decisão converge com a premissa de hardware adotada no documento de software, mas por derivação a partir dos requisitos, e não por assunção. Isso resolve a circularidade apontada na seção 1 e permite que as duas pesquisas se sustentem mutuamente.
+A decisão converge com a premissa de hardware adotada no documento de software, por derivação a partir dos requisitos. Isso resolve a circularidade apontada na introdução e permite que as duas pesquisas se sustentem independentemente.
 
 ---
 
@@ -427,60 +361,60 @@ A plataforma da seção 4.1 é o ponto de partida por ser a de menor custo e com
 
 <span id="ref-1" />
 
-**[Ref. 1]** D. G. Lema, R. Usamentiaga, D. F. García, *Quantitative comparison and performance evaluation of deep learning-based object detection models on edge computing devices*, Integration, vol. 95, 102127, Elsevier, 2024. DOI: 10.1016/j.vlsi.2023.102127. — Comparação quantitativa de dispositivos de borda com YOLOv3, YOLOv5 e YOLOX em todas as variantes, sobre NVIDIA Jetson Nano, Jetson AGX Xavier e Google Coral Dev Board, incluindo análise de consumo real de energia. Fundamenta a metodologia de comparação empírica de plataformas adotada na seção 7 e a necessidade de medir energia, e não apenas latência.
+**[Ref. 1]** D. G. Lema, R. Usamentiaga, D. F. García, *Quantitative comparison and performance evaluation of deep learning-based object detection models on edge computing devices*, Integration, vol. 95, 102127, Elsevier, 2024. DOI: 10.1016/j.vlsi.2023.102127.
 
 <span id="ref-2" />
 
-**[Ref. 2]** R. Jayanth, N. Gupta, V. Prasanna, *Benchmarking Edge AI Platforms for High-Performance ML Inference*, arXiv:2409.14803, 2024 (também publicado em IEEE Xplore). — Estudo comparativo de latência e throughput entre soluções CPU-only, CPU/GPU e CPU/NPU integradas, com aplicação explícita do modelo roofline. Fundamenta as seções 5.2 e 5.3 e o trade-off GPU versus NPU de 8.2: NPU com latência 58,54% inferior em multiplicação matriz-vetor, GPU superior em 22,6% em multiplicação matriz-matriz, CPU melhor em operações de baixo paralelismo.
+**[Ref. 2]** R. Jayanth, N. Gupta, V. Prasanna, *Benchmarking Edge AI Platforms for High-Performance ML Inference*, arXiv:2409.14803, 2024 (também publicado em IEEE Xplore).
 
 <span id="ref-3" />
 
-**[Ref. 3]** *A Comprehensive Evaluation of Deep Learning Object Detection Models on Heterogeneous Edge Devices*, arXiv:2409.16808, 2024 — publicado também como capítulo *Benchmarking Deep Learning Models for Object Detection on Edge Computing Devices*, Springer, DOI: 10.1007/978-981-96-0805-8_11. [arxiv.org](https://arxiv.org/abs/2409.16808) — Avaliação de oito detectores (YOLOv8 Nano/Small/Medium, EfficientDet Lite0–Lite2, SSD MobileNet V1 e SSDLite MobileDet) sobre nove plataformas: Raspberry Pi 3, 4 e 5 com e sem Coral TPU, Raspberry Pi 5 com AI HAT+, Jetson Nano e Jetson Orin Nano, medindo energia, latência e acurácia sob condições idênticas. Fonte primária das duas linhas medidas da tabela 4.7 e dos números citados em 10: com YOLOv8n, Jetson Orin Nano em 16 ms e 0,13 mWh por requisição, Raspberry Pi 5 com AI HAT+ em 76 ms e 0,20 mWh, e Raspberry Pi 5 sem acelerador em 316 ms e 1,02 mWh; energia de base de 362 mWh no Jetson Orin Nano contra 217 mWh no Raspberry Pi 5. *Observação: a energia por requisição é reportada excluindo a energia de base, e o detector avaliado é menor que o previsto para a cascata deste projeto, sem decode nem pós-processamento no caminho medido.*
+**[Ref. 3]** *A Comprehensive Evaluation of Deep Learning Object Detection Models on Heterogeneous Edge Devices*, arXiv:2409.16808, 2024 — publicado também como capítulo *Benchmarking Deep Learning Models for Object Detection on Edge Computing Devices*, Springer, DOI: 10.1007/978-981-96-0805-8_11. [arxiv.org](https://arxiv.org/abs/2409.16808)
 
 <span id="ref-4" />
 
-**[Ref. 4]** *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*, arXiv:2603.23640, 2026. — Benchmarking de inferência sustentada sobre Raspberry Pi 5 com NPU Hailo-10H e outras plataformas, demonstrando que envelope térmico, potência e largura de banda de memória atuam como restrições primárias, superando as especificações de compute de pico. Fundamenta a seção 8.1 e os experimentos 3 e 8 da seção 7. *Observação: a carga de trabalho do estudo é de modelos de linguagem, não de visão; o achado transferível é o comportamento térmico sob carga contínua, não os valores absolutos de throughput. No regime em rajada deste projeto, o achado aplica-se à drenagem de fila.*
+**[Ref. 4]** *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*, arXiv:2603.23640, 2026.
 
 ### Documentação oficial
 
 <span id="ref-5" />
 
-**[Ref. 5]** Raspberry Pi Ltd, *Raspberry Pi 5 Product Brief*. [datasheets.raspberrypi.com](https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf) — Fonte primária para: CPU Broadcom BCM2712 quad-core Cortex-A76 a 2,4 GHz; memória LPDDR4X-4267; decodificador HEVC 4Kp60 e **ausência de decodificador de H.264 em hardware**; interface PCIe 2.0 de uma única linha; slot microSD com modo SDR104. Base do descarte registrado na seção 10.
+**[Ref. 5]** Raspberry Pi Ltd, *Raspberry Pi 5 Product Brief*. [datasheets.raspberrypi.com](https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-product-brief.pdf)
 
 <span id="ref-6" />
 
-**[Ref. 6]** NVIDIA, *Jetson Orin NX Series Data Sheet* (DS-10712-001). [developer.nvidia.com](https://developer.nvidia.com/downloads/jetson-orin-nx-series-data-sheet) — Fonte primária para o subsistema de memória do Orin NX: 16 GB e 8 GB LPDDR5 em 128 bits, frequência máxima de 3200 MHz, banda teórica de pico de 102 GB/s, e descrição do Memory Subsystem e do Memory Controller Fabric.
+**[Ref. 6]** NVIDIA, *Jetson Orin NX Series Data Sheet* (DS-10712-001). [developer.nvidia.com](https://developer.nvidia.com/downloads/jetson-orin-nx-series-data-sheet)
 
 <span id="ref-7" />
 
-**[Ref. 7]** NVIDIA, *Jetson Orin* — página oficial de produto. [nvidia.com](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/) — Fonte para os envelopes de potência e desempenho declarado das duas famílias: Orin NX até 157 TOPS em 10–40 W; Orin Nano até 67 TOPS em 7–25 W.
+**[Ref. 7]** NVIDIA, *Jetson Orin* — página oficial de produto. [nvidia.com](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/)
 
 <span id="ref-8" />
 
-**[Ref. 8]** NVIDIA, *NVIDIA Unveils Its Most Affordable Generative AI Supercomputer* (blog oficial). [blogs.nvidia.com](https://blogs.nvidia.com/blog/jetson-generative-ai-supercomputer) — Fonte para o ganho do modo Super sem alteração de hardware: aumento de 70% no desempenho para 67 TOPS em INT8 e de 50% na largura de banda de memória para 102 GB/s em relação ao antecessor.
+**[Ref. 8]** NVIDIA, *NVIDIA Unveils Its Most Affordable Generative AI Supercomputer* (blog oficial). [blogs.nvidia.com](https://blogs.nvidia.com/blog/jetson-generative-ai-supercomputer)
 
 <span id="ref-9" />
 
-**[Ref. 9]** Raspberry Pi Ltd, *AI HATs* — documentação oficial de acessórios. [raspberrypi.com](https://www.raspberrypi.com/documentation/accessories/ai-hat-plus.html) — Fonte para as variantes de acelerador disponíveis e para a integração via PCIe com o host.
+**[Ref. 9]** Raspberry Pi Ltd, *AI HATs* — documentação oficial de acessórios. [raspberrypi.com](https://www.raspberrypi.com/documentation/accessories/ai-hat-plus.html)
 
 <span id="ref-10" />
 
-**[Ref. 10]** Raspberry Pi, *Introducing the Raspberry Pi AI HAT+* e *Introducing the Raspberry Pi AI HAT+ 2: Generative AI on Raspberry Pi 5*. [raspberrypi.com — AI HAT+](https://www.raspberrypi.com/news/raspberry-pi-ai-hat/) e [raspberrypi.com — AI HAT+ 2](https://www.raspberrypi.com/news/introducing-the-raspberry-pi-ai-hat-plus-2-generative-ai-on-raspberry-pi-5/) — Fonte para: variantes de 13 TOPS (Hailo-8L) e 26 TOPS (Hailo-8), operação em PCIe Gen 3, integração do chip diretamente na PCB com melhor dissipação; e para a geração seguinte, com acelerador Hailo-10H de 40 TOPS em INT4 e 8 GB de LPDDR4X dedicada a bordo. Fundamenta a discussão de memória dedicada ao acelerador em 5.3.
+**[Ref. 10]** Raspberry Pi, *Introducing the Raspberry Pi AI HAT+* e *Introducing the Raspberry Pi AI HAT+ 2: Generative AI on Raspberry Pi 5*. [raspberrypi.com — AI HAT+](https://www.raspberrypi.com/news/raspberry-pi-ai-hat/) e [raspberrypi.com — AI HAT+ 2](https://www.raspberrypi.com/news/introducing-the-raspberry-pi-ai-hat-plus-2-generative-ai-on-raspberry-pi-5/)
 
 <span id="ref-11" />
 
-**[Ref. 11]** Rockchip Electronics, *RK3588 Datasheet* (versões 1.6 e 2.2). [rockchip.fr](https://rockchip.fr/RK3588%20datasheet%20V2.2.pdf) e [wiki.friendlyelec.com](https://wiki.friendlyelec.com/wiki/images/e/ee/Rockchip_RK3588_Datasheet_V1.6-20231016.pdf) — Fonte primária para a interface de memória do RK3588: *Dynamic Memory Interface* compatível com LPDDR4, LPDDR4x e LPDDR5, em **quatro canais de 16 bits** (64 bits totais), até 2 ranks por canal e espaço de endereçamento de até 32 GB. Base da derivação de banda da seção 4.3 e da linha correspondente nas tabelas 4.7 e 5.3, e da correção da leitura inicial que supunha barramento de 128 bits. As medições de banda sustentada com `mbw` citadas em 4.3 são de relatos de comunidade em placas Rock 5A e entram como ordem de grandeza, não como especificação de fabricante.
+**[Ref. 11]** Rockchip Electronics, *RK3588 Datasheet* (versões 1.6 e 2.2). [rockchip.fr](https://rockchip.fr/RK3588%20datasheet%20V2.2.pdf) e [wiki.friendlyelec.com](https://wiki.friendlyelec.com/wiki/images/e/ee/Rockchip_RK3588_Datasheet_V1.6-20231016.pdf)
 
 <span id="ref-12" />
 
-**[Ref. 12]** Intel, *OpenVINO Documentation — Supported Devices e System Requirements*, e Microsoft, *ONNX Runtime — Intel OpenVINO Execution Provider*. [docs.openvino.ai](https://docs.openvino.ai/2025/documentation/compatibility-and-support/supported-devices.html) e [onnxruntime.ai](https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html) — Fonte para o caminho de execução da classe x86 compacta em 4.5 e para sua avaliação em 6.1: cobertura de CPU, GPU integrada e NPU como dispositivos de primeira classe; consumo direto de modelos ONNX; pacotes pré-construídos do OpenVINO Execution Provider publicados pela Intel a cada release, com compatibilidade mantida para as três versões mais recentes do toolkit; e exigência de instalação manual de drivers para GPU e NPU, com suporte de NPU documentado para Ubuntu 22.04 e 24.04.
+**[Ref. 12]** Intel, *OpenVINO Documentation — Supported Devices e System Requirements*, e Microsoft, *ONNX Runtime — Intel OpenVINO Execution Provider*. [docs.openvino.ai](https://docs.openvino.ai/2025/documentation/compatibility-and-support/supported-devices.html) e [onnxruntime.ai](https://onnxruntime.ai/docs/execution-providers/OpenVINO-ExecutionProvider.html)
 
 ### Estudos técnicos
 
 <span id="ref-13" />
 
-**[Ref. 13]** J.-L. Aufranc, *NVIDIA increases the price of Jetson modules and devkits by up to 101%*, CNX Software, julho de 2026. [cnx-software.com](https://www.cnx-software.com/2026/07/22/nvidia-increases-the-price-of-jetson-modules-and-devkits-by-up-to-101/) — Levantamento do reajuste de preços da linha Jetson: kit Orin Nano Super de US$ 249 para US$ 399, kit AGX Orin de US$ 1.999 para US$ 3.499, kit AGX Thor de US$ 3.499 para US$ 5.499, módulo AGX Orin 32 GB de US$ 899 para US$ 1.799. Fundamenta a seção 4.6 e o trade-off de custo em 8.5.
+**[Ref. 13]** J.-L. Aufranc, *NVIDIA increases the price of Jetson modules and devkits by up to 101%*, CNX Software, julho de 2026. [cnx-software.com](https://www.cnx-software.com/2026/07/22/nvidia-increases-the-price-of-jetson-modules-and-devkits-by-up-to-101/)
 
 <span id="ref-14" />
 
-**[Ref. 14]** *PolyThrottle: Energy-efficient Neural Network Inference on Edge Devices*, arXiv:2310.19991, 2023. [arxiv.org](https://arxiv.org/abs/2310.19991) — Otimização conjunta das frequências de CPU, GPU e memória em plataformas Jetson via DVFS, tratando a frequência de memória como variável independente de ajuste e mostrando que o ponto ótimo de energia varia conforme o modelo e a carga. Fundamenta a discussão de contenção de banda em memória unificada em 5.3 e, na seção 7, tanto a exigência de declarar o modo de potência em toda medição quanto a decisão de tratá-lo como variável a varrer nos experimentos 6 e 7, e não apenas como constante a registrar.
+**[Ref. 14]** *PolyThrottle: Energy-efficient Neural Network Inference on Edge Devices*, arXiv:2310.19991, 2023. [arxiv.org](https://arxiv.org/abs/2310.19991)
