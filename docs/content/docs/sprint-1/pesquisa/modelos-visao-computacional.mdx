@@ -1,6 +1,174 @@
 ---
 title: Modelos e tarefas de visão computacional
-description: Modelos e tarefas adequados para analisar vídeo de futebol
+description: Tarefas e modelos adequados à análise de vídeo de futebol
 ---
 
-Placeholder.
+## Objetivo da pesquisa
+
+A análise de uma finalização em vídeo não corresponde a uma única tarefa de visão computacional, ela depende de uma sequência de operações que localizam os elementos do lance, preservam suas identidades ao longo do tempo, convertem posições da imagem em coordenadas do campo e, somente então, produzem as variáveis utilizadas pelo modelo de gols esperados, ou *expected goals* (xG).
+
+A comparação entre modelos depende da tarefa, do conjunto de dados, do hardware e da métrica adotada, por isso um resultado obtido no COCO ou em uma GPU NVIDIA T4 indica potencial, mas não comprova desempenho nos vídeos da Footstats nem no dispositivo de borda adotado pelo projeto.
+
+## Tarefas necessárias
+
+| Tarefa | Pergunta respondida | Saída esperada | Uso no projeto |
+|---|---|---|---|
+| Detecção de objetos | Onde estão jogadores, goleiro e bola em cada quadro? | caixas delimitadoras, classe e confiança | fornece as observações básicas do lance |
+| Rastreamento de múltiplos objetos | Qual detecção pertence ao mesmo objeto nos quadros seguintes? | identificadores e trajetórias | preserva o histórico de jogadores e bola |
+| Identificação de equipe e função | Quem é companheiro, adversário ou goleiro? | equipe e papel associados a cada trajetória | permite calcular marcação, ocupação e posição do goleiro |
+| Detecção de pontos do campo | Quais linhas e referências do gramado estão visíveis? | pontos-chave e segmentos do campo | fornece correspondências para a calibração |
+| Homografia | Onde um ponto da imagem está no plano do campo? | transformação de pixels para coordenadas do gramado | permite calcular posição, distância e ângulo |
+| Estimativa de pose | Qual parte do corpo está próxima da bola? | pontos do corpo do jogador | apoia a classificação entre pé e cabeça |
+| Localização temporal da ação | Em qual quadro ocorreu o contato da finalização? | instante ou janela provável do chute | sincroniza todas as variáveis do evento |
+| Extração de características | Como as evidências visuais viram categorias do xG? | evento estruturado | gera as entradas consumidas pela solução |
+
+A detecção é a base do pipeline, porém não resolve sozinha conceitos como jogador marcado ou goleiro posicionado, essas categorias dependem da combinação entre trajetória, equipe, posição no campo e regras de negócio definidas com a Footstats.
+
+![Exemplo de análise de uma partida com identificação dos jogadores, equipes e bola](/pesquisa/modelos-visao/football-ai-tracking.png)
+
+*Figura 1. Exemplo de identificação e rastreamento de jogadores e bola em uma partida. Fonte: [Football AI Tutorial: From Basics to Advanced Stats with Python](https://www.youtube.com/watch?v=aBVGKoNZQUw).*
+
+## Famílias de detectores
+
+Os detectores candidatos pertencem principalmente a duas abordagens, modelos de um estágio, como a família YOLO, priorizam inferência rápida e integração simples, enquanto detectores baseados em *transformers*, como RT-DETR, utilizam mecanismos de atenção e realizam predições de forma direta, sem depender obrigatoriamente de uma etapa separada para remover caixas duplicadas.
+
+| Família | Situação em 2026 | Pontos favoráveis | Limitação para o projeto | Papel recomendado |
+|---|---|---|---|---|
+| YOLOv8 (2023) | geração amplamente adotada | implementação madura, treinamento simples e evidência publicada em futebol | utiliza uma arquitetura anterior e remoção posterior de caixas duplicadas | baseline de controle |
+| YOLO11 (2024) | geração intermediária da Ultralytics | ecossistema consolidado e suporte a várias tarefas | não possui, nesta pesquisa, evidência específica que justifique substituir o controle YOLOv8 | referência intermediária |
+| YOLO26 (2026) | geração atual da Ultralytics | inferência *end-to-end*, cabeça mais leve, mecanismo voltado a objetos pequenos e exportação para TensorRT | os números publicados usam COCO e T4, não bola de futebol e Jetson | principal candidato da família YOLO |
+| RT-DETR (2024) | detector *transformer* em tempo real | arquitetura *end-to-end* e ajuste do custo pelo número de camadas do decodificador | integração e otimização iniciais mais trabalhosas | alternativa técnica |
+| Faster R-CNN (2015) | detector clássico de dois estágios | referência importante para compreender precisão e propostas de região | custo e latência menos adequados à borda | referência conceitual |
+
+### YOLO26 e edge computing
+
+O YOLO26 é a geração mais recente da Ultralytics em agosto de 2026, sua arquitetura possui uma cabeça de detecção mais leve e um caminho de inferência sem *Non-Maximum Suppression* (NMS), etapa normalmente usada para eliminar caixas duplicadas, além disso, o mecanismo *Small-Target-Aware Label Assignment* preserva exemplos positivos para objetos pequenos durante o treinamento, característica relevante para uma bola que ocupa poucos pixels em planos abertos.
+
+Nos resultados publicados pelos autores, as variantes `n`, `s`, `m`, `l` e `x` alcançam diferentes compromissos entre latência e precisão, com avanço da fronteira medida em COCO sobre gerações anteriores da família, porém a comparação foi executada em TensorRT 10, precisão FP16 e GPU NVIDIA T4, portanto ela sustenta a escolha do YOLO26 como candidato atual, não como vencedor antecipado para o projeto.
+
+![Comparação entre precisão e latência publicada para variantes YOLO em GPU NVIDIA T4 com TensorRT 10 e FP16](/pesquisa/modelos-visao/yolo26-benchmark.jpg)
+
+*Figura 2. Curva de precisão e latência publicada pelos autores do YOLO26. Fonte: [documentação oficial da Ultralytics](https://docs.ultralytics.com/models/yolo26).*
+
+## YOLOv8 ou YOLO26 como ponto de partida
+
+O YOLOv8n continua sendo um baseline justificável porque um estudo voltado a planos abertos de futebol o comparou com o detector FootAndBall e encontrou resultado superior no conjunto avaliado, já o YOLO26n representa a arquitetura atual e foi concebido para melhorar a relação entre precisão e latência, inclusive em cenários de CPU e edge computing.
+
+A melhor decisão não é realizar uma migração tardia de toda a solução, mas treinar e avaliar os dois modelos sobre a mesma amostra no início da próxima sprint, o YOLOv8n funciona como controle reproduzível e o YOLO26n como candidato atual, como ambos pertencem ao ecossistema Ultralytics, o custo adicional de integração tende a ser pequeno e o vencedor pode ser escolhido por evidência do projeto.
+
+<Callout type="success" title="Decisão recomendada">
+
+O primeiro experimento deverá comparar YOLOv8n e YOLO26n com as mesmas anotações e configurações de entrada, priorizando o *recall* da bola próximo ao contato, a precisão de jogadores e goleiro, a latência por quadro e o consumo de memória, o modelo escolhido para a PoC será aquele que apresentar o melhor equilíbrio nos dados e no hardware reais.
+
+</Callout>
+
+## Tracking e labels em tempo real
+
+Para o rastreamento, o ByteTrack constitui um baseline simples porque tenta associar também detecções de baixa confiança, comportamento útil em oclusões curtas, enquanto o BoT-SORT acrescenta informação de aparência e compensação do movimento da câmera, sendo uma comparação pertinente caso movimentos de câmera ou trocas de identidade prejudiquem o resultado inicial.
+
+A bola exige tratamento próprio, pois é menor, move-se mais rapidamente e desaparece com maior frequência que os jogadores, por isso a trajetória pode combinar detecção, rejeição de pontos improváveis, interpolação curta e suavização, sem presumir que o mesmo rastreador será ideal para todas as classes.
+
+As tecnologias citadas permitem desenhar caixas e labels durante o processamento, mas cada informação exibida possui uma origem diferente. O detector fornece classe e confiança, o tracker atribui um identificador persistente, e o frontend apenas sobrepõe esses dados ao vídeo. Um rótulo como `#17` pode ser o ID da trajetória e não deve ser interpretado automaticamente como número da camisa.
+
+| Label exibida | Origem | Tratamento temporal | Decisão para a PoC |
+|---|---|---|---|
+| ID da trajetória | ByteTrack ou BoT-SORT | associação entre quadros | obrigatório para manter o histórico |
+| Equipe | classificador pela aparência do uniforme | votação em vários quadros | necessário para companheiros e adversários |
+| Função | classe do detector e posição no campo | confirmação ao longo do clipe | distinguir jogador e goleiro |
+| Número da camisa | reconhecimento específico ou OCR | consenso entre quadros legíveis | fora do escopo inicial, salvo necessidade da Footstats |
+| Confiança | detector e módulos auxiliares | agregação por janela | registrar incerteza, sem ocultar falhas |
+
+Essa separação evita que a visualização prometa uma identidade que o pipeline ainda não reconhece. A primeira PoC deverá exibir ID, equipe, função e confiança, enquanto o número da camisa permanece uma extensão, pois exige novas anotações, mais processamento e quadros com resolução suficiente. O benchmark SoccerNet Game State Reconstruction adota essa mesma decomposição entre detecção, tracking, identificação de equipe, função e número da camisa.
+
+## Pontos do campo e homografia
+
+A homografia converte um ponto da imagem em uma coordenada do plano do gramado. Para estimá-la, o sistema precisa reconhecer referências cuja posição real seja conhecida, como cantos da área, interseções entre linhas e pontos do círculo central. Um detector de keypoints pode produzir a localização e a confiança de cada referência em uma ordem fixa, as previsões invisíveis ou de baixa confiança são descartadas antes do cálculo.
+
+Quatro correspondências não colineares são o mínimo geométrico, porém usar apenas quatro pontos torna o resultado sensível a um único erro. A implementação inicial deverá utilizar todas as correspondências confiáveis disponíveis e estimar a matriz com `findHomography` e RANSAC, que tenta rejeitar pontos incompatíveis. A qualidade será verificada pelo erro de reprojeção, isto é, a distância em pixels entre as referências observadas e aquelas projetadas pela transformação estimada.
+
+A segmentação de linhas complementa esse processo quando cruzamentos importantes estão fora do enquadramento ou parcialmente oclusos. O modelo produz uma máscara para cada marcação do campo, dessa máscara são extraídos segmentos e interseções que podem ser comparados com o modelo geométrico conhecido. Abordagens como TVCalib refinam diretamente os parâmetros da câmera a partir dessas correspondências e consideram também a distorção da lente, mas possuem maior complexidade que uma homografia baseada em keypoints.
+
+![Pontos-chave detectados nas linhas e marcações de um campo de futebol](/pesquisa/modelos-visao/pitch-keypoints-filtered.png)
+
+*Figura 3. Pontos-chave do campo mantidos após a filtragem por confiança, utilizados como correspondências para calcular a homografia. Fonte: [Camera Calibration in Sports with Keypoints](https://blog.roboflow.com/camera-calibration-sports-computer-vision/), Roboflow.*
+
+| Etapa | Operação | Verificação | Trade-off |
+|---|---|---|---|
+| Referências | detectar keypoints e suas confianças | quantidade e distribuição dos pontos válidos | mais pontos aumentam robustez, mas exigem anotação específica |
+| Linhas | segmentar marcações visíveis do gramado | compatibilidade entre segmentos e modelo do campo | amplia a cobertura, com maior custo e sensibilidade a sombras |
+| Estimação | calcular homografia com RANSAC | erro de reprojeção e proporção de correspondências aceitas | tolera outliers, mas falha sem geometria visível suficiente |
+| Projeção | usar o centro inferior da caixa do jogador | erro em metros contra posições anotadas | aproxima o contato com o chão, mas depende da qualidade da caixa |
+| Atualização | recalibrar após pan, zoom ou corte | taxa de quadros com calibração válida | maior frequência acompanha a câmera, porém aumenta a latência |
+
+A decisão inicial é começar com keypoints e RANSAC, pois esse caminho é simples de medir e implementar. A segmentação de linhas será incorporada se a taxa de calibrações válidas ou o erro espacial não atingir o critério definido nos clipes reais. A transformação aceita deverá acompanhar uma confiança, quadros sem referências suficientes não produzirão nova posição e poderão reutilizar a última calibração válida apenas por uma janela curta.
+
+Há limites geométricos importantes. A homografia representa o plano do gramado, portanto o centro inferior da caixa é uma aproximação adequada para jogadores em contato com o chão, mas a bola não deve ser projetada da mesma forma durante uma trajetória aérea. Distorção da lente, reflexos, oclusões, cortes de câmera e pontos concentrados em uma única região também podem tornar a transformação instável.
+
+## Qualidade de imagem e tratamento de ruído
+
+O tratamento da imagem deve preservar os objetos pequenos, não apenas produzir um quadro visualmente mais agradável. A bola pode desaparecer por saturação causada pelo sol, baixo contraste, borrão de movimento, compressão ou ruído, e filtros agressivos podem apagar ainda mais um objeto que ocupa poucos pixels. Por isso, a primeira medição deve usar o vídeo original redimensionado e normalizado como baseline.
+
+| Condição observada | Tratamento a testar | Limite ou risco | Como comparar |
+|---|---|---|---|
+| sombra ou baixo contraste | CLAHE aplicado somente à luminância | pode amplificar ruído e alterar a aparência do uniforme | recall da bola e precisão por condição de luz |
+| ruído de sensor | filtro bilateral leve em quadros selecionados | preserva bordas, mas adiciona latência | qualidade por classe e tempo por quadro |
+| borrão de movimento | treinamento com exemplos e variações de borrão | a restauração não recria detalhes ausentes | recall na janela do chute |
+| brilho intenso e pixels saturados | detectar sobre-exposição, sinalizar baixa confiança e usar continuidade temporal curta | regiões saturadas perderam informação que o filtro não recupera | taxa de eventos completos sob sol forte |
+| compressão do vídeo | treinar e validar com a codificação próxima à entrada real | artefatos podem ser confundidos com bola ou linhas | diferença entre vídeo original e recomprimido |
+
+O CLAHE divide a imagem em pequenas regiões e limita o aumento de contraste, o que o torna mais controlado que uma equalização global. Ainda assim, ele deverá ser testado somente nos casos em que o indicador de contraste justificar sua ativação. Para ruído, filtros como o bilateral preservam bordas melhor que uma média simples, mas são mais lentos. A continuidade do tracker pode preencher uma oclusão ou reflexo por poucos quadros, nunca deve inventar uma trajetória longa sem observação.
+
+Também deverão ser incluídas no treino variações controladas de brilho, contraste, compressão e borrão semelhantes às encontradas nos vídeos da Footstats. O teste será estratificado por condição visual, comparando baseline, pré-processamento seletivo e aumento de dados. Um tratamento somente será mantido se melhorar o recall da bola ou a taxa de eventos completos sem ultrapassar o orçamento de latência e sem reduzir de forma relevante a identificação de jogadores e linhas.
+
+## Pose sob demanda
+
+A estimativa de pose deve ser acionada somente quando a variável realmente depender do corpo do jogador, como a distinção entre chute de pé e cabeceio. Executá-la em uma janela curta ao redor do contato reduz o custo computacional e evita tornar um modelo adicional obrigatório para as características puramente espaciais.
+
+## Critérios de comparação
+
+| Critério | O que mede | Por que importa |
+|---|---|---|
+| mAP por classe | qualidade média das detecções em diferentes sobreposições | permite comparar o detector sem esconder a bola na média geral |
+| Recall da bola no chute | proporção de finalizações com a bola detectada na janela do contato | mede a disponibilidade do objeto mais crítico |
+| Trocas e fragmentações de ID | interrupções ou identidades incorretas nas trajetórias | mede a estabilidade das labels e das regras temporais |
+| Consistência de equipe e função | proporção de trajetórias com label sem oscilações | verifica se companheiros, adversários e goleiro permanecem identificáveis |
+| Taxa de calibração válida | proporção de quadros com referências e transformação aceitas | expõe falhas causadas por enquadramento, oclusão e iluminação |
+| Erro de reprojeção | distância em pixels entre linhas ou pontos previstos e observados | avalia a coerência interna da calibração |
+| Erro espacial | distância entre posição prevista e posição de referência no campo | mede utilidade para distância e ângulo do chute |
+| Erro temporal | diferença entre o quadro previsto e o contato anotado | mede sincronização das características do evento |
+| Latência, memória e energia | recursos usados por estágio e pelo pipeline completo | verifica compatibilidade com o dispositivo de borda |
+| Robustez visual | desempenho separado por sol, sombra, borrão e compressão | evita que a média esconda condições críticas de uso |
+
+O *mean Average Precision* (mAP) resume a qualidade média das caixas detectadas, mas não deve ser usado isoladamente, uma falha na bola exatamente no instante do chute pode comprometer todo o evento mesmo quando a média geral permanece alta.
+
+## Limites, riscos e validação
+
+| Risco ou limite | Efeito no resultado | Resposta verificável |
+|---|---|---|
+| poucos pontos ou linhas visíveis | homografia ausente ou instável | medir taxa de calibração válida e testar inclusão da segmentação de linhas |
+| bola pequena, saturada ou borrada | trajetória e contato incompletos | estratificar o conjunto por condição visual e comparar os tratamentos propostos |
+| troca de identidade | regra atribuída ao jogador incorreto | medir trocas de ID e comparar ByteTrack com BoT-SORT somente se necessário |
+| bola fora do plano do gramado | coordenada física incorreta após o chute | projetar a posição do contato e registrar trajetória aérea separadamente |
+| módulos demais na borda | aumento de latência, memória e energia | executar pose e filtros apenas sob condição, medir cada estágio isoladamente |
+| mudança de domínio | desempenho público não reproduzido na Footstats | ajustar e validar todos os candidatos na mesma amostra real |
+
+Esta sprint registra uma proposta técnica, os modelos, filtros e rotinas de calibração ainda não foram implementados. As próximas sprints deverão testar cada hipótese sobre a mesma divisão de vídeos, resolução, precisão numérica e hardware, registrando também o desempenho por condição de iluminação. Assim, a decisão pode ser mantida ou substituída por evidência do projeto.
+
+## Síntese
+
+O panorama atual sustenta uma arquitetura modular, com um detector leve para jogadores, goleiro e bola, tracking para formar trajetórias e labels estáveis, keypoints com homografia para obter coordenadas físicas e pose apenas nas características que exigem partes do corpo. O YOLO26 merece destaque como principal candidato atual para edge computing, enquanto o YOLOv8 permanece como controle relevante por sua maturidade e pela evidência específica em futebol.
+
+Para a PoC, as decisões iniciais são comparar YOLOv8n e YOLO26n, adotar ByteTrack, exibir ID, equipe e função sem presumir reconhecimento do número da camisa, estimar a homografia com keypoints, RANSAC e controle por erro de reprojeção, além de testar pré-processamento somente quando uma condição visual justificar seu custo. Segmentação de linhas, BoT-SORT, OCR de camisa e pose contínua permanecem extensões condicionadas aos resultados.
+
+A tradução dessas escolhas para o problema da Footstats está registrada em [Aplicação da visão computacional no projeto](./aplicacao-visao-computacional). Os detalhes de implantação são tratados separadamente em [Runtimes e formatos](./runtimes-e-formatos), [Quantização e otimização](./quantizacao-e-otimizacao), [Estratégias de execução](./estrategias-de-execucao) e [Benchmarking](./benchmarking).
+
+## Referências
+
+1. JOCHER, Glenn et al. [Ultralytics YOLO26: Unified Real-Time End-to-End Vision Models](https://arxiv.org/abs/2606.03748). arXiv, 2026.
+2. MOUTSELOS, Konstantinos; MAGLOGIANNIS, Ilias. [Setting a Baseline for Long-Shot Real-Time Player and Ball Detection in Soccer Videos](https://arxiv.org/abs/2311.06892). IISA, 2023.
+3. ZHAO, Yian et al. [DETRs Beat YOLOs on Real-time Object Detection](https://arxiv.org/abs/2304.08069). CVPR, 2024.
+4. ZHANG, Yifu et al. [ByteTrack: Multi-Object Tracking by Associating Every Detection Box](https://arxiv.org/abs/2110.06864). ECCV, 2022.
+5. THEINER, Jonas; EWERTH, Ralph. [TVCalib: Camera Calibration for Sports Field Registration in Soccer](https://openaccess.thecvf.com/content/WACV2023/html/Theiner_TVCalib_Camera_Calibration_for_Sports_Field_Registration_in_Soccer_WACV_2023_paper.html). WACV, 2023.
+6. SOMERS, Vladimir et al. [SoccerNet Game State Reconstruction: End-to-End Athlete Tracking and Identification on a Minimap](https://openaccess.thecvf.com/content/CVPR2024W/CVsports/html/Somers_SoccerNet_Game_State_Reconstruction_End-to-End_Athlete_Tracking_and_Identification_on_CVPRW_2024_paper.html). CVPR Workshops, 2024.
+7. SKALSKI, Piotr. [Camera Calibration in Sports with Keypoints](https://blog.roboflow.com/camera-calibration-sports-computer-vision/). Roboflow, 2024.
+8. OPENCV. [Image Processing Tutorials: histogram equalization and smoothing](https://docs.opencv.org/4.12.0/d2/d96/tutorial_py_table_of_contents_imgproc.html). Documentação oficial, acesso em 13 ago. 2026.

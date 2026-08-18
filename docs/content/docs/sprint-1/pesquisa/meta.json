@@ -4,6 +4,7 @@
     "benchmarking_OS",
     "benchmarking",
     "modelos-visao-computacional",
+    "aplicacao-visao-computacional",
     "runtimes-e-formatos",
     "estrategias-execucao-e-rollout",
     "quantizacao-e-otimizacao"
