@@ -26,10 +26,9 @@ modelo escolhido, mantendo o custo por quadro estável do começo ao fim do clip
 | Como verificar | registrar quadros recebidos, amostrados e processados, o tempo de cada etapa e o modo de potência, repetindo com clipes de durações diferentes e em sequência |
 | Situação | Alvo preliminar, trazido pela pesquisa de hardware e ainda não medido no pipeline do projeto |
 
-Quando a entrada deixar de ser um clipe recortado e passar a ser a transmissão contínua, este
-requisito ganha uma segunda forma: vazão sustentada por uma partida inteira, com fila limitada
-e política de descarte declarada. Fica registrado aqui para não se perder na transição, mas
-não é cobrado nesta sprint.
+Em uma evolução futura com transmissão contínua, este requisito ganharia uma segunda forma:
+vazão sustentada por uma partida inteira, com fila limitada e política de descarte declarada.
+Esse cenário permanece fora do escopo atual.
 
 O alvo não exige inferência em todos os quadros. A taxa de amostragem será definida com o
 modelo, mas, uma vez configurada, o processamento precisa sustentá-la. A
@@ -118,7 +117,7 @@ driver, sem deslocar silenciosamente operadores do modelo para a CPU.
 | Origem | alternativas pesquisadas de Linux embarcado, ONNX e runtime acelerado; riscos R06 e R09 |
 | Critério de aceite | exportar o modelo para ONNX, compilar no hardware escolhido e confirmar que todos os operadores do modelo executam no acelerador; reconstruir o ambiente com as versões registradas do JetPack, CUDA, TensorRT e Python |
 | Como verificar | guardar relatório de exportação e compilação, comparar a saída com o modelo de referência e executar uma inferência após instalação limpa do ambiente |
-| Situação | Alvo preliminar, dependente do modelo e da classe de hardware validados na Sprint 2 |
+| Situação | Alvo preliminar, com o modelo preparado na Sprint 2 e o ambiente embarcado validado na Sprint 3 |
 
 A engine do TensorRT não é um artefato universal. A
 [matriz de suporte](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/support-matrix.html)
@@ -137,7 +136,7 @@ no banco geral quando o envio for repetido.
 | Origem | persistência local antes do envio, webhook, API e risco R10 |
 | Critério de aceite | após desconexão e reconexão, todos os eventos persistidos localmente chegam ao banco geral; reenvios com o mesmo id de lance mantêm um único registro central |
 | Como verificar | interromper a conexão durante o processamento, restaurá-la e comparar IDs e contagens entre banco local, fila e banco geral; repetir o mesmo webhook |
-| Situação | Confirmado na proposta inicial de arquitetura; precisa ser validado na Sprint 2 |
+| Situação | Confirmado na proposta inicial de arquitetura; precisa ser validado na Sprint 4 |
 
 O critério trata entrega única como resultado observável. A rede pode transportar a mesma
 mensagem mais de uma vez, mas a chave idempotente impede que essa repetição altere o estado
@@ -194,8 +193,9 @@ e o `tegrastats` cobre os recursos do dispositivo.
 Três valores não devem ser fechados apenas pela equipe: a latência ponta a ponta tolerada,
 os limites mínimos de qualidade e a política de retenção dos clipes. Eles aparecem como
 pendentes porque alteram decisões de arquitetura ou o resultado da validação. Até essas
-respostas chegarem, a Sprint 2 pode preparar a instrumentação e medir os candidatos, mas não
-pode declarar RNF-02, RNF-03 ou RNF-08 atendidos.
+respostas chegarem, a Sprint 2 pode preparar a instrumentação e medir o pipeline funcional,
+enquanto a Sprint 3 mede runtime e hardware, mas nenhuma delas pode declarar RNF-02, RNF-03
+ou RNF-08 atendidos sem os critérios do parceiro.
 
 ## Referências
 

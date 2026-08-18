@@ -7,11 +7,12 @@ A arquitetura organiza como a xVision transforma o vídeo de uma finalização e
 estruturado que possa ser usado pela Footstats. Nesta sprint, o escopo é o clipe já
 recortado: o desenho parte de duas entradas, o clipe fornecido pela Footstats e o upload
 manual, e as duas seguem pelo mesmo pipeline a partir da ingestão. Processar a transmissão
-contínua, encontrando as finalizações no meio do jogo, é meta das próximas sprints.
+contínua, encontrando as finalizações no meio do jogo, é uma evolução futura fora do escopo
+atual.
 
 Esta é uma proposta inicial. Ela define componentes, responsabilidades e fluxos para orientar
-as próximas sprints, mas as escolhas de modelo, runtime e hardware ainda dependem das medições
-planejadas para a Sprint 2.
+as próximas sprints, mas a escolha do modelo depende das medições da Sprint 2, enquanto
+runtime e hardware serão concluídos com os testes embarcados da Sprint 3.
 
 ## Da transmissão ao evento
 
@@ -20,7 +21,7 @@ Depois de identificar o instante da finalização, ele extrai as característica
 grava o resultado localmente antes do envio. O dado que atravessa essa fronteira é um evento
 estruturado, não o vídeo.
 
-Na nuvem, esse evento é validado e pode ser complementado com os dados oficiais fornecidos
+Na nuvem, esse evento é validado e pode ser comparado com os dados de referência fornecidos
 pela Footstats. O backend calcula o xG, mantém o histórico no banco geral e disponibiliza o
 resultado por API e webhook. O frontend consulta a mesma API e usa a CDN apenas para servir
 os recursos estáticos da interface.
@@ -28,6 +29,12 @@ os recursos estáticos da interface.
 Essa divisão deixa uma responsabilidade clara para cada lado: a borda identifica o que
 aconteceu no vídeo, enquanto a nuvem consolida o evento, calcula o valor de xG e entrega o
 resultado aos consumidores.
+
+<Callout type="success" title="Decisão da arquitetura">
+  A Proposta A orienta a implementação: a borda transforma o clipe em um evento com as
+  características da finalização, o backend calcula o xG e a Proposta B permanece como
+  referência de evolução, sem implementação prevista no escopo atual.
+</Callout>
 
 ## Proposta inicial e evolução
 
@@ -43,7 +50,7 @@ complexa.
 | Transporte dos eventos | envio para a fila da nuvem depois da persistência local | log particionado, com ordenação por partida e múltiplos consumidores |
 | Escala | novas transmissões recebem novas unidades | capacidade ajustada por região e pelo calendário das partidas |
 | Operação | menos componentes e menor custo de desenvolvimento | mais elasticidade, reprocessamento e observabilidade, com maior custo operacional |
-| Uso previsto | base para os experimentos da Sprint 2 | referência de crescimento, sem implementação prevista neste projeto |
+| Uso previsto | base funcional na Sprint 2 e adaptação ao dispositivo na Sprint 3 | referência de crescimento, sem implementação prevista neste projeto |
 
 A escolha da Proposta A evita introduzir uma plataforma distribuída antes de existir volume
 medido que a justifique. A principal desvantagem é o crescimento linear do número de unidades

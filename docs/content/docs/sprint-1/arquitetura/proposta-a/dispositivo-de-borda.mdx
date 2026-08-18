@@ -1,5 +1,5 @@
 ---
-title: Arquitetura da Borda
+title: Arquitetura da borda
 description: Componentes responsáveis por receber o clipe da finalização, analisar o lance e produzir o evento estruturado enviado para a nuvem
 ---
 
@@ -9,10 +9,9 @@ A borda é responsável por transformar vídeo em evento. Ela recebe um clipe co
 finalização, identifica o instante em que o lance começa, extrai as características daquele
 lance e entrega um evento estruturado para a nuvem, que a partir dali calcula o xG.
 
-Nesta sprint o escopo é o clipe já recortado, **fornecido pela Footstats**. Encontrar
-finalizações dentro de uma partida completa não faz parte do MVP, e sim das próximas
-sprints. Essa distinção aparece ao longo da página sempre que uma decisão muda quando a
-entrada passar a ser a transmissão contínua.
+Nesta proposta o escopo é o clipe já recortado, **fornecido pela Footstats**. Encontrar
+finalizações dentro de uma partida completa é uma evolução futura fora do escopo atual. Essa
+distinção aparece ao longo da página apenas para delimitar o que mudaria nesse outro cenário.
 
 Apesar do nome, este dispositivo não fica no estádio. Como a fonte é material fornecido pelo
 parceiro, e não uma câmera instalada em campo, a borda é o ponto de operação onde esse
@@ -72,8 +71,8 @@ prazo de exclusão desse material são tratados pelo
 O modelo identifica em que instante do clipe a finalização começa. Ele não avalia a qualidade
 do lance nem calcula probabilidade de gol, o que é responsabilidade da nuvem.
 
-Qual modelo, com qual runtime e sobre qual classe de hardware, é a decisão que ainda depende
-das medições da Sprint 2. As frentes de
+O modelo será comparado na Sprint 2, enquanto runtime e classe de hardware dependem das
+medições embarcadas da Sprint 3. As frentes de
 [runtimes e formatos](/docs/sprint-1/pesquisa/runtimes-e-formatos),
 [quantização](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao) e
 [benchmarking](/docs/sprint-1/pesquisa/benchmarking) levantaram os candidatos e os critérios;
@@ -92,14 +91,15 @@ projeto. Os modelos de xG em produção usam distância e ângulo do gol, parte 
 do goleiro e dos defensores
 ([Hudl StatsBomb](https://www.hudl.com/blog/expected-goals-xg-explained)).
 
-Dessas variáveis, a que a borda entrega é a mais básica e ao mesmo tempo a mais cara de obter
-à mão: **que houve uma finalização, e exatamente quando**. É essa marcação que hoje consome
-tempo humano na Footstats, e é dela que sai o recorte temporal usado pelas demais etapas.
+A borda identifica o instante da finalização e localiza os elementos do lance. Um detector de
+pontos do campo fornece correspondências para a homografia, que transforma posições da imagem
+em coordenadas do gramado e permite calcular posição, distância e ângulo. Os valores fornecidos
+pela Footstats, quando disponíveis, funcionam como referência para medir o erro dessa extração.
 
-O ângulo e a posição do lance chegam prontos da Footstats e seguem para a nuvem junto com o
-evento. Derivá-los do vídeo exigiria estimar a posição da câmera a cada quadro, sem
-enquadramento fixo, e não faz parte deste MVP. Como o parceiro já fornece esses valores, eles
-também servem de gabarito se o projeto decidir extraí-los mais adiante.
+Esse processamento acompanha uma confiança, quadros sem referências geométricas suficientes
+não devem produzir uma nova posição como se ela fosse válida. Parte do corpo, marcação,
+ocupação da área e posicionamento do goleiro são incorporados conforme as definições do
+parceiro e a qualidade observada nos clipes.
 
 ## 4. Persistência local e envio
 
@@ -118,9 +118,9 @@ hardware.
 
 ### 4.2. O evento que sai daqui
 
-O evento entregue à nuvem contém as features do lance, o ângulo e a posição fornecidos pela
-Footstats, o identificador da partida, o instante, a confiança do detector, a versão do
-modelo que o produziu e o **id de lance**.
+O evento entregue à nuvem contém as características do lance, as coordenadas, a distância e o
+ângulo extraídos do vídeo, o identificador da partida, o instante, as confianças dos módulos,
+a versão dos modelos e o **id de lance**.
 
 Esse identificador é o que permite reenviar sem criar registro duplicado do outro lado, que é
 o comportamento exigido pelo
@@ -145,20 +145,20 @@ pesadas rodem em uma máquina auxiliar local, o que abriria uma segunda camada e
 a nuvem. A proposta mantém as duas camadas atuais por simplicidade, e a alternativa fica
 disponível caso as medições mostrem que o dispositivo não comporta o modelo escolhido.
 
-## Riscos e o que a Sprint 2 responde
+## Riscos e validação nas próximas sprints
 
-| O que decidimos | O que nos preocupa | O que a Sprint 2 faz |
-| --- | --- | --- |
-| Entrada por clipe recortado no MVP | a transmissão contínua traz problemas que o clipe esconde, como corte de plano e repetição do lance, e eles só aparecem quando o escopo crescer | validar o pipeline com o clipe e registrar o que muda quando a entrada virar transmissão, sem tratar isso como resolvido |
-| Detecção do instante do lance dentro do clipe | o clipe pode conter mais de um chute em sequência, como num rebote, e o instante escolhido pode ser o errado | testar com lances de rebote e verificar qual chute o modelo marca |
-| Features no contrato do evento | um conjunto insuficiente obriga a mudar o contrato, que é a alteração mais cara do sistema | validar as features contra os gols da Copa de 2026 antes de congelar o contrato |
-| Gravação local antes do envio | o banco local compete por memória e armazenamento com o modelo | medir a pegada no hardware disponibilizado e avaliar um log somente-anexação no lugar de banco |
-| Um modelo dentro do orçamento por quadro | pode ser que nenhum candidato caiba no orçamento com a qualidade necessária | medir tempo por quadro; se nenhum couber, a cascata e a máquina auxiliar local entram como alternativas |
+| O que decidimos | O que nos preocupa | Validação | Sprint |
+| --- | --- | --- | --- |
+| Entrada por clipe recortado no MVP | a transmissão contínua exigiria detectar eventos, tratar replays e controlar uma fila por toda a partida | validar o pipeline com o clipe e registrar a transmissão apenas como evolução futura fora do escopo atual | Sprint 2 |
+| Detecção do instante do lance dentro do clipe | o clipe pode conter mais de um chute em sequência, como num rebote, e o instante escolhido pode ser o errado | testar com lances de rebote e verificar qual chute o modelo marca | Sprint 2 |
+| Características no contrato do evento | um conjunto insuficiente obriga a mudar o contrato, que é a alteração mais cara do sistema | validar as características contra uma amostra autorizada da Footstats antes de congelar o contrato | Sprint 2 |
+| Gravação local antes do envio | o banco local compete por memória e armazenamento com o modelo | medir a pegada no hardware disponibilizado e avaliar um log somente-anexação no lugar de banco | Sprint 3 |
+| Um modelo dentro do orçamento por quadro | pode ser que nenhum candidato caiba no orçamento com a qualidade necessária | medir tempo por quadro; se nenhum couber, a cascata e a máquina auxiliar local entram como alternativas | Sprint 3 |
 
 Os alvos numéricos de cada medição ficam nos
 [requisitos não funcionais](/docs/sprint-1/requisitos/nao-funcionais), que são a fonte única
-dos critérios de sucesso. A validação da Sprint 2 usa **gols da Copa de 2026** como conjunto
-de referência.
+dos critérios de sucesso. A validação usa uma amostra separada e autorizada pela Footstats,
+mantida fora do repositório.
 
 ## Fluxo dos dados
 
@@ -182,8 +182,8 @@ O elemento que sustenta essa separação é o contrato do evento, com as feature
 versão do modelo e o id de lance. Enquanto ele ficar estável, o modelo de visão pode ser
 trocado sem que a nuvem precise saber, e a extração pode ganhar variáveis novas sem
 renegociar nada. É o que vale estabilizar primeiro, e é também o que dá caminho para o
-crescimento previsto: quando a entrada passar de clipe recortado para transmissão contínua, o
-que muda é o que acontece antes da detecção, e o evento que sai daqui continua o mesmo.
+crescimento futuro: uma eventual entrada por transmissão contínua mudaria o que acontece antes
+da detecção, mas deve preservar o contrato do evento definido neste projeto.
 
 ## Referências
 

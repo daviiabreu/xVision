@@ -3,11 +3,9 @@ title: Benchmarking de sistemas operacionais
 description: Sistema operacional e ambiente de execução em contêiner
 ---
 
-## Benchmarking de Sistemas Operacionais e Ambiente de Execução
-
 ## 1. Introdução
 
-Este documento avalia e justifica a escolha do sistema operacional e do ambiente de execução em contêiner para o projeto. O objetivo do projeto é detectar finalizações em vídeo de futebol e estimar o valor de xG em um dispositivo de borda, enviando ao sistema central apenas o evento estruturado.
+Este documento avalia e justifica a escolha do sistema operacional e do ambiente de execução em contêiner para o projeto. O objetivo da borda é detectar e caracterizar finalizações em vídeo de futebol, enviando ao backend apenas o evento estruturado usado no cálculo de xG.
 
 A pesquisa cobre exclusivamente as camadas de sistema operacional e containerização, pressupondo a plataforma NVIDIA Jetson Orin Nano como referência de hardware e analisando o ecossistema de software que a suporta.
 
@@ -15,7 +13,7 @@ A questão central desta pesquisa é: qual sistema operacional oferece compatibi
 
 ---
 
-## 2. O Sistema Operacional como Base da Cadeia de Software
+## 2. O sistema operacional como base da cadeia de software
 
 A escolha do sistema operacional em um dispositivo de borda com aceleração de hardware não é uma decisão isolada: ela determina, de forma encadeada, quais camadas do stack ficam disponíveis.
 
@@ -53,11 +51,11 @@ O JetPack não é apenas uma distribuição Linux: é um SDK completo que inclui
 
 O JetPack 7.2 traz Ubuntu 24.04 com horizonte de suporte mais longo e kernel 6.8, mas o suporte à família Orin foi adicionado recentemente, com menor quantidade de documentação, exemplos e contêineres testados. A regra geral em sistemas embarcados é preferir a versão mais estável com documentação disponível, exceto quando um recurso específico da versão mais nova é mandatório — o que não ocorre neste projeto.
 
-Hipótese inicial: JetPack 6.2 (Jetson Linux 36.4.3 / Ubuntu 22.04 / CUDA 12.6 / TensorRT 10.3). A ser revisada se JetPack 7.2 demonstrar compatibilidade total com o stack necessário durante os experimentos da Sprint 2.
+Hipótese inicial: JetPack 6.2 (Jetson Linux 36.4.3 / Ubuntu 22.04 / CUDA 12.6 / TensorRT 10.3). A ser revisada se JetPack 7.2 demonstrar compatibilidade total com o stack necessário durante os experimentos da Sprint 3.
 
 ---
 
-## 4. Alternativas de Sistema Operacional
+## 4. Alternativas de sistema operacional
 
 As alternativas abaixo foram avaliadas e descartadas como sistema operacional principal do dispositivo de borda. A análise é apresentada para delimitar o espaço de decisão e justificar a unicidade do caminho Linux/JetPack.
 
@@ -69,7 +67,7 @@ O Windows IoT não possui BSP oficial para a família Jetson, que utiliza proces
 
 FreeRTOS é um RTOS minimalista para microcontroladores, com memória na ordem de kilobytes. Não possui suporte a CUDA, GPU, GStreamer, OpenCV, TensorRT ou memória virtual suficiente para carregar modelos de deep learning. O determinismo temporal de um RTOS não compensa a ausência total de suporte a inferência de redes neurais.
 
-### 4.3 Tabela comparativa — Sistemas Operacionais
+### 4.3 Tabela comparativa — sistemas operacionais
 
 | Sistema Operacional | Suporte Jetson | CUDA / TensorRT | Viabilidade |
 | --- | --- | --- | --- |
@@ -93,7 +91,7 @@ Benefícios diretos para o projeto:
 
 ---
 
-## 6. Middleware de Comunicação
+## 6. Middleware de comunicação
 
 Após a detecção e extração de características, o evento estruturado (finalização + atributos do lance) precisa ser enviado ao sistema central. A escolha do protocolo de comunicação é uma decisão de ambiente de execução que depende diretamente do sistema operacional e do pipeline adotado, e por isso é incluída aqui.
 
@@ -107,7 +105,7 @@ Para o MVP, REST/HTTP via FastAPI ou MQTT são igualmente viáveis. O DeepStream
 
 ---
 
-## 7. Decisão Inicial
+## 7. Decisão inicial
 
 | Componente | Decisão |
 | --- | --- |

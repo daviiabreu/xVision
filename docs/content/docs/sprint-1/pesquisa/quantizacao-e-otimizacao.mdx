@@ -3,25 +3,25 @@ title: Quantização e otimização
 description: Trade-offs entre latência, memória, energia e qualidade da inferência
 ---
 
-&emsp; Nesse projeto, pretende-se, conforme a [Proposta de valor](../../cpv-e-valor), colocar um modelo de visão computacional que afira métricas como qualidade da assistência e posicionamento do goleiro em um "tempo quase real" em um microcomputador como os da família NVIDIA Jetson (e pretendemos). Esse tipo de dispositivo ganha, na literatura, o nome de dispositivo de borda com recursos restritos, mesmo considerando sua especialização em IA (Mauluana et al., 2026). Por essa razão, para além da acurácia, o desenvolvimento exige atenção ao tamanho do modelo, ao consumo de energia e ao tempo de inferência. A otimização desses fatores não visa tanto viabilizar a Prova de Conceito (PoC) quanto agregar valor ao produto final.
+Nesse projeto, pretende-se, conforme a [Proposta de valor](../cpv-e-valor), colocar um modelo de visão computacional que afira métricas como qualidade da assistência e posicionamento do goleiro em um "tempo quase real" em um microcomputador como os da família NVIDIA Jetson (e pretendemos). Esse tipo de dispositivo ganha, na literatura, o nome de dispositivo de borda com recursos restritos, mesmo considerando sua especialização em IA (Mauluana et al., 2026). Por essa razão, para além da acurácia, o desenvolvimento exige atenção ao tamanho do modelo, ao consumo de energia e ao tempo de inferência. A otimização desses fatores não visa tanto viabilizar a Prova de Conceito (PoC) quanto agregar valor ao produto final.
 
-&emsp; Propor um modelo capaz de manter alto desempenho com menor uso de recursos e maior velocidade traduz-se em eficiência operacional. Essa otimização pode ser obtida pela escolha de modelos base menores e mais específicos ou por processos de otimização e compressão. Vale ressaltar que o uso de dispositivos de borda comumente pressupõe abordagens severas de compressão (Mauluana et al., 2026). Portanto, este documento busca analisar uma técnica de compressão por nome de quantização.
+Propor um modelo capaz de manter alto desempenho com menor uso de recursos e maior velocidade traduz-se em eficiência operacional. Essa otimização pode ser obtida pela escolha de modelos base menores e mais específicos ou por processos de otimização e compressão. Vale ressaltar que o uso de dispositivos de borda comumente pressupõe abordagens severas de compressão (Mauluana et al., 2026). Portanto, este documento busca analisar uma técnica de compressão por nome de quantização.
 
-&emsp; No contexto de Machine Learning, a quantização consiste na conversão dos pesos e ativações de um modelo de um formato de alta precisão (como FP32 ou FP16) para formatos de menor precisão, a exemplo de inteiros de 8 bits (INT8) ou 4 bits (INT4) (IBM, 2024). A técnica ganhou destaque na transição das redes neurais convolucionais (CNNs) para arquiteturas baseadas em Transformers que, embora atuem de forma end-to-end, demandam maior complexidade computacional (Mauluana et al., 2026). Contudo, a quantização continua sendo amplamente aplicada em CNNs para reduzir o consumo energético e a latência de resposta (Naveen & Kounte, 2024).
+No contexto de Machine Learning, a quantização consiste na conversão dos pesos e ativações de um modelo de um formato de alta precisão (como FP32 ou FP16) para formatos de menor precisão, a exemplo de inteiros de 8 bits (INT8) ou 4 bits (INT4) (IBM, 2024). A técnica ganhou destaque na transição das redes neurais convolucionais (CNNs) para arquiteturas baseadas em Transformers que, embora atuem de forma end-to-end, demandam maior complexidade computacional (Mauluana et al., 2026). Contudo, a quantização continua sendo amplamente aplicada em CNNs para reduzir o consumo energético e a latência de resposta (Naveen & Kounte, 2024).
 
-## Trade-offs da Quantização
+## Trade-offs da quantização
 
-&emsp; Essa abordagem proporciona três benefícios centrais: redução no consumo de energia, diminuição da latência e diminuição do tamanho do modelo. Conforme sinalizado pela IBM (2024), os ganhos ocorrem porque "há um número menor de bits a serem processados cada vez que o modelo é executado". Embora a precisão de 8 bits seja a premissa mais comum, Mauluana et al. (2026) apontam que a quantização em 4 bits, quando bem-sucedida, atinge um balanço ideal entre acurácia e eficiência.
+Essa abordagem proporciona três benefícios centrais: redução no consumo de energia, diminuição da latência e diminuição do tamanho do modelo. Conforme sinalizado pela IBM (2024), os ganhos ocorrem porque "há um número menor de bits a serem processados cada vez que o modelo é executado". Embora a precisão de 8 bits seja a premissa mais comum, Mauluana et al. (2026) apontam que a quantização em 4 bits, quando bem-sucedida, atinge um balanço ideal entre acurácia e eficiência.
 
-&emsp; Por outro lado, deve-se considerar a perda de acurácia decorrente do processo. Na revisão de Mauluana et al. (2026), foram observadas reduções de até 5,7% em comparação com modelos não quantizados. As menores perdas são obtidas via Treinamento Ciente de Quantização (Quantization-Aware Training — QAT), em detrimento da Quantização Pós-Treinamento (Post-Training Quantization — PTQ). Em contrapartida, a aplicação do QAT exige um custo computacional elevado na fase de treino (IBM, 2024).
+Por outro lado, deve-se considerar a perda de acurácia decorrente do processo. Na revisão de Mauluana et al. (2026), foram observadas reduções de até 5,7% em comparação com modelos não quantizados. As menores perdas são obtidas via Treinamento Ciente de Quantização (Quantization-Aware Training — QAT), em detrimento da Quantização Pós-Treinamento (Post-Training Quantization — PTQ). Em contrapartida, a aplicação do QAT exige um custo computacional elevado na fase de treino (IBM, 2024).
 
-&emsp; Apesar desses desafios, os resultados práticos da quantização mostram-se promissores. Em um estudo de monitoramento aplicado, Mauluana et al. (2026) reportaram uma aceleração de quase 4 vezes no tempo de inferência e uma redução de 75% no uso de memória, com uma perda de apenas 3,4% na acurácia. O experimento foi executado em uma placa NVIDIA Jetson Xavier NX, exatamente a mesma família de hardware pretendida neste projeto.
+Apesar desses desafios, os resultados práticos da quantização mostram-se promissores. Em um estudo de monitoramento aplicado, Mauluana et al. (2026) reportaram uma aceleração de quase 4 vezes no tempo de inferência e uma redução de 75% no uso de memória, com uma perda de apenas 3,4% na acurácia. O experimento foi executado em uma placa NVIDIA Jetson Xavier NX, exatamente a mesma família de hardware pretendida neste projeto.
 
-## Hipóteses e Conclusão
+## Hipóteses e conclusão
 
-&emsp; Observa-se, portanto, que rodar um modelo de visão computacional na NVIDIA Jetson com resposta em tempo quase real exige equilibrar precisão e eficiência. A quantização surge como uma alternativa, alinhada a outras como _pruning_, para acelerar o processamento na borda, permitindo que a solução entregue mais valor agregado a Footstats.
+Observa-se, portanto, que rodar um modelo de visão computacional na NVIDIA Jetson com resposta em tempo quase real exige equilibrar precisão e eficiência. A quantização surge como uma alternativa, alinhada a outras como _pruning_, para acelerar o processamento na borda, permitindo que a solução entregue mais valor agregado a Footstats.
 
-&emsp; Nesse sentido, com base nos estudos analisados (IBM, 2024; Mauluana et al., 2026; Naveen & Kounte, 2024), a equipe xVision trabalhará com as seguintes hipóteses práticas para os testes, buscando uma quantização de INT8:
+Nesse sentido, com base nos estudos analisados (IBM, 2024; Mauluana et al., 2026; Naveen & Kounte, 2024), a equipe xVision trabalhará com as seguintes hipóteses práticas para os testes, buscando uma quantização de INT8:
 
 1. H1 (Energia): A quantização reduzirá o consumo elétrico do dispositivo em até 29%.
 
@@ -29,9 +29,9 @@ description: Trade-offs entre latência, memória, energia e qualidade da infer�
 
 3. H3 (Tamanho): O espaço ocupado pelo modelo em memória e disco cairá pelo menos 50%.
 
-&emsp; O impacto dessas otimizações na precisão (Mean Average Precision — mAP) será monitorado de forma contínua ao longo das sprints, permitindo alinhar os limites aceitáveis de degradação diretamente com o parceiro nas _reviews_.
+O impacto dessas otimizações na precisão (Mean Average Precision — mAP) será monitorado de forma contínua ao longo das sprints, permitindo alinhar os limites aceitáveis de degradação diretamente com o parceiro nas _reviews_.
 
-## Bibliografia
+## Referências
 
 1. IBM. Quantização. [s.l.: s.n.], 2024. Disponível em: [https://www.ibm.com/br-pt/think/topics/quantization](https://www.ibm.com/br-pt/think/topics/quantization). Acesso em: 9 Aug. 2026.
 2. MAULANA, Donny and RAMASAMY, R Kanesaraj. Systematic Review of Quantization-Optimized Lightweight Transformer Architectures for Real-Time Fruit Ripeness Detection on Edge Devices. Computers, vol. 15, no. 1, p. 69–69, 2026.

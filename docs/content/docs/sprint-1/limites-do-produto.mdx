@@ -3,15 +3,15 @@ title: Limites do produto
 description: É / não é, faz / não faz e escopo
 ---
 
-## Escopo do Projeto
+## Escopo do projeto
 
-&emsp;A Footstats é uma empresa brasileira de dados e estatísticas de futebol que coleta, processa e distribui informações ao vivo de mais de 50 ligas no Brasil e no mundo. Entre as métricas que ela produz está o xG (Expected Goal): uma estimativa da probabilidade de uma finalização resultar em gol, calculada a partir das características do lance como posição, parte do corpo utilizada, entre outros fatores.
+A Footstats é uma empresa brasileira de dados e estatísticas de futebol que coleta, processa e distribui informações ao vivo de mais de 50 ligas no Brasil e no mundo. Entre as métricas que ela produz está o xG (Expected Goal): uma estimativa da probabilidade de uma finalização resultar em gol, calculada a partir das características do lance como posição, parte do corpo utilizada, entre outros fatores.
 
-&emsp;Hoje, essa marcação depende de uma fila de analistas que assistem ao vídeo das partidas e registram os eventos manualmente. Esse modelo tem três limitações práticas diretas: a vazão fica limitada ao número de analistas disponíveis; o custo cresce proporcionalmente ao volume de jogos analisados; e a consistência é afetada pela variabilidade de julgamento entre analistas. Em rodadas cheias ou janelas com muitos campeonatos simultâneos, o xG chega mais tarde aos clientes, o que representa perda de valor para um produto de estatística em tempo real.
+Hoje, essa marcação depende de uma fila de analistas que assistem ao vídeo das partidas e registram os eventos manualmente. Esse modelo tem três limitações práticas diretas: a vazão fica limitada ao número de analistas disponíveis; o custo cresce proporcionalmente ao volume de jogos analisados; e a consistência é afetada pela variabilidade de julgamento entre analistas. Em rodadas cheias ou janelas com muitos campeonatos simultâneos, o xG chega mais tarde aos clientes, o que representa perda de valor para um produto de estatística em tempo real.
 
-&emsp;O projeto nasce para endereçar esse problema. O objetivo é desenvolver uma arquitetura de processamento na borda (edge computing) capaz de detectar automaticamente finalizações no vídeo de uma partida, extrair as características relevantes do lance e estimar o valor de xG gerando dados apenas das finalizações, nunca o vídeo bruto.
+O projeto nasce para endereçar esse problema. O objetivo é desenvolver uma arquitetura de processamento na borda (edge computing) capaz de detectar automaticamente finalizações no vídeo de uma partida, extrair as características relevantes do lance e estimar o valor de xG gerando dados apenas das finalizações, nunca o vídeo bruto.
 
-&emsp;O sistema deve conter, no mínimo:
+O sistema deve conter, no mínimo:
 
 1. Módulo de borda para recebimento e pré-processamento do vídeo, preparando os quadros para inferência.
 2. Detector de finalizações, capaz de identificar no vídeo o momento e a localização do lance.
@@ -20,60 +20,60 @@ description: É / não é, faz / não faz e escopo
 5. Módulo de comunicação, que envia ao sistema central apenas o evento estruturado.
 6. Ambiente de testes e validação, que compara as saídas com o histórico de marcação humana da Footstats e mede latência, banda e erro da estimativa.
 
-&emsp;O projeto tem caráter acadêmico e de prova de conceito. Não contempla deploy em ambiente de produção, integração com a infraestrutura proprietária da Footstats, construção de hardware próprio ou cobertura de outros tipos de lance além da finalização. A validação é feita contra partidas e lances previamente marcados pela equipe de dados da Footstats, o que permite medir a qualidade da detecção e da estimativa contra uma referência conhecida.
+O projeto tem caráter acadêmico e de prova de conceito. Não contempla deploy em ambiente de produção, integração com a infraestrutura proprietária da Footstats, construção de hardware próprio ou cobertura de outros tipos de lance além da finalização. A validação é feita contra partidas e lances previamente marcados pela equipe de dados da Footstats, o que permite medir a qualidade da detecção e da estimativa contra uma referência conhecida.
 
 ---
 
-## É / Não É
+## É / não é
 
-&emsp;Esta dimensão delimita a natureza do produto: o que ele representa como solução e o que está deliberadamente fora do seu conceito. A distinção é importante para evitar que o sistema seja avaliado por características que nunca fizeram parte do seu escopo.
+Esta dimensão delimita a natureza do produto: o que ele representa como solução e o que está deliberadamente fora do seu conceito. A distinção é importante para evitar que o sistema seja avaliado por características que nunca fizeram parte do seu escopo.
 
 | É | Não É |
 |---|---|
-| Modelo de classificação de finalizações | Modelo de identificação de jogadores |
+| Pipeline para detectar e caracterizar finalizações | Sistema de reconhecimento da identidade ou do número da camisa dos jogadores |
 | Baseado em gravações e trechos de transmissões | Integrado com câmera ao vivo |
 | Otimizado para execução na borda (edge device) | Integrado com o sistema Footstats |
-| Um meio para aferir os parâmetros de xGoal | Calculador direto de xGoal |
+| Um meio para aferir os parâmetros usados no xG | Modelo de visão que calcula diretamente o xG na borda |
 | Adaptado para diferentes qualidades de vídeo | Um sistema perfeito ou livre de erros |
 | Leve o suficiente para rodar em hardware restrito |  |
 
 ---
 
-## Faz / Não Faz
+## Faz / não faz
 
-&emsp;Esta dimensão descreve o comportamento operacional do sistema, as ações concretas que ele executa durante o processamento de um evento. Itens fora desta lista não devem ser esperados como saídas ou capacidades do produto nesta fase.
+Esta dimensão descreve o comportamento operacional do sistema, as ações concretas que ele executa durante o processamento de um evento. Itens fora desta lista não devem ser esperados como saídas ou capacidades do produto nesta fase.
 
 | Faz | Não Faz |
 |---|---|
-| Afere os parâmetros necessários para o cálculo de xGoal | Calcula o xGoal diretamente |
+| Afere os parâmetros necessários para o cálculo de xG | Calcula o xG diretamente no modelo da borda |
 | Recebe uma gravação curta de uma transmissão | Recebe ou processa a transmissão inteira |
 | Identifica o momento de uma finalização em um trecho curto | Distingue finalizações em trechos longos |
 | Processa e retorna resultado em menos de 2 segundos | Oferece interface de conversa sobre a finalização |
 | Roda modelos de inferência leve no dispositivo de borda | Identifica comportamentos específicos do jogador (ex: se olhou para a bola) |
 | | Captura imagens em tempo real por câmera |
 | | Armazena imagens ou vídeos das partidas |
-| | Engloba etapas anteriores ao cálculo de xGoal |
+| | Analisa eventos diferentes de uma finalização |
 
 ---
 
-## Critérios de Sucesso
+## Critérios de sucesso
 
-&emsp;Os critérios abaixo definem o que significa o projeto estar funcionando corretamente. Eles derivam diretamente dos requisitos do MVP descritos no TAPI e servem como referência objetiva para validação das entregas ao longo das sprints.
+Os critérios abaixo definem o que significa o projeto estar funcionando corretamente. Eles derivam diretamente dos requisitos do MVP descritos no TAPI e servem como referência objetiva para validação das entregas ao longo das sprints.
 
 - Detectar finalizações em vídeo com erro aceitável em relação ao ground truth humano da Footstats.
-- Estimar os parâmetros de xGoal em menos de 2 segundos por lance processado.
+- Estimar os parâmetros de xG dentro do orçamento de tempo acordado para cada lance.
 - Receber vídeo, pré-processar e detectar inteiramente no dispositivo de borda.
 - Demonstrar ganho de tempo frente ao processo manual de marcação.
 - Comparar saídas com o histórico de marcação humana e medir latência e erro da estimativa.
 
 ---
 
-## Restrições Técnicas Relevantes
+## Restrições técnicas relevantes
 
-&emsp;Além dos limites de escopo, o projeto opera sob restrições técnicas que influenciam diretamente as decisões de arquitetura e a escolha dos modelos.
+Além dos limites de escopo, o projeto opera sob restrições técnicas que influenciam diretamente as decisões de arquitetura e a escolha dos modelos.
 
-&emsp;O sistema não conta com câmera dedicada para captura ao vivo. A entrada de vídeo se dá por meio de gravações curtas ou trechos de transmissões inseridos manualmente no dispositivo de borda, o que delimita o fluxo de dados a um contexto controlado e afasta qualquer dependência de integração com câmeras.
+O sistema não conta com câmera dedicada para captura ao vivo. A entrada de vídeo se dá por meio de gravações curtas ou trechos de transmissões inseridos manualmente no dispositivo de borda, o que delimita o fluxo de dados a um contexto controlado e afasta qualquer dependência de integração com câmeras.
 
-&emsp;Entre os parâmetros desejados pelo parceiro, identificar se o jogador olhou para o gol antes da finalização representa um limite adicional. Essa informação pode ser aproximada por estimativa de pose ou orientação da cabeça, mas a câmera de transmissão geralmente mostra o atleta a distância, sob ângulos variáveis e sujeito a oclusões, movimento e baixa resolução, condições que dificultam distinguir a direção real do olhar. Além do custo computacional de incluir outro estágio no pipeline de borda, essa categoria depende de uma referência humana potencialmente subjetiva. Por isso, a prova de conceito não assume que esse parâmetro será aferido com confiabilidade, sua viabilidade deverá ser validada separadamente com clipes reais e pela concordância entre anotadores.
+Entre os parâmetros desejados pelo parceiro, identificar se o jogador olhou para o gol antes da finalização representa um limite adicional. Essa informação pode ser aproximada por estimativa de pose ou orientação da cabeça, mas a câmera de transmissão geralmente mostra o atleta a distância, sob ângulos variáveis e sujeito a oclusões, movimento e baixa resolução, condições que dificultam distinguir a direção real do olhar. Além do custo computacional de incluir outro estágio no pipeline de borda, essa categoria depende de uma referência humana potencialmente subjetiva. Por isso, a prova de conceito não assume que esse parâmetro será aferido com confiabilidade, sua viabilidade deverá ser validada separadamente com clipes reais e pela concordância entre anotadores.
 
-&emsp;Essa escolha também impõe uma restrição direta sobre os modelos utilizados: eles precisam ser suficientemente leves para executar em hardware com recursos computacionais limitados sem comprometer a latência exigida por lance. A otimização para borda, portanto, não é apenas uma característica desejável, é uma condição de viabilidade do sistema.
+Essa escolha também impõe uma restrição direta sobre os modelos utilizados: eles precisam ser suficientemente leves para executar em hardware com recursos computacionais limitados sem comprometer a latência exigida por lance. A otimização para borda, portanto, não é apenas uma característica desejável, é uma condição de viabilidade do sistema.

@@ -1,5 +1,5 @@
 ---
-title: Arquitetura da Nuvem
+title: Arquitetura da nuvem
 description: Componentes responsáveis pelo processamento, persistência e distribuição dos eventos de finalização na nuvem
 ---
 
@@ -51,11 +51,11 @@ Ele consome os eventos disponíveis, valida as informações recebidas, compleme
 
 A escolha de concentrar essas responsabilidades no backend permite manter a lógica de processamento em um único componente, facilitando a manutenção e evitando que outras partes da aplicação precisem conhecer os detalhes internos do cálculo e da persistência.
 
-### 2.1 Complementação dos dados
+### 2.1 Validação e enriquecimento dos dados
 
-Durante o processamento, algumas informações podem precisar ser complementadas antes do cálculo final do xG.
+Durante o processamento, as informações extraídas na borda são validadas antes do cálculo final do xG.
 
-Na arquitetura proposta, existe uma comunicação com a **Footstats** para obtenção de dados como **ângulo e posição da finalização**. Essas informações são combinadas com os dados já presentes no evento para formar o conjunto utilizado durante o processamento.
+Na arquitetura proposta, posição, distância e ângulo já fazem parte do evento produzido na borda. Quando a Footstats disponibilizar valores de referência, o backend os associa ao resultado automático para calcular o erro e apoiar a validação, sem substituir silenciosamente a extração realizada pelo pipeline.
 
 ### 2.2 Cálculo do xG
 
@@ -107,7 +107,7 @@ Com essa separação, o backend pode permanecer concentrado nas operações rela
 
 A integração com a **Footstats** acontece em dois momentos distintos.
 
-Durante o processamento, o backend pode consultar informações complementares necessárias para consolidar a finalização, como posição e ângulo.
+Durante o processamento, o backend pode consultar informações oficiais para enriquecer o contexto ou comparar posição e ângulo com a referência humana.
 
 Depois que o processamento é concluído, o webhook comunica a existência do novo resultado.
 

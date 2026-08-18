@@ -5,7 +5,7 @@ description: Plataformas de Edge Computing, memória e armazenamento
 
 ## Introdução
 
-O projeto propõe detectar automaticamente finalizações em vídeos de futebol e estimar o xG (Expected Goal) de cada lance usando visão computacional em um dispositivo de borda. O sistema deve enviar ao backend central apenas o evento estruturado (finalização detectada + xG estimado), nunca o vídeo bruto.
+O projeto propõe detectar automaticamente finalizações em vídeos de futebol e extrair suas características usando visão computacional em um dispositivo de borda. O sistema deve enviar ao backend central apenas o evento estruturado, nunca o vídeo bruto, o cálculo de xG acontece no backend.
 
 Esta seção investiga a camada de hardware da arquitetura: classes de plataformas embarcadas compatíveis com Linux, unidades de processamento (CPU, GPU, NPU, aceleradores dedicados), subsistema de memória e subsistema de armazenamento. A questão central é:
 
@@ -17,7 +17,7 @@ Frequentemente, discussões sobre os "melhores" hardwares se centram nos número
 
 ---
 
-## Contexto e Requisitos
+## Contexto e requisitos
 
 ### Fluxo de dados na perspectiva do hardware
 
@@ -40,7 +40,7 @@ RAM ── tensores de saída
       ↓
 CPU ── pós-processamento (NMS, tracking, homografia, extração de features)
       ↓
-CPU ── modelo de xG + serialização
+CPU ── regras das características + serialização
       ↓
 Rede ── evento estruturado
 ```
@@ -48,7 +48,7 @@ Rede ── evento estruturado
 Apontamos duas observações sobre o fluxo acima:
 
 1) Nenhuma unidade conversa diretamente com outra: todas passam pela memória. A largura de banda do subsistema de memória é, portanto, um recurso compartilhado e disputado, não um detalhe de ficha técnica.
-2) O acelerador não executa o pipeline inteiro, uma vez que as etapas de baixo volume de processamento permanecem na CPU (tracking, ou seja, associação de detecções entre frames e atualização dos filtros), lógica de identificação do lance, modelo de xG e serialização. Um dispositivo com acelerador potente e CPU fraca pode ficar limitado pela CPU.
+2) O acelerador não executa o pipeline inteiro, uma vez que as etapas de baixo volume de processamento permanecem na CPU, como tracking, lógica de identificação do lance, homografia, regras das características e serialização. Um dispositivo com acelerador potente e CPU fraca pode ficar limitado pela CPU.
 
 ### O hardware em um sistema integrado
 
@@ -68,7 +68,7 @@ Assim como a camada de software, o hardware não é um componente único, mas um
 
 ### A arquitetura em cascata como alavanca de dimensionamento
 
-A cascata é a maior alavanca de dimensionamento de hardware no projeto com a Footstats. Nem toda etapa precisa rodar em todo frame: a detecção roda continuamente, o modelo pesado de keypoints roda apenas nos frames candidatos a finalização, e o modelo de xG roda uma vez por lance. Como o escopo do projeto se restringe à finalização, essa estrutura pode reduzir significativamente o compute necessário.
+A cascata é a maior alavanca de dimensionamento de hardware no projeto com a Footstats. Nem toda etapa precisa rodar em todo frame: a detecção acompanha o clipe, enquanto módulos mais caros, como keypoints e pose, podem ser acionados apenas perto do contato. Como o escopo do projeto se restringe à finalização, essa estrutura pode reduzir significativamente o processamento necessário.
 
 Consequência para a escolha de hardware: o requisito não é "muitos TOPS", e sim (a) acelerador com latência de inferência medida dentro do orçamento para o modelo escolhido, (b) CPU com folga suficiente para o pós-processamento, (c) banda de memória que não estrangule (a) nem (b), e (d) estabilidade térmica ao longo da operação contínua.
 
@@ -82,7 +82,7 @@ Consequência para a escolha de hardware: o requisito não é "muitos TOPS", e s
 
 ---
 
-## Classes de Hardware Embarcado
+## Classes de hardware embarcado
 
 Antes de comparar placas específicas, é necessário eliminar classes inteiras que não atendem aos requisitos mandatórios. Essa etapa é o equivalente, no domínio de hardware, à eliminação de Windows IoT, FreeRTOS e Android feita na pesquisa de software.
 
@@ -106,7 +106,7 @@ Classe em que o acelerador é um chip separado, conectado por PCIe ou USB. Vanta
 
 Mini-PCs e SBCs x86 de baixo consumo, com GPU integrada ou NPU. Fora do escopo de "borda" em consumo, mas com a maior maturidade de software de todas as classes (qualquer distribuição Linux, sem vendor kernel, ecossistema Python completo em x86_64).
 
-Esta classe merece atenção específica. O TAPI autoriza explicitamente que a estimativa de xG rode "no próprio dispositivo ou em uma máquina auxiliar local", ou seja, a arquitetura pode ter duas camadas em vez de uma: um dispositivo de borda para captura, pré-processamento e detecção, e opcionalmente uma máquina auxiliar local para as etapas mais pesadas. Distribuir dessa forma relaxa a restrição de compute e permite modelos maiores, ao custo de introduzir uma travessia de rede no caminho crítico e de tornar a arquitetura menos "de borda". A fronteira entre as duas camadas é precisamente a decisão de engenharia que o TAPI pede que o projeto justifique com medidas de latência, banda e custo. Portanto, consideramos essa classe viável, com observação para alteração de arquitetura.
+Esta classe merece atenção específica. O TAPI autoriza que a estimativa de xG rode no próprio dispositivo ou em uma máquina auxiliar local, porém a arquitetura inicial mantém esse cálculo no backend. O x86 compacto permanece como alternativa caso as medições exijam uma camada local auxiliar, não como parte do caminho principal.
 
 ### Câmera inteligente / inferência no sensor
 
@@ -125,7 +125,7 @@ Sensores de imagem com acelerador embutido, que entregam metadados em vez de fra
 
 ---
 
-## Alternativas Candidatas
+## Alternativas candidatas
 
 Plataformas representativas das classes viáveis, selecionadas por disponibilidade comercial, existência de documentação oficial e presença na literatura de benchmarking.
 
@@ -201,8 +201,7 @@ A pergunta principal centra-se em: "o modelo cabe?". Para isso, assumiremos algu
 | Ativações intermediárias | 0,2–0,8 GB | Depende de resolução de entrada e batch |
 | Fila de buffers de frame | ~100 MB | 30 frames 1080p em NV12 ≈ 93 MB; em RGB seria o dobro |
 | Interpretador Python, OpenCV, bibliotecas | 0,4–0,8 GB | |
-| Modelo de xG | < 10 MB | Modelo tabular |
-| **Total estimado** | 2,1–4,0 GB | |
+| **Total estimado** | **2,1–4,0 GB** | |
 
 **Conclusões do orçamento:**
 
@@ -232,7 +231,7 @@ Há ainda um resultado que interessa à escolha entre GPU e NPU: nenhuma das dua
 
 ---
 
-## Critérios de Decisão
+## Critérios de decisão
 
 1) Compatibilidade com os runtimes investigados: A pesquisa de software convergiu para TensorRT acessado via ONNX Runtime com o Execution Provider (EP) correspondente. Uma plataforma sem esse caminho não é uma plataforma mais lenta: é uma plataforma que invalida a decisão de software e obriga a refazer conversão, calibração e validação do modelo em ferramental diferente. Critério eliminatório.
 
@@ -258,15 +257,15 @@ Da aplicação dos critérios surge o ranking: as duas plataformas Jetson ocupam
 
 ---
 
-## Critérios de Sucesso Preliminares
+## Critérios de sucesso preliminares
 
-Experimentos que convertem as hipóteses deste documento em medições verificáveis na Sprint 2. A metodologia acompanha a prática estabelecida de comparação empírica de plataformas de borda, que mede consumo real de energia e não apenas latência [[Ref. 1]](#ref-1). Dois pontos valem para todos os itens. O modo de potência deve ser declarado em qualquer resultado, sob pena de as medições não serem comparáveis. A exigência não é formalidade de relatório, já que as frequências de CPU, GPU e memória são variáveis independentes de ajuste em plataformas Jetson e cada combinação produz um par latência-energia distinto para o mesmo modelo [[Ref. 14]](#ref-14). Pela mesma razão, o modo de potência entra nos experimentos 6 e 7 como variável a varrer, e não apenas como constante a registrar. E o estado térmico inicial, frio ou aquecido, precisa ser registrado, porque sob carga em rajada o mesmo trecho apresenta tempos diferentes conforme o clock de boost disponível.
+Os experimentos convertem as hipóteses deste documento em medições verificáveis na Sprint 3, usando o pipeline funcional produzido na Sprint 2. O modo de potência e o estado térmico inicial devem acompanhar todo resultado, pois alterações nas frequências de CPU, GPU e memória produzem combinações diferentes de latência e energia para o mesmo modelo [[Ref. 14]](#ref-14).
 
 O trecho de referência para todos os experimentos é um recorte de 10 segundos em 1080p a 30 fps em torno de uma finalização (sujeito a mudanças a depender das condições dos vídeos fornecidos pelo parceiro). A fila de referência é o conjunto de trechos de uma partida, entre 20 e 30 lances, processados em sequência e sem intervalo.
 
 | # | Experimento | Condição de sucesso |
 |---|---|---|
-| 1 | Tempo até o resultado por trecho, instrumentado por etapa (decode, pré, detector, keypoints, pós, xG) | p95, ou seja, o percentil 95, abaixo da duração do próprio trecho, ou seja, razão ≥ 1× tempo real, com meta de 3×; identificar a etapa dominante |
+| 1 | Tempo até o evento por trecho, instrumentado por etapa (decode, pré-processamento, detector, keypoints, pós-processamento e serialização) | p95, ou seja, o percentil 95, abaixo da duração do próprio trecho, ou seja, razão ≥ 1× tempo real, com meta de 3×; identificar a etapa dominante |
 | 2 | Custo fixo por trecho (carga do engine, criação de contexto, primeira inferência) comparado ao regime estável | Custo fixo < 10% do tempo total do trecho com processo residente; quantificar o custo de iniciar por lance, para justificar ou dispensar o requisito de residência |
 | 3 | Drenagem da fila de referência | Tempo do último trecho não excede o do quinto em mais de 10%; sem crescimento monotônico de memória entre trechos |
 | 4 | Decode de 1080p H.264 comparando bloco dedicado e software, medindo uso de CPU e tempo por trecho | Com bloco dedicado, < 15% de um núcleo e sem fallback silencioso; quantificar em quanto o decode em software encarece o trecho e o quanto rouba da CPU de pós-processamento |
@@ -299,7 +298,7 @@ Há um segundo ponto na mesma direção. Se os trechos já chegam recortados por
 
 ---
 
-## Riscos e Incertezas
+## Riscos e incertezas
 
 ### Plataforma e disponibilidade
 
@@ -331,9 +330,15 @@ O risco mais consequente da categoria, porém, é a perda de qualidade em objeto
 
 ---
 
-## Decisão Inicial
+## Decisão inicial
 
 É importante destacar que esta é uma hipótese de trabalho para o início do módulo, não uma decisão final. Portanto, abaixo destacamos algumas decisões feitas e medições ainda a serem feitas, consequentemente levando a alteração do escopo do projeto, a depender de seus resultados.
+
+<Callout type="success" title="Decisão inicial de hardware">
+  A Jetson Orin Nano 8 GB é o ponto de partida, a Orin NX 16 GB entra se as medições mostrarem
+  limite de memória ou processamento e a RK3588 permanece como contingência. A decisão será
+  confirmada no dispositivo durante a Sprint 3.
+</Callout>
 
 | Componente | Decisão inicial |
 |---|---|

@@ -1,12 +1,12 @@
 {
   "title": "Pesquisa",
   "pages": [
-    "benchmarking_OS",
-    "benchmarking",
     "modelos-visao-computacional",
     "aplicacao-visao-computacional",
+    "benchmarking",
+    "benchmarking_OS",
     "runtimes-e-formatos",
-    "estrategias-execucao-e-rollout",
-    "quantizacao-e-otimizacao"
+    "quantizacao-e-otimizacao",
+    "estrategias-execucao-e-rollout"
   ]
 }

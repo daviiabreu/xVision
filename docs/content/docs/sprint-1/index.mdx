@@ -1,6 +1,56 @@
 ---
 title: Sprint 1
-description: Introdução e planejamento da Sprint 1
+description: Proposta inicial, pesquisas técnicas, arquitetura e planejamento do projeto Edge xG
 ---
 
-Placeholder.
+Esta sprint transforma o problema apresentado pela Footstats em uma proposta verificável para
+extrair características de finalizações de futebol com visão computacional em edge computing.
+O conteúdo parte do valor esperado para o parceiro, delimita o produto, registra requisitos e
+riscos, compara alternativas técnicas e organiza as decisões que serão testadas nas próximas
+sprints.
+
+<Callout type="idea" title="Escopo do MVP">
+
+A entrada é um clipe curto que já contém uma finalização, o dispositivo de borda processa o
+vídeo e produz um evento estruturado, enquanto o backend calcula o xG. Encontrar finalizações
+em uma transmissão completa, operar em produção ou implementar a arquitetura de escala são
+evoluções futuras fora do escopo atual.
+
+</Callout>
+
+## Da necessidade à proposta
+
+<Cards>
+  <Card title="Problema" href="./problema">
+    Apresenta o processo atual da Footstats, seus gargalos e a fronteira entre vídeo e evento.
+  </Card>
+  <Card title="Proposta de valor" href="./cpv-e-valor">
+    Relaciona a automação ao ganho operacional esperado para o parceiro.
+  </Card>
+  <Card title="Limites do produto" href="./limites-do-produto">
+    Define o que pertence ao MVP e o que permanece fora do projeto.
+  </Card>
+  <Card title="Requisitos iniciais" href="./requisitos">
+    Organiza comportamentos, critérios de qualidade e condições de validação.
+  </Card>
+</Cards>
+
+## Da pesquisa à execução
+
+<Cards>
+  <Card title="Pesquisa técnica" href="./pesquisa">
+    Compara modelos, hardware, sistemas, runtimes, otimizações e estratégias de execução.
+  </Card>
+  <Card title="Arquitetura" href="./arquitetura">
+    Distribui responsabilidades entre borda, backend, frontend e serviços centrais.
+  </Card>
+  <Card title="Hipóteses" href="./hipoteses">
+    Converte decisões preliminares em experimentos e critérios mensuráveis.
+  </Card>
+  <Card title="Matriz de risco" href="./matriz-de-risco">
+    Relaciona incertezas, impactos, tratamentos e evidências esperadas.
+  </Card>
+  <Card title="Planejamento das próximas sprints" href="./planejamento-proximas-sprints">
+    Distribui as entregas das Sprints 2 a 5, do incremento funcional à validação final.
+  </Card>
+</Cards>

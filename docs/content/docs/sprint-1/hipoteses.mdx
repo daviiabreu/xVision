@@ -1,28 +1,34 @@
 ---
 title: Hipóteses
-description: Hipóteses da proposta e como serão testadas na Sprint 2
+description: Hipóteses da proposta e como serão testadas nas Sprints 2 e 3
 ---
 
-## Hipótese Central
+## Hipótese central
 
 > **Um pipeline de visão computacional baseado em YOLO com runtime acelerado por hardware consegue extrair os parâmetros de xG de uma finalização dentro do orçamento de tempo definido com o parceiro (RNF-01), com queda de acurácia inferior ao limiar acordado em relação ao baseline em precisão total — viabilizando a substituição do processo manual da Footstats.**
 
-A escolha do hardware de borda (família e modelo específico) é uma das decisões que a Sprint 2 fecha, portanto a hipótese central não a antecipa. Os valores numéricos de latência e acurácia usados nas sub-hipóteses abaixo são **hipóteses de trabalho da equipe**, não limites acordados com o parceiro; o RNF-01 e o RNF-03 registram explicitamente que esses valores dependem de validação com a Footstats.
+A escolha do hardware de borda começa com a confirmação de disponibilidade na Sprint 2 e só é concluída após os testes no dispositivo, na Sprint 3, portanto a hipótese central não antecipa esse resultado. Os valores numéricos de latência e acurácia usados nas sub-hipóteses abaixo são **hipóteses de trabalho da equipe**, não limites acordados com o parceiro; o RNF-01 e o RNF-03 registram explicitamente que esses valores dependem de validação com a Footstats.
+
+<Callout type="warn" title="Hipóteses, não resultados">
+  Os valores desta página orientam os experimentos, mas ainda não comprovam desempenho. A
+  Sprint 2 produz a referência funcional e de qualidade do pipeline, enquanto a Sprint 3
+  valida runtime, precisão numérica, estabilidade e hardware no dispositivo embarcado.
+</Callout>
 
 ---
 
-## Decisões em Aberto que a Sprint 2 Fecha
+## Decisões em aberto e sprint responsável
 
-| Decisão | O que testar |
-|---|---|
-| YOLOv8n vs. YOLO26n | Head-to-head no mesmo clip de futebol, no mesmo hardware |
-| TensorRT INT8 vs. FP32 | Latência, throughput e acurácia nos dois regimes |
-| ByteTrack vs. BoT-SORT | Qual perde menos identidades em oclusões de jogadores |
-| Hardware primário (Orin Nano 8 GB) vs. alternativa (Orin NX 16 GB) e contingência (RK3588) | Qual atinge o orçamento de latência do RNF-01 com margem térmica segura |
+| Decisão | O que testar | Conclusão prevista |
+|---|---|---|
+| YOLOv8n vs. YOLO26n | comparação no mesmo clipe e ambiente de desenvolvimento | Sprint 2 |
+| ByteTrack vs. BoT-SORT | qual perde menos identidades em oclusões de jogadores | Sprint 2 |
+| TensorRT INT8 vs. FP32 | latência, vazão e qualidade nos dois regimes | Sprint 3 |
+| Hardware primário (Orin Nano 8 GB) vs. alternativa (Orin NX 16 GB) e contingência (RK3588) | qual atinge o orçamento de latência do RNF-01 com margem térmica segura | Sprint 3 |
 
 ---
 
-## Sub-hipóteses Mensuráveis
+## Sub-hipóteses mensuráveis
 
 ### H1 — Latência
 
@@ -51,7 +57,7 @@ A escolha do hardware de borda (família e modelo específico) é uma das decis�
 
 ---
 
-### H3 — Estabilidade Térmica
+### H3 — Estabilidade térmica
 
 **Afirmação:** O pipeline TensorRT com DeepStream sustenta throughput sem throttling térmico durante sessão contínua de 90 minutos, representando uma partida completa (RNF-04, RNF-05).
 
@@ -73,23 +79,23 @@ A escolha do hardware de borda (família e modelo específico) é uma das decis�
 
 ---
 
-## Critério de Validação Global (Pass / Fail)
+## Critério de validação global
 
-O experimento da Sprint 2 **passa** se **H1 e H2 forem ambos verdadeiros** nas condições mensuráveis disponíveis.
+Na Sprint 2, a abordagem avança se o pipeline funcional extrair as características previstas e H4 indicar rastreamento suficiente para sustentar essa extração. Na Sprint 3, a hipótese central é validada se H1 e H2 forem verdadeiras no hardware selecionado, com H3 usada para confirmar que o resultado se mantém sob carga prolongada.
 
-- H3 e H4 são métricas de qualidade secundárias — orientam ajustes de configuração, não invalidam a abordagem.
-- Se H1 falhar no Orin Nano 8 GB mas passar no Orin NX 16 GB, o experimento valida a hipótese central e define o hardware mínimo viável — a abordagem não é descartada.
+- H3 e H4 orientam ajustes de configuração e expõem riscos do pipeline, seus resultados devem acompanhar a decisão mesmo quando não invalidarem a abordagem.
+- Se H1 falhar no Orin Nano 8 GB mas passar no Orin NX 16 GB, o experimento valida a hipótese central e define o hardware mínimo viável, sem descartar a abordagem.
 - Se a queda de acurácia de H2 superar 5,7%, o plano B é QAT; se superar o limiar acordado com o parceiro, a hipótese central é revista.
 
 ---
 
-## O que Esta Hipótese Não Testa (Fora do Escopo da Sprint 2)
+## Limites do programa de validação
 
 - Integração com o backend da Footstats
 - Identificação de jogadores individuais (fora do escopo do produto)
 - Cálculo final de xG no dispositivo de borda
 - Comparação de sistemas operacionais Linux no Jetson (tratado em pesquisa separada)
-- Implantação multi-câmera (Proposta B da arquitetura — sprint futura)
+- Implantação multi-câmera (Proposta B da arquitetura, evolução futura fora do escopo atual)
 
 ---
 
@@ -100,5 +106,5 @@ O experimento da Sprint 2 **passa** se **H1 e H2 forem ambos verdadeiros** nas c
 3. Pesquisa de runtimes e formatos de modelo — comparativo de runtimes no Jetson, caminho PyTorch → ONNX → TensorRT, DeepStream SDK. Ver [Runtimes e Formatos](./pesquisa/runtimes-e-formatos).
 4. TIER IV (apud pesquisa de runtimes) — migração ONNX Runtime para TensorRT FP16 com aceleração de até 3 vezes. Ver [Runtimes e Formatos](./pesquisa/runtimes-e-formatos).
 5. Pesquisa de estratégias de execução e rollout — em desenvolvimento. Ver [Estratégias de Execução e Rollout](./pesquisa/estrategias-execucao-e-rollout).
-6. Pesquisa de modelos de visão computacional — seleção de modelo de detecção, tracking e tarefas do pipeline. Ver [Modelo de Visão Computacional](./pesquisa/modelo-visao-computacional).
+6. Pesquisa de modelos de visão computacional — seleção de modelo de detecção, tracking e tarefas do pipeline. Ver [Modelo de Visão Computacional](./pesquisa/modelos-visao-computacional).
 7. Pesquisa de benchmarking de hardware — comparativo Orin Nano 8 GB, Orin NX 16 GB, RK3588 e outros; note aumento de preços da linha Jetson em julho de 2026. Ver [Benchmarking de Hardware](./pesquisa/benchmarking).

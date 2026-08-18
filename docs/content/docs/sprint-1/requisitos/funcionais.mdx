@@ -1,5 +1,5 @@
 ---
-title: Requisitos Funcionais
+title: Requisitos funcionais
 description: Definição das principais funcionalidades e comportamentos esperados do sistema
 ---
 
@@ -7,7 +7,7 @@ description: Definição das principais funcionalidades e comportamentos esperad
 
 Os requisitos funcionais descrevem as principais funcionalidades que o sistema deve realizar para que a solução proposta atenda às necessidades do projeto.
 
-Esses requisitos foram definidos com base no **[Canvas de Proposta de Valor](../../cpv-e-valor)** desenvolvido pelo grupo e no **[TAPI do projeto](https://drive.google.com/file/d/1r8uEtU28otpnQcLTxX-hLU_KvgQE2C-G/view?usp=sharing)**, considerando principalmente a necessidade de automatizar a análise das finalizações, reduzir a dependência do processo manual e permitir que os dados sejam processados e disponibilizados de forma mais rápida.
+Esses requisitos foram definidos com base no **[Canvas de Proposta de Valor](../cpv-e-valor)** desenvolvido pelo grupo e no **[TAPI do projeto](https://drive.google.com/file/d/1r8uEtU28otpnQcLTxX-hLU_KvgQE2C-G/view?usp=sharing)**, considerando principalmente a necessidade de automatizar a análise das finalizações, reduzir a dependência do processo manual e permitir que os dados sejam processados e disponibilizados de forma mais rápida.
 
 A solução recebe como entrada um vídeo que já contém uma finalização. A partir desse vídeo, o sistema deve identificar o momento em que a finalização começa, analisar o lance e extrair as informações necessárias para gerar as métricas relacionadas à finalização. Ao final do processamento, os resultados devem ser organizados e enviados como dados estruturados.
 
@@ -17,7 +17,7 @@ Para organizar o desenvolvimento, os requisitos foram classificados utilizando a
 * **Should:** funcionalidade importante para a solução, mas que não impede o funcionamento principal caso não esteja disponível inicialmente.
 * **Could:** funcionalidade complementar, que agrega valor à solução e pode ser implementada posteriormente.
 
-## Tabela de Requisitos Funcionais
+## Tabela de requisitos funcionais
 
 | ID       | Requisito Funcional                                                                                                                              | Prioridade |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
@@ -54,9 +54,9 @@ Essa etapa deve ser executada no dispositivo de borda e deve preparar as imagens
 
 ## RF03 — Detecção dos elementos da finalização
 
-O sistema deve identificar nos quadros do vídeo os elementos necessários para realizar a análise da finalização.
+O sistema deve identificar jogador, goleiro, bola e referências do campo nos quadros relevantes para a análise da finalização.
 
-As informações encontradas nessa etapa devem ser utilizadas pelas etapas seguintes para entender o lance e permitir a extração das métricas.
+As informações encontradas nessa etapa alimentam tracking, homografia e localização temporal, conforme detalha a [aplicação da visão computacional](../pesquisa/aplicacao-visao-computacional).
 
 **Prioridade:** Must
 
@@ -70,7 +70,7 @@ Como o vídeo recebido já contém uma finalização, o objetivo não é encontr
 
 ## RF05 — Extração das informações da finalização
 
-Após identificar o início da finalização, o sistema deve analisar o lance e extrair as informações necessárias para gerar as métricas definidas para o projeto.
+Após identificar o início da finalização, o sistema deve analisar o lance e extrair ao menos posição, distância, ângulo e instante provável do contato.
 
 Essas informações devem ser obtidas a partir dos quadros relacionados à finalização identificada.
 
@@ -78,7 +78,7 @@ Essas informações devem ser obtidas a partir dos quadros relacionados à final
 
 ## RF06 — Cálculo das métricas da finalização
 
-O sistema deve utilizar as informações extraídas do vídeo para calcular as métricas definidas para a finalização.
+O sistema deve utilizar as informações extraídas do vídeo para calcular as características definidas para a finalização e enviá-las ao backend responsável pelo xG.
 
 Os valores produzidos devem representar as características obtidas pelo sistema durante a análise daquele lance.
 

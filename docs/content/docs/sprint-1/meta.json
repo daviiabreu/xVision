@@ -3,14 +3,13 @@
 	"pages": [
 		"problema",
 		"cpv-e-valor",
-		"requisitos",
 		"limites-do-produto",
-		"planejamento-proximas-sprints",
-		"matriz-de-risco",
-		"hipoteses",
+		"requisitos",
 		"pesquisa",
-		"requisitos-do-sistema",
 		"arquitetura",
+		"hipoteses",
+		"matriz-de-risco",
+		"planejamento-proximas-sprints",
 		"slides"
 	]
 }

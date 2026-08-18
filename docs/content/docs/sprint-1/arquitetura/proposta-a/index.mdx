@@ -11,13 +11,13 @@ description: Fluxo completo do clipe da finalização ate a entrega do evento, o
   alt="Fontes de vídeo alimentam um dispositivo de borda que executa ingestão, pré-processamento, modelo e extração de features; o evento segue para a nuvem, onde o backend calcula o xG, grava no banco e entrega à Footstats por webhook e API."
 />
 
-## Fluxo completo da Proposta A
+## Fluxo completo da proposta A
 
 A Proposta A é a implementação concreta da arquitetura de detecção de finalizações a partir de vídeo. Ela combina processamento local na borda com coordenação e enriquecimento na nuvem, para entregar métricas acionáveis e eventos em tempo real.
 
 ### 1. Fontes de vídeo e entrada manual
 
-A entrada do sistema pode acontecer por meio do **clipe da finalização**, fornecido já recortado pela Footstats, ou por **upload manual** de um vídeo enviado por um operador. Encontrar finalizações dentro de uma partida completa não faz parte desta sprint.
+A entrada do sistema pode acontecer por meio do **clipe da finalização**, fornecido já recortado pela Footstats, ou por **upload manual** de um vídeo enviado por um operador. Encontrar finalizações dentro de uma partida completa é uma evolução futura fora do escopo atual.
 
 O objetivo dessa etapa é garantir que a captura do vídeo seja confiável e fácil de testar, além de fornecer uma forma inicial de ingestão sem exigir integração com várias fontes externas. Dessa maneira, também é possível experimentar rapidamente diferentes fluxos de vídeo.
 
@@ -29,7 +29,7 @@ O vídeo entra no **dispositivo de borda**, que representa a primeira camada de 
 
 #### 2.2. Preparação dos quadros
 
-Os quadros decodificados são organizados antes de seguir para o pré-processamento, o que estabiliza o pipeline e mantém previsível o custo de cada etapa. Quando a entrada passar a ser a transmissão contínua, essa organização precisará virar uma fila com limite e política de descarte, para que o atraso não cresça ao longo da partida.
+Os quadros decodificados são organizados antes de seguir para o pré-processamento, o que estabiliza o pipeline e mantém previsível o custo de cada etapa. Em uma evolução futura com transmissão contínua, essa organização precisaria incluir uma fila com limite e política de descarte, sem fazer parte da implementação atual.
 
 #### 2.3. Pré-processamento
 
@@ -45,7 +45,7 @@ Depois do pré-processamento, o pipeline envia os dados para o **modelo local**,
 
 A partir desse processamento, são obtidas a **detecção da finalização** e as **features do evento**. Entre essas características estão informações como se a área estava marcada, se o goleiro estava posicionado, se o chute foi realizado com pé ou cabeça e outros sinais contextuais relacionados ao lance.
 
-Também são considerados **dados complementares do evento**, como posição e ângulo do lance, que são fornecidos pela Footstats e utilizados como contexto adicional durante o processamento.
+Posição, distância e ângulo do lance são obtidos a partir dos pontos do campo e da homografia, enquanto os valores fornecidos pela Footstats, quando disponíveis, funcionam como referência para medir o erro da extração automática.
 
 #### 3.3. Por que rodar na borda?
 
@@ -117,7 +117,7 @@ Após a conclusão do processamento, a nuvem dispara um **webhook** para a **Foo
 
 #### 9.2. Consumo por API
 
-Além da notificação via webhook, a Footstats pode consultar informações adicionais por meio de uma **API**. Entre esses dados estão informações como ângulo, posição e status de entrega, sendo fornecidos pela própria Footstats como contexto oficial do evento.
+Além da notificação via webhook, a Footstats pode consultar informações adicionais por meio de uma **API**. Entre esses dados estão posição, ângulo, confiança, xG e status de entrega, acompanhados da comparação com a referência quando ela estiver disponível.
 
 #### 9.3. Resultado para a Footstats
 
@@ -145,7 +145,7 @@ O uso conjunto do load balancer e da fila permite aumentar a capacidade da infra
 
 #### 11.1. Métricas capturadas
 
-Entre as principais informações capturadas estão a **identificação da finalização**, a **probabilidade de gol ou xG**, os **dados de posição e ângulo do chute fornecidos pela Footstats**, o **timestamp e o contexto do evento** e o **status de entrega ao webhook**.
+Entre as principais informações capturadas estão a **identificação da finalização**, os **dados de posição, distância e ângulo extraídos do vídeo**, o **timestamp e o contexto do evento**, a **probabilidade de gol ou xG calculada no backend** e o **status de entrega ao webhook**.
 
 #### 11.2. Resultado esperado
 

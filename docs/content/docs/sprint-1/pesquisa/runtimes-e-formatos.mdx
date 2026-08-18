@@ -11,7 +11,7 @@ No caso de runtimes de modelos  baseados em máquina virtual/bytecode (ex.: o in
 
 Da mesma forma, sistemas de runtime para modelos de Deep Learning são extremamente importantes para o desenvolvimento/treino de modelos, o deploy e fluxos de trabalho intensivos, porque permitem que diferentes microcomputadores e computadores executem o mesmo modelo de acordo com as capacidades específicas do seu hardware, sem que o modelo precise ser reescrito para cada plataforma.
 
-## Runtimes para Deep Learning
+## Runtimes para deep learning
 
 - **ONNX Runtime**: motor de inferência de alta performance, mantido pela Microsoft, para rodar modelos no formato ONNX. É multiplataforma (Windows, Linux, macOS, Android, iOS, navegador via WebAssembly) e delega a execução a diferentes *execution providers* plugáveis (CPU, CUDA, TensorRT, DirectML, OpenVINO, CoreML, entre outros), escolhendo o backend mais adequado ao hardware disponível.
 - **NVIDIA TensorRT**: runtime e compilador de inferência da NVIDIA, voltado especificamente a GPUs NVIDIA. Compila o grafo do modelo (geralmente a partir de ONNX) em um `.engine` otimizado para a GPU exata do dispositivo, com fusão de operadores e suporte a precisão reduzida (FP16, INT8). Entrega a maior performance possível em hardware NVIDIA, mas não é portável para outros fabricantes.
@@ -19,7 +19,7 @@ Da mesma forma, sistemas de runtime para modelos de Deep Learning são extremame
 - **TensorFlow Lite / LiteRT**: runtime da Google para inferência em dispositivo (mobile, embarcado, navegador), a partir de um único arquivo `.tflite`. Foi desenhado para minimizar o tamanho do binário e o consumo de memória em CPUs ARM e em aceleradores de baixo consumo (ex.: Google Coral Edge TPU), com suporte a quantização INT8.
 - **Apple Core ML**: runtime nativo de inferência da Apple, otimizado para Apple Silicon, aproveitando o Apple Neural Engine, a CPU e a GPU do dispositivo.
 
-## Formatos de Serialização de Modelos
+## Formatos de serialização de modelos
 
 Os formatos de entrada de um runtime se dividem em três categorias, de acordo com o que armazenam:
 
@@ -52,7 +52,7 @@ Na prática, ONNX costuma funcionar como o formato-ponte: o modelo é treinado e
 | Safetensors | Só pesos | Alta como dado, mas exige código+config externos | Depende do esquema aplicado antes | Distribuição segura de pesos (Hugging Face) |
 | TensorRT Engine | Grafo compilado + pesos | Nenhuma — amarrado a uma GPU/driver específicos | FP16/INT8 nativo | Inferência de máxima performance em GPU NVIDIA |
 
-## Contexto de Edge Computing
+## Contexto de edge computing
 
 O projeto usa a família **NVIDIA Jetson** como hardware de borda. O escopo do grupo: captura de vídeo, pré-processamento dos quadros, detecção da finalização e classificação/extração das características do lance (situação de jogo, lotação da área de chute, jogador olhou para a bola, assistência ) rodam na Jetson; o resultado, as informações estruturadas necessárias ao cálculo do xG, não o vídeo bruto, é enviado a um banco de dados estruturado. A estimativa de xG em si não roda na borda conforme a [arquitetura](/docs/sprint-1/arquitetura) indica.
 
