@@ -1,0 +1,37 @@
+# Release 0.1.0
+
+Primeira entrega do Edge xG, projeto do módulo 11 conduzido pela equipe xVision com a
+Footstats. A Sprint 1 fecha o ciclo de definição do problema e de pesquisa técnica, sem
+código de produto: o que sai desta release é a proposta documentada, com as decisões
+justificadas e as hipóteses que serão testadas a partir da Sprint 2.
+
+## What's New
+
+- Definição e modelagem do problema da Footstats, com o recorte do xG e o papel do
+  processamento na borda.
+- Canvas de proposta de valor e limites do produto, delimitando o que a solução é e o que
+  ela não cobre no escopo do MVP.
+- Requisitos iniciais separados em funcionais e não funcionais, com os critérios de sucesso
+  ancorados nos ids dos requisitos.
+- Pesquisa técnica em seis frentes: modelos e tarefas de visão computacional, aplicação ao
+  problema da Footstats, runtimes e formatos de modelo, quantização e otimização,
+  benchmarking de hardware embarcado e benchmarking de sistemas operacionais, além das
+  estratégias de execução e rollout na borda.
+- Arquitetura da Proposta A detalhada em visão geral, dispositivo de borda e nuvem, com
+  fluxo de dados, decisões, trade-offs e o que ainda não foi implementado.
+- Proposta B registrada como evolução para maior escala, declarada fora do escopo de
+  implementação já na primeira linha da página.
+- Hipóteses com critérios mensuráveis, matriz de risco e planejamento das Sprints 2 a 5.
+- Site de documentação em Fumadocs publicado pelo GitLab Pages, com lint, checagem de tipos
+  e build cobertos pelo CI.
+
+## Fixes
+
+- Correção dos links e da navegação da Sprint 1, incluindo as âncoras entre páginas de
+  arquitetura, requisitos e pesquisa.
+- Padronização das referências no formato de link, eliminando as URLs nuas que quebravam o
+  lint de MDX.
+- Alinhamento das hipóteses e dos experimentos ao planejamento das sprints, para que número
+  medido, número estimado e número desejado não apareçam com a mesma cara.
+- Consolidação do escopo e das responsabilidades entre borda e nuvem, retirando as seções
+  duplicadas e os títulos repetidos herdados das primeiras versões.
