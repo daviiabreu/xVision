@@ -1,6 +1,199 @@
 ---
 title: Planejamento das próximas sprints
-description: Planejamento para as sprints seguintes
+description: Visão geral, prioridades e critérios de conclusão das Sprints 2 a 5
 ---
 
-Placeholder.
+## Direção do planejamento
+
+As próximas sprints transformam as hipóteses registradas na proposta em incrementos executáveis, primeiro é necessário provar o fluxo completo com um clipe de finalização, depois adaptar esse mesmo fluxo ao hardware embarcado, integrar a borda aos demais componentes e, por fim, consolidar a solução para a validação final.
+
+O desenvolvimento seguirá quatro frentes em paralelo, visão computacional | produto e dados | edge computing | validação e documentação. O peso de cada frente muda ao longo das sprints, mas nenhuma delas deve evoluir de forma isolada, uma melhoria no detector, por exemplo, somente entra na solução quando sua saída percorre o backend e pode ser inspecionada no frontend.
+
+<Callout type="idea" title="Regra de entrega">
+
+Cada sprint deve terminar com um incremento reproduzível, evidências de teste e documentação fiel ao que realmente funciona. Funcionalidades parciais são aceitáveis quando seus limites estão explícitos, porém tarefas executadas apenas em notebooks ou scripts desconectados não caracterizam uma versão integrada.
+
+</Callout>
+
+Este plano considera como entrada um clipe curto que já contém uma finalização, não uma transmissão completa. O vídeo permanece no dispositivo ou no ambiente de processamento, enquanto o backend recebe o evento estruturado. Dados, vídeos e critérios proprietários da Footstats devem permanecer fora do repositório público.
+
+## Visão geral das entregas
+
+| Sprint | Foco principal | Entrega integrada | Evidência de conclusão |
+|---|---|---|---|
+| **Sprint 2** | primeira versão funcional e validação do núcleo de visão computacional | frontend para enviar e visualizar um clipe, backend para orquestrar o processamento e pipeline inicial de detecção, tracking, localização no campo e geração do evento | fluxo `clipe → processamento → resultado` reproduzível, métricas iniciais e limitações registradas |
+| **Sprint 3** | adaptação ao hardware e ao Linux embarcado | pipeline selecionado executando no dispositivo, com runtime acelerado, imagem Linux customizada e evolução incremental do frontend e backend | comparação entre ambiente de desenvolvimento e dispositivo, incluindo latência, memória, energia, temperatura e qualidade |
+| **Sprint 4** | integração efetiva da borda com os serviços centrais | dispositivo enviando eventos estruturados ao backend, persistência, consulta no frontend e tratamento de falhas de comunicação | teste ponta a ponta, contratos validados, idempotência, recuperação de falhas e otimizações justificadas |
+| **Sprint 5** | consolidação, validação final e apresentação | versão estável do fluxo completo, documentação de operação, resultados finais e demonstração | requisitos rastreados, testes repetíveis, limitações e débitos técnicos registrados, release e pitch preparados |
+
+### Evolução das frentes
+
+| Frente | Sprint 2 | Sprint 3 | Sprint 4 | Sprint 5 |
+|---|---|---|---|---|
+| **Visão computacional** | comparar baselines e produzir o primeiro evento | reduzir custo e preservar qualidade no dispositivo | ajustar gargalos observados na integração | congelar versões e validar nos cenários finais |
+| **Frontend e backend** | upload, estado do processamento e visualização do resultado | histórico, detalhes e telemetria básica | integração real com a borda e tratamento de falhas | acabamento, estabilidade e fluxo da demonstração |
+| **Edge computing** | preparar exportação e instrumentação, sem bloquear a primeira versão | executar em hardware com Linux customizado e runtime acelerado | operação residente, comunicação confiável e otimização | configuração reproduzível e validação contínua |
+| **Qualidade e documentação** | conjunto de validação, métricas e manual local | comparação antes e depois da adaptação | testes ponta a ponta e arquitetura implementada | validação dos requisitos, relatório final e evidências |
+
+## Sprint 2, primeira versão funcional
+
+O objetivo da Sprint 2 é transformar a pesquisa em um primeiro produto utilizável. Uma pessoa deverá selecionar um clipe no frontend, iniciar o processamento e visualizar o resultado produzido pelo pipeline, ainda que alguns atributos da finalização permaneçam parciais. A execução pode ocorrer em uma estação de desenvolvimento nesta etapa, pois a adaptação obrigatória ao dispositivo pertence à Sprint 3.
+
+<Callout type="warn" title="O que não basta nesta sprint">
+
+Um modelo com boa métrica, uma tela sem processamento real ou um conjunto de scripts independentes não atende sozinho ao critério de entrega. O caminho iniciado pela interface precisa chegar a um resultado disponível na própria aplicação, com erros e limitações visíveis.
+
+</Callout>
+
+### Núcleo de visão computacional
+
+| ID | Entrega | Definição de pronto |
+|---|---|---|
+| **S2-CV01** | conjunto comum de desenvolvimento e validação | clipes representativos separados por treino e validação, anotações mínimas de jogador, goleiro, bola, campo e instante do chute, além de condições como sombra, brilho, borrão e compressão |
+| **S2-CV02** | baseline de detecção | YOLOv8n e YOLO26n avaliados com a mesma entrada e configuração, decisão registrada por mAP por classe, recall da bola próximo ao contato, latência e memória |
+| **S2-CV03** | tracking e labels operacionais | ByteTrack associado às detecções, IDs persistentes, equipe, função e confiança sobrepostos ao vídeo, sem apresentar o ID da trajetória como número da camisa |
+| **S2-CV04** | trajetória específica da bola | rejeição de saltos improváveis, interpolação apenas em lacunas curtas e registro dos períodos sem observação, um detector exclusivo para a bola só será testado se o detector compartilhado não atingir o recall mínimo |
+| **S2-CV05** | pontos do campo e homografia | keypoints confiáveis usados com RANSAC para converter pixels em coordenadas, com erro de reprojeção, taxa de calibração válida e erro espacial medidos |
+| **S2-CV06** | instante e características iniciais | contato estimado por proximidade e mudança de trajetória, posição, distância e ângulo calculados no quadro selecionado e comparados com referência humana |
+| **S2-CV07** | robustez visual | baseline sem filtros comparado com tratamentos seletivos, como CLAHE na luminância, filtro bilateral leve e aumento de dados, mantendo apenas o que melhorar a qualidade do evento dentro do orçamento de latência |
+| **S2-CV08** | evento estruturado | evidências dos módulos combinadas em um contrato versionado, com identificador, instante, coordenadas, características disponíveis, confiança, versões dos modelos e campos ausentes explícitos |
+
+A [pesquisa de visão computacional](./pesquisa/modelos-visao-computacional) sustenta uma implementação modular. Detecção e tracking produzem as trajetórias, enquanto keypoints e homografia fornecem a referência espacial necessária para posição, distância e ângulo. A segmentação de linhas entra como alternativa se os keypoints não mantiverem uma calibração válida, o BoT-SORT será comparado se houver trocas frequentes de identidade e a pose será executada apenas perto do contato quando a parte do corpo for necessária.
+
+As características serão incorporadas por níveis para impedir que definições subjetivas bloqueiem o núcleo espacial:
+
+1. **Nível 1, obrigatório:** posição da finalização, distância, ângulo e instante provável do contato.
+2. **Nível 2, após validação das regras:** parte do corpo, marcação, área ocupada e posicionamento do goleiro.
+3. **Nível 3, condicionado ao contexto disponível:** assistência, tipo de jogada e direção do olhar.
+
+Os limites que transformam distância em conceitos como “marcado” ou “goleiro posicionado” devem ser acordados com a Footstats. Visão computacional mede as evidências, mas não deve inventar a regra de negócio.
+
+### Frontend, backend e fluxo de dados
+
+O primeiro corte de arquitetura deve ser pequeno o suficiente para funcionar dentro da sprint, sem antecipar componentes de escala que ainda não resolvem um problema observado.
+
+| Componente | Responsabilidade na Sprint 2 | Saída esperada |
+|---|---|---|
+| **Frontend** | selecionar o clipe, iniciar o processamento, exibir estado, falha e resultado | vídeo anotado ou quadros de inspeção, resumo das características e confiança |
+| **Backend** | receber a solicitação, acionar o pipeline, persistir metadados e disponibilizar o resultado | endpoints de processamento e consulta, registro do estado e dos erros |
+| **Pipeline** | decodificar o vídeo, executar os módulos e montar o evento | artefato visual de depuração e evento estruturado versionado |
+| **Estimador de xG** | consumir as características e retornar uma primeira estimativa reproduzível | valor e versão do estimador, sem substituir silenciosamente o cálculo por dados fictícios |
+| **Persistência** | guardar eventos, versões, métricas e caminhos dos artefatos permitidos | histórico mínimo para consulta e comparação |
+
+O estimador de xG e seus campos de entrada precisam ser confirmados no início da sprint. Se o modelo proprietário não puder ser fornecido, o grupo deverá implementar um baseline documentado com os dados autorizados e manter a interface pronta para substituição, não usar um valor aleatório ou fixo apenas para completar a tela.
+
+### Ordem sugerida do backlog
+
+| Ordem | Pacote de trabalho | Dependência | Resultado verificável |
+|---|---|---|---|
+| 1 | fechar amostra, anotações, critérios de sucesso e contrato do evento | acesso aos dados e alinhamento com a Footstats | todos avaliam os mesmos clipes e campos |
+| 2 | montar um esqueleto ponta a ponta com processamento simples | contrato inicial | frontend, backend e pipeline já se comunicam |
+| 3 | implementar detector, tracking e trajetória da bola | anotações de objetos | vídeo com objetos e IDs, métricas por classe |
+| 4 | implementar keypoints, homografia e coordenadas | anotações do campo | posição no gramado e erros de calibração |
+| 5 | estimar contato e características do Nível 1 | trajetórias e coordenadas | primeiro evento comparável à referência humana |
+| 6 | testar robustez visual e módulos condicionais | baseline congelado | comparação controlada, sem filtros mantidos por impressão visual |
+| 7 | integrar o estimador de xG e completar a visualização | evento estruturado | resultado consultável na aplicação |
+| 8 | executar testes, registrar evidências e atualizar a documentação | incremento integrado | entrega reproduzível por outra pessoa do grupo |
+
+### Critérios de conclusão
+
+- [ ] um clipe pode ser enviado pela interface e processado sem executar comandos manuais entre as etapas;
+- [ ] o resultado pode ser visualizado e consultado, incluindo estado de erro e campos ainda indisponíveis;
+- [ ] detector, tracking, homografia e evento possuem testes ou amostras de verificação proporcionais ao risco;
+- [ ] as métricas usam o mesmo recorte de dados e separam ao menos bola, jogadores e condições visuais críticas;
+- [ ] versões de modelo, dependências, configuração e instruções de execução estão registradas;
+- [ ] funcionalidades entregues, parciais e adiadas estão diferenciadas na documentação.
+
+## Sprint 3, adaptação ao embarcado
+
+Na Sprint 3, o foco deixa de ser provar que o fluxo existe e passa a ser fazê-lo funcionar no hardware escolhido. O comportamento validado na Sprint 2 deve ser preservado, enquanto resolução, frequência de amostragem, runtimes e precisão numérica podem mudar com base nas medições do dispositivo.
+
+| ID | Entrega | Definição de pronto |
+|---|---|---|
+| **S3-ED01** | classe de hardware confirmada | Jetson Orin Nano 8 GB validada como referência ou substituição justificada por compatibilidade, memória, custo e disponibilidade |
+| **S3-ED02** | modelo exportável | interface de entrada e saída congelada, exportação para ONNX validada contra o modelo de origem e operadores incompatíveis identificados |
+| **S3-ED03** | runtime acelerado | engine TensorRT em FP16 executando no dispositivo, com ONNX Runtime mantido apenas como referência ou contingência |
+| **S3-ED04** | Linux embarcado customizado | imagem produzida com Yocto, Buildroot ou alternativa aprovada, preservando drivers e bibliotecas necessárias à aceleração, com processo de build documentado |
+| **S3-ED05** | pipeline eficiente | decodificação por hardware quando disponível, processo residente, modelo carregado uma única vez e cópias de memória reduzidas |
+| **S3-ED06** | benchmark antes e depois | tempo por estágio, latência ponta a ponta, RAM, memória do acelerador, energia e temperatura comparados com o ambiente da Sprint 2 |
+| **S3-ED07** | qualidade preservada | saída do dispositivo comparada com a referência, incluindo recall da bola, erro espacial e taxa de eventos completos |
+
+A direção inicial da pesquisa é `PyTorch → ONNX → TensorRT`, com Linux no ecossistema Jetson e contêinerização quando compatível com a imagem escolhida. DeepStream deve ser avaliado se simplificar decodificação, inferência e extração de metadados, porém só será adotado se reduzir custo ou risco do pipeline real.
+
+A quantização INT8 não deve ser aplicada por obrigação. Primeiro será medido o baseline FP16, depois a versão INT8 poderá ser testada com calibração representativa, comparando ganho de latência, memória e energia com a perda por classe, principalmente no recall da bola. Se a perda ultrapassar o limite acordado, FP16 permanece como decisão válida.
+
+Em paralelo, frontend e backend evoluem sem competir com a adaptação principal, o histórico de processamentos pode ganhar filtros e tela de detalhes, enquanto a API passa a registrar telemetria do dispositivo e versões dos artefatos.
+
+### Critérios de conclusão
+
+- [ ] o pipeline executa no hardware selecionado sobre a imagem Linux customizada;
+- [ ] instalação, build do sistema, compilação do modelo e execução são reproduzíveis;
+- [ ] há comparação objetiva entre ambiente de desenvolvimento e dispositivo;
+- [ ] memória permanece abaixo do limite definido e não cresce em execução prolongada;
+- [ ] temperatura, energia e eventual redução de frequência são registradas;
+- [ ] mudanças de modelo ou qualidade causadas pela adaptação estão justificadas.
+
+## Sprint 4, integração da borda
+
+O objetivo da Sprint 4 é tornar real a separação proposta na arquitetura, o dispositivo recebe e processa o clipe, gera apenas o evento estruturado e o envia ao backend, que persiste, calcula ou consolida o xG e disponibiliza o resultado ao frontend e ao receptor simulado da Footstats.
+
+| ID | Entrega | Definição de pronto |
+|---|---|---|
+| **S4-AR01** | contrato estável do evento | esquema versionado, validação, unidade, confiança, origem e compatibilidade entre versões definidas |
+| **S4-AR02** | comunicação edge-backend | REST/HTTP como caminho inicial ou MQTT se o pipeline justificar, com autenticação mínima, timeouts e erros observáveis |
+| **S4-AR03** | entrega confiável | fila local persistente, retentativa com espera progressiva, chave de idempotência e reenvio após indisponibilidade de rede |
+| **S4-AR04** | persistência e consulta | backend registra evento, telemetria e versão do modelo, frontend consulta histórico e detalhes |
+| **S4-AR05** | integração externa simulada | evento encaminhado a um receptor compatível com o contrato esperado pela Footstats, sem envio do vídeo bruto |
+| **S4-AR06** | otimização orientada por gargalo | quantização, redução de resolução, amostragem ou troca de módulo aplicada somente quando os benchmarks justificarem |
+| **S4-AR07** | arquitetura atualizada | diferenças entre a proposta da Sprint 1 e a implementação explicadas com responsabilidades, fluxos e decisões atuais |
+
+Os testes devem cobrir o caminho nominal e as falhas mais prováveis, rede indisponível | evento duplicado | reinício do processo | payload inválido | modelo incompatível | falta de espaço local. A solução deve registrar o erro e recuperar o processamento quando possível, sem perder ou duplicar silenciosamente uma finalização.
+
+### Critérios de conclusão
+
+- [ ] o fluxo `vídeo → dispositivo → evento → backend → frontend` funciona ponta a ponta;
+- [ ] interrupção de rede não causa perda ou duplicação silenciosa do evento;
+- [ ] contratos e responsabilidades de borda, backend, frontend e receptor central estão documentados;
+- [ ] logs permitem localizar o custo e a falha de cada etapa;
+- [ ] qualquer otimização possui comparação de qualidade e recursos antes e depois;
+- [ ] dados restritos e política de retenção seguem os limites acordados.
+
+## Sprint 5, consolidação e validação final
+
+A Sprint 5 deve congelar o escopo funcional e concentrar o esforço em estabilidade, evidência e comunicação. Funcionalidades grandes não iniciadas anteriormente só devem entrar se forem indispensáveis para cumprir um requisito obrigatório.
+
+| Frente | Trabalho previsto | Resultado esperado |
+|---|---|---|
+| **Qualidade** | corrigir falhas encontradas, repetir os cenários representativos e validar regressões | versão estável e métricas finais comparáveis |
+| **Requisitos** | rastrear requisitos funcionais e não funcionais até testes, telas, logs ou medições | cobertura explícita, com pendências justificadas |
+| **Operação** | consolidar scripts, configurações, dependências, versões e recuperação | instalação e execução reproduzíveis |
+| **Documentação** | registrar arquitetura implementada, decisões, testes, limitações, riscos e débitos técnicos | documentação fiel ao estado final do produto |
+| **Apresentação** | preparar demonstração, roteiro, contingência, resultados e valor para a Footstats | pitch sustentado pelo sistema e pelas evidências |
+
+O teste final deve usar clipes preservados para validação e apresentar resultados separados por condição, não apenas uma média geral. Além da qualidade das características e do xG, devem ser reportados latência ponta a ponta, custo por estágio, memória, energia, temperatura, taxa de entrega dos eventos e comportamento sob falhas.
+
+### Critérios de conclusão
+
+- [ ] a demonstração percorre o fluxo completo sem etapas ocultas ou troca manual de artefatos;
+- [ ] requisitos, testes e evidências possuem rastreabilidade;
+- [ ] limitações conhecidas, cenários não atendidos e débitos técnicos estão explícitos;
+- [ ] ambiente, modelos e contratos estão versionados em uma release reproduzível;
+- [ ] documentação de instalação, configuração, execução e uso foi validada por outra pessoa;
+- [ ] resultados e valor esperado para a Footstats estão sintetizados para o pitch.
+
+## Decisões e dependências antecipadas
+
+| Decisão ou dependência | Prazo recomendado | Evidência necessária | Risco se atrasar |
+|---|---|---|---|
+| amostra autorizada e divisão de validação | início da Sprint 2 | clipes, anotações e política de uso disponíveis | modelos incomparáveis e validação fraca |
+| definição das características e regras da Footstats | primeira metade da Sprint 2 | exemplos e limites para marcado, goleiro posicionado, assistência e área ocupada | categorias tecnicamente implementadas, mas semanticamente incorretas |
+| contrato do evento e responsabilidade pelo xG | primeira metade da Sprint 2 | esquema aprovado e baseline de cálculo definido | retrabalho entre pipeline, backend e frontend |
+| metas de latência, qualidade e recursos | Sprint 2, antes do benchmark final | limites acordados e método de medição | decisões baseadas em percepção, sem critério de aceite |
+| disponibilidade do hardware | até o fim da Sprint 2 | placa, armazenamento, fonte e acesso confirmados | impossibilidade de cumprir a adaptação da Sprint 3 |
+| stack de Linux, runtime e comunicação | início da Sprint 3 | teste mínimo de compatibilidade no dispositivo | integração tardia e dependências incompatíveis |
+
+<Callout type="success" title="Como manter o plano útil">
+
+Ao final de cada sprint, cada item deve ser marcado como entregue, parcial ou adiado e apontar para uma evidência concreta, como teste, métrica, tela, vídeo ou decisão técnica. Hipóteses da Sprint 1 podem mudar, mas a mudança precisa registrar o dado que a motivou e o impacto no restante do backlog.
+
+</Callout>
