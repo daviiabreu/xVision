@@ -1,0 +1,77 @@
+[project]
+name = "xvision"
+version = "0.1.0"
+description = "xVision: extrai features de finalizacao a partir de video, com processamento na borda"
+readme = "src/README.md"
+license = { text = "CC-BY-4.0" }
+authors = [{ name = "Inteli T12 G02" }]
+requires-python = ">=3.10"
+dependencies = [
+    "jsonschema>=4.23",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.10",
+    "tomli>=2.0; python_version < '3.11'",
+    "typer>=0.15",
+]
+
+[project.scripts]
+xvision = "cli:app"
+
+[project.optional-dependencies]
+conformance = ["pytest>=8.3"]
+players = []
+ball = []
+field = []
+tracking = []
+identity = []
+pose = []
+shot = []
+mlops = []
+api = ["fastapi>=0.115", "pydantic>=2.9", "uvicorn[standard]>=0.32"]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.390",
+    "tomli>=2.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "pyyaml>=6.0",
+    "httpx2>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api", "src/cli", "src/contracts", "src/edge", "src/mlops"]
+exclude = ["src/api/docs/xvision", "src/api/docs/README.md"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "pyproject.toml", "README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+addopts = "--import-mode=importlib"
+
+[tool.coverage.run]
+source = ["src/api", "src/cli", "src/contracts", "src/edge", "src/mlops"]
+
+[tool.coverage.report]
+fail_under = 80
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api", "cli", "contracts", "edge", "mlops"]
+
+[tool.pyright]
+include = ["src"]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"

@@ -1,0 +1,31 @@
+meta {
+  name: 7 process video (base64)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/videos/processamento
+  body: json
+}
+
+body:json {
+  {
+    "file": "{{videoBase64}}",
+    "type": "video/mp4"
+  }
+}
+
+script:pre-request {
+  const fs = require('fs');
+  const caminho = bru.getEnvVar('videoPath') || 'var/out/synthetic.mp4';
+  bru.setVar('videoBase64', fs.readFileSync(caminho).toString('base64'));
+}
+
+script:post-response {
+  bru.setVar('videoId', res.body.id);
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

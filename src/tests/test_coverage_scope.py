@@ -1,0 +1,65 @@
+"""Modulo sem teste precisa entrar no relatorio com 0%, nao sumir dele.
+
+Area e pasta de `src/` que tem Python dentro. A qualificacao existe porque o frontend mora em
+`src/interface` e e TypeScript: sem ela, o dia em que ele entrar este teste falha em cima de quem
+fizer o merge, por um motivo que nao tem nada a ver com a mudanca dele.
+
+Quando `source` nao aponta para diretorio, o coverage lista apenas o que foi importado, e
+codigo sem teste nenhum desaparece em vez de puxar o total para baixo. O piso de cobertura
+vira decoracao e ninguem percebe.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from coverage import Coverage
+
+SRC = Path(__file__).resolve().parents[1]
+ROOT = SRC.parent
+AREAS = tuple(
+    sorted(d for d in SRC.iterdir() if d.is_dir() and d.name != "tests" and any(d.rglob("*.py")))
+)
+
+
+def _fontes_declaradas() -> list[str]:
+    configurada = Coverage(config_file=str(ROOT / "pyproject.toml")).config.source
+    return list(configurada or [])
+
+
+@pytest.fixture
+def measured_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Path]:
+    monkeypatch.chdir(ROOT)
+    coverage = Coverage(
+        config_file=str(ROOT / "pyproject.toml"),
+        data_file=str(tmp_path / ".coverage"),
+    )
+    coverage.config.disable_warnings = ["no-data-collected"]
+    coverage.start()
+    coverage.stop()
+    coverage.save()
+    return {Path(name).resolve() for name in coverage.get_data().measured_files()}
+
+
+def test_o_repositorio_tem_area_para_conferir() -> None:
+    assert len(AREAS) > 1, f"nenhuma area em {SRC} alem de tests"
+
+
+@pytest.mark.parametrize("area", AREAS, ids=lambda path: path.name)
+def test_todo_modulo_da_area_entra_no_relatorio(area: Path, measured_files: set[Path]) -> None:
+    modulos = set(area.rglob("*.py"))
+
+    assert modulos, f"{area} nao tem modulo nenhum, o teste perderia o sentido"
+    assert modulos <= measured_files, f"a cobertura nao enxerga {sorted(modulos - measured_files)}"
+
+
+def test_a_fonte_da_cobertura_nao_alcanca_os_testes() -> None:
+    testes = Path(__file__).resolve().parent
+    fontes = [(ROOT / declarada).resolve() for declarada in _fontes_declaradas()]
+
+    assert fontes, "a cobertura nao declara fonte nenhuma"
+    for fonte in fontes:
+        assert fonte != testes and fonte not in testes.parents, (
+            f"a fonte {fonte} alcanca {testes}, entao a suite entra no relatorio"
+        )

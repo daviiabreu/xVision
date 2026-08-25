@@ -1,0 +1,375 @@
+"""O contrato que o frontend consome, verificado contra o que o codigo gera.
+
+O envio tem dois caminhos porque o time do frontend especificou dois, e os dois sao exercidos
+aqui: o `PUT` do binario, que e o que `src/interface/src/services/videoService.ts` chama, e o
+base64 dentro do JSON, que e o que o contrato escrito pede.
+"""
+
+from __future__ import annotations
+
+import base64
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from api import PREFIXO, create_app, execution, store
+from edge.testing.make_clip import make_synthetic_clip
+
+from .apoio import cliente_autenticado
+
+BASE64 = f"{PREFIXO}/videos/processamento"
+OPENAPI = Path(__file__).resolve().parents[2] / "api" / "docs" / "openapi.json"
+MP4 = "video/mp4"
+
+
+@pytest.fixture(autouse=True)
+def isolamento(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Cada teste com o seu banco e o seu `var/`, senao um vaza estado no outro."""
+    monkeypatch.setenv("XVISION_VAR_DIR", str(tmp_path / "var"))
+    yield
+    execution.aguardar()
+
+
+@pytest.fixture
+def cliente() -> TestClient:
+    return cliente_autenticado(create_app())
+
+
+@pytest.fixture
+def bytes_do_video(tmp_path: Path) -> bytes:
+    return make_synthetic_clip(tmp_path / "s.mp4").read_bytes()
+
+
+@pytest.fixture
+def video(bytes_do_video: bytes) -> str:
+    return base64.b64encode(bytes_do_video).decode()
+
+
+def _terminar(cliente: TestClient, identificador: int) -> dict[str, Any]:
+    execution.aguardar()
+    resposta = cliente.get(f"{PREFIXO}/videos/{identificador}")
+    assert resposta.status_code == 200, resposta.text
+    return dict(resposta.json())
+
+
+def test_health_answers_before_anything_else(cliente: TestClient) -> None:
+    """E a rota que o orquestrador consulta para decidir se a implantacao subiu."""
+    resposta = cliente.get("/health")
+
+    assert resposta.status_code == 200
+    assert resposta.json()["status"] == "ok"
+
+
+def test_the_upload_url_route_answers_what_the_frontend_reads(cliente: TestClient) -> None:
+    """`videoService.ts` le exatamente `uploadUrl` da resposta e faz PUT nele."""
+    resposta = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "clipe.mp4", "contentType": MP4}
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert isinstance(corpo["id"], int)
+    assert corpo["uploadUrl"].endswith(f"{PREFIXO}/videos/upload/{store.ler(corpo['id']).token}")  # pyright: ignore[reportOptionalMemberAccess]
+
+
+def test_the_binary_upload_runs_the_pipeline_and_finishes(
+    cliente: TestClient, bytes_do_video: bytes
+) -> None:
+    """O caminho inteiro que o frontend percorre hoje, do pedido de URL ao resultado."""
+    reserva = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "clipe.mp4", "contentType": MP4}
+    ).json()
+
+    envio = cliente.put(reserva["uploadUrl"], content=bytes_do_video)
+
+    assert envio.status_code == 202, envio.text
+    assert envio.json() == {"status": 202, "id": reserva["id"]}
+    corpo = _terminar(cliente, reserva["id"])
+    assert corpo["video_status"] == store.FINALIZADO
+    nomes = {r["nome_processo"] for r in corpo["resultados"]}
+    assert {"players", "ball", "field", "shot", "tracking"} <= nomes
+
+
+def test_the_base64_path_answers_the_written_contract(cliente: TestClient, video: str) -> None:
+    resposta = cliente.post(BASE64, json={"file": video, "type": MP4})
+
+    assert resposta.status_code == 202, resposta.text
+    assert resposta.json()["status"] == 202, "o corpo repete o codigo, e os dois tem de bater"
+    assert _terminar(cliente, resposta.json()["id"])["video_status"] == store.FINALIZADO
+
+
+def test_the_type_field_answers_to_both_names_the_frontend_uses(
+    cliente: TestClient, video: str
+) -> None:
+    """A mensagem do contrato diz `type` e o codigo do frontend diz `contentType`."""
+    por_type = cliente.post(BASE64, json={"file": video, "type": MP4})
+    por_content_type = cliente.post(BASE64, json={"file": video, "contentType": MP4})
+
+    assert por_type.status_code == 202, por_type.text
+    assert por_content_type.status_code == 202, por_content_type.text
+
+
+def test_the_status_route_walks_the_four_states_the_frontend_declares(
+    cliente: TestClient, video: str
+) -> None:
+    identificador = cliente.post(BASE64, json={"file": video, "type": MP4}).json()["id"]
+    execution.aguardar()
+
+    resposta = cliente.get(f"{PREFIXO}/videos/status/{identificador}")
+
+    assert resposta.status_code == 200
+    assert resposta.json() == {
+        "status": 200,
+        "video_status": store.FINALIZADO,
+        "motivo": None,
+    }
+
+
+def test_the_result_is_refused_while_the_video_has_not_finished(cliente: TestClient) -> None:
+    """Devolver lista vazia faria o frontend desenhar tela de resultado sem resultado."""
+    identificador = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
+    ).json()["id"]
+
+    resposta = cliente.get(f"{PREFIXO}/videos/{identificador}")
+
+    assert resposta.status_code == 409
+    assert store.PENDENTE in resposta.json()["detail"]
+
+
+def test_an_unknown_id_and_an_unknown_token_are_both_refused(cliente: TestClient) -> None:
+    assert cliente.get(f"{PREFIXO}/videos/status/9999").status_code == 404
+    assert cliente.get(f"{PREFIXO}/videos/9999").status_code == 404
+    assert cliente.put(f"{PREFIXO}/videos/upload/nao-existe", content=b"x").status_code == 404
+
+
+def test_the_same_upload_url_cannot_be_used_twice(
+    cliente: TestClient, bytes_do_video: bytes
+) -> None:
+    """O token autoriza gravar uma vez: sem isso, reenviar sobrescreve trabalho em andamento."""
+    reserva = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
+    ).json()
+    cliente.put(reserva["uploadUrl"], content=bytes_do_video)
+    execution.aguardar()
+
+    repetido = cliente.put(reserva["uploadUrl"], content=bytes_do_video)
+
+    assert repetido.status_code == 409
+
+
+def test_what_is_not_even_a_video_is_refused_at_the_door(cliente: TestClient) -> None:
+    """A triagem barata recusa o que nem video diz ser, sem gastar upload."""
+    for tipo in ("application/pdf", "text/plain", "image/png"):
+        assert cliente.post(BASE64, json={"file": "", "type": tipo}).status_code == 415
+        assert (
+            cliente.post(
+                f"{PREFIXO}/videos/upload-url", json={"fileName": "x", "contentType": tipo}
+            ).status_code
+            == 415
+        )
+
+
+def test_a_container_other_than_mp4_is_not_refused_by_the_type_alone(cliente: TestClient) -> None:
+    """Lista fixa de container recusava `.mov`, que o decodificador desta imagem abre.
+
+    O `.mov` e o caso do iPhone, que grava HEVC nesse container: recusar por lista seria recusar
+    o formato mais provavel de um envio feito pelo celular.
+    """
+    for tipo in ("video/quicktime", "video/x-matroska", "video/webm"):
+        resposta = cliente.post(
+            f"{PREFIXO}/videos/upload-url", json={"fileName": "c", "contentType": tipo}
+        )
+
+        assert resposta.status_code == 200, f"{tipo} recusado pelo tipo: {resposta.text}"
+
+
+def test_a_renamed_file_claiming_to_be_a_video_is_caught_by_the_decoder(
+    cliente: TestClient,
+) -> None:
+    """`contentType` e afirmacao do cliente: um `.txt` renomeado chega declarando `video/mp4`."""
+    disfarcado = base64.b64encode(b"isto e texto, nao video" * 100).decode()
+
+    resposta = cliente.post(BASE64, json={"file": disfarcado, "type": MP4})
+
+    assert resposta.status_code == 415
+    assert "nao abriu como video" in resposta.json()["detail"]
+
+
+def test_a_body_that_is_not_base64_is_refused_with_the_reason(cliente: TestClient) -> None:
+    resposta = cliente.post(BASE64, json={"file": "nao!!!e!!!base64", "type": MP4})
+
+    assert resposta.status_code == 400
+    assert "base64" in resposta.json()["detail"]
+
+
+def test_an_empty_body_is_refused_on_both_paths(cliente: TestClient) -> None:
+    reserva = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
+    ).json()
+
+    assert cliente.post(BASE64, json={"file": "", "type": MP4}).status_code == 400
+    assert cliente.put(reserva["uploadUrl"], content=b"").status_code == 400
+
+
+def test_base64_over_the_ceiling_is_refused_before_being_decoded(
+    cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decodificar para depois recusar e o que fazia o processo triplicar de memoria."""
+    monkeypatch.setenv("XVISION_API_MAX_JSON_MB", "1")
+
+    resposta = cliente.post(BASE64, json={"file": "A" * (2 * 1024 * 1024), "type": MP4})
+
+    assert resposta.status_code == 413
+    assert "upload-url" in resposta.json()["detail"]
+
+
+def test_a_binary_over_the_ceiling_is_cut_mid_stream(
+    cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XVISION_API_MAX_UPLOAD_MB", "1")
+    reserva = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
+    ).json()
+
+    resposta = cliente.put(reserva["uploadUrl"], content=b"x" * (2 * 1024 * 1024))
+
+    assert resposta.status_code == 413
+
+
+def test_a_validation_error_never_echoes_the_body_back(cliente: TestClient, video: str) -> None:
+    """O pydantic devolve o corpo recebido no campo `input`, e o corpo aqui e um video."""
+    resposta = cliente.post(BASE64, json={"file": video})
+
+    assert resposta.status_code == 422
+    assert video not in resposta.text
+    assert all("input" not in item for item in resposta.json()["detail"])
+
+
+def test_a_file_that_is_not_a_video_is_refused_without_leaking_the_server_path(
+    cliente: TestClient,
+) -> None:
+    """A mensagem da borda cita o caminho absoluto, e ele nao pode chegar ao cliente."""
+    resposta = cliente.post(
+        BASE64, json={"file": base64.b64encode(b"nao sou um video").decode(), "type": MP4}
+    )
+
+    assert resposta.status_code == 415
+    detalhe = resposta.json()["detail"]
+    assert "/Users/" not in detalhe
+    assert "var/uploads" not in detalhe
+    assert ".mp4" not in detalhe, "nem o nome do temporario sai daqui"
+
+
+def test_an_undecodable_upload_does_not_leave_a_job_waiting_forever(cliente: TestClient) -> None:
+    """O registro ja existe quando a recusa acontece, e `Pendente` faria o front
+    consultar para sempre um trabalho que ninguem vai pegar.
+    """
+    reserva = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
+    ).json()
+
+    assert cliente.put(reserva["uploadUrl"], content=b"tambem nao sou video").status_code == 415
+
+    lido = store.ler(reserva["id"])
+    assert lido is not None
+    assert lido.estado == store.FALHOU
+
+
+def test_the_uploaded_file_is_removed_after_the_pipeline_runs(
+    cliente: TestClient, video: str, tmp_path: Path
+) -> None:
+    """Sem isso, cada requisicao anonima deixa um video no disco para sempre."""
+    cliente.post(BASE64, json={"file": video, "type": MP4})
+    execution.aguardar()
+
+    assert list((tmp_path / "var" / "uploads").glob("*.mp4")) == []
+
+
+def test_the_browser_is_allowed_to_call_from_the_frontend_origin(cliente: TestClient) -> None:
+    """Sem CORS o navegador bloqueia a chamada e ninguem descobre ate integrar."""
+    resposta = cliente.options(
+        BASE64,
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_an_unknown_origin_is_not_allowed(cliente: TestClient) -> None:
+    resposta = cliente.options(
+        BASE64,
+        headers={"Origin": "http://exemplo.invalido", "Access-Control-Request-Method": "POST"},
+    )
+
+    assert "access-control-allow-origin" not in resposta.headers
+
+
+def test_a_video_stuck_in_processing_is_reprocessed_when_the_file_survived(
+    tmp_path: Path, bytes_do_video: bytes
+) -> None:
+    """Trocar o nome do estado nao e recuperar o trabalho.
+
+    A versao anterior devolvia o video para `Pendente` e parava ali. Como ninguem pega trabalho
+    pendente sozinho, o frontend passava a girar em `Pendente` em vez de girar em
+    `Em processamento`, e o arquivo enviado ficava no disco para sempre.
+    """
+    video = store.criar("c.mp4", MP4)
+    store.reivindicar(video.token)
+    store.marcar(video.id, store.PROCESSANDO)
+    enviados = tmp_path / "var" / "uploads"
+    enviados.mkdir(parents=True, exist_ok=True)
+    (enviados / f"{video.id}.mp4").write_bytes(bytes_do_video)
+
+    with TestClient(create_app()):
+        execution.aguardar()
+
+    lido = store.ler(video.id)
+    assert lido is not None
+    assert lido.estado == store.FINALIZADO, "a queda nao foi recuperada: o clipe nao foi refeito"
+    assert not (enviados / f"{video.id}.mp4").exists(), "o arquivo enviado ficou no disco"
+
+
+def test_a_video_stuck_in_processing_fails_with_a_reason_when_the_file_is_gone() -> None:
+    """Sem o arquivo nao ha o que reprocessar, e fingir `Pendente` seria consulta eterna."""
+    video = store.criar("c.mp4", MP4)
+    store.reivindicar(video.token)
+    store.marcar(video.id, store.PROCESSANDO)
+
+    with TestClient(create_app()):
+        pass
+
+    lido = store.ler(video.id)
+    assert lido is not None
+    assert lido.estado == store.FALHOU
+    assert lido.motivo is not None
+    assert "caiu" in lido.motivo
+
+
+def test_the_versioned_openapi_matches_what_the_code_generates() -> None:
+    """O arquivo versionado existe para a revisao ver o contrato no diff, e envelhece sozinho."""
+    import json
+
+    assert OPENAPI.exists()
+    assert json.loads(OPENAPI.read_text(encoding="utf-8")) == create_app().openapi()
+
+
+def test_every_documented_refusal_carries_the_same_shape(cliente: TestClient) -> None:
+    """Recusa com forma diferente por rota faz o frontend precisar de um parser por endpoint."""
+    recusas = [
+        cliente.post(BASE64, json={"file": "", "type": "video/avi"}),
+        cliente.post(BASE64, json={"file": "nao!!!base64", "type": MP4}),
+        cliente.get(f"{PREFIXO}/videos/9999"),
+        cliente.put(f"{PREFIXO}/videos/upload/inexistente", content=b"x"),
+    ]
+
+    for resposta in recusas:
+        assert set(resposta.json()) == {"detail"}
+        assert isinstance(resposta.json()["detail"], str)

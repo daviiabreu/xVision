@@ -1,0 +1,13 @@
+meta {
+  name: 4 me
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/auth/me
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

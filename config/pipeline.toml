@@ -1,0 +1,38 @@
+[frames.coarse]
+strategy = "uniform"
+fps = 5
+
+[frames.window]
+strategy = "around"
+anchor   = "shot"
+before_s = 1.5
+after_s  = 0.5
+fps      = "native"
+
+[modules.players]
+impl   = "edge.modules.stubs:StubPlayers"
+frames = "coarse"
+
+[modules.ball]
+impl   = "edge.modules.stubs:StubBall"
+frames = "coarse"
+
+[modules.field]
+impl   = "edge.modules.stubs:StubField"
+frames = "coarse"
+
+[modules.shot]
+impl   = "edge.modules.stubs:StubShot"
+frames = "coarse"
+
+[modules.tracking]
+impl   = "edge.modules.stubs:StubTracking"
+frames = "window"
+
+[modules.pose]
+impl   = "edge.modules.stubs:StubPose"
+frames = "window"
+
+[modules.identity]
+impl   = "edge.modules.stubs:StubIdentity"
+frames = "window"

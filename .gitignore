@@ -100,6 +100,8 @@ temp/
 *.m4v
 videos/
 frames/
+!src/edge/frames/
+!src/tests/edge/frames/
 
 # Dados proprietários: histórico de marcação e amostras anotadas de xG
 # (padrão `dir/*` e não `dir/`: só assim o `!` abaixo consegue reincluir o README
@@ -139,3 +141,39 @@ pipeline-approvals.json
 scope.md
 CLAUDE.md
 AGENTS.md
+
+# ============================================================================
+# O QUE O SISTEMA PRODUZ, E ARTEFATO DE TRABALHO DE MODELO
+# ============================================================================
+var/
+mlruns/
+artifacts/
+outputs/
+*.parquet
+*.feather
+*.npy
+*.npz
+*.safetensors
+*.tfrecord
+*.gguf
+*.ckpt
+*.jsonl
+*.tsv
+*.csv
+pytorch_model.bin
+saved_model.pb
+variables/
+
+# Fixture de teste e esquema de exemplo continuam versionaveis: eles nao sao dado
+# do parceiro, sao o que prova que o carregador entende o formato dele.
+!src/tests/**/*.csv
+!src/tests/**/*.jsonl
+!src/tests/**/*.tsv
+
+# ============================================================================
+# TERRAFORM
+# ============================================================================
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/

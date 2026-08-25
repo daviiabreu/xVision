@@ -1,0 +1,123 @@
+schema_version = "1.0"
+
+[[label]]
+name = "goalkeeper_position"
+required = true
+table = "match_shots_xg"
+column = "goalkeaper_position"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[label]]
+name = "occupied_area"
+required = true
+table = "match_shots_xg"
+column = "occupied_area"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[label]]
+name = "marked"
+required = true
+table = "match_shots_xg"
+column = "marked"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[label]]
+name = "looked_before"
+required = true
+table = "match_shots_xg"
+column = "looked_before"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[label]]
+name = "assist"
+required = true
+table = "match_shots_xg"
+column = "assist"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[label]]
+name = "body_part_3"
+required = true
+table = "match_shots"
+column = "body_part"
+type = "enum"
+domain = ["CABECA", "PERNA_ESQUERDA", "PERNA_DIREITA"]
+missing = [""]
+
+[[label]]
+name = "body_part_2"
+table = "match_shots_xg"
+column = "used"
+type = "enum"
+domain = ["foot", "head"]
+missing = [""]
+
+[[label]]
+name = "type_of_play"
+required = true
+table = "match_shots_xg"
+column = "type_of_play"
+type = "enum"
+domain = ["open play", "set piece", "individual"]
+missing = [""]
+
+[[label]]
+name = "shot_distance_m"
+table = "match_shots"
+column = "meters"
+type = "numeric"
+grain = 5.0
+missing = [""]
+
+[[label]]
+name = "expected_goals"
+table = "match_shots_xg"
+column = "expected_goals"
+type = "numeric"
+missing = [""]
+
+[[label]]
+name = "is_goal"
+table = "match_shots"
+column = "is_goal"
+type = "bool"
+domain = ["true", "false"]
+missing = [""]
+
+[[metric]]
+feature = "goalkeeper_position"
+label = "goalkeeper_position"
+
+[[metric]]
+feature = "occupied_area"
+label = "occupied_area"
+
+[[metric]]
+feature = "marked"
+label = "marked"
+
+[[metric]]
+feature = "looked_before"
+label = "looked_before"
+
+[[metric]]
+feature = "assist"
+label = "assist"
+
+[[metric]]
+feature = "body_part"
+label = "body_part_3"
+
+[[metric]]
+feature = "type_of_play"
+label = "type_of_play"

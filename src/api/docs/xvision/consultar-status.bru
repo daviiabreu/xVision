@@ -1,0 +1,13 @@
+meta {
+  name: 8 video status
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/v1/videos/status/{{videoId}}
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

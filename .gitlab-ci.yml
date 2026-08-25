@@ -9,6 +9,8 @@ include:
   - local: ".gitlab/ci/actions-rules.yml"
   - local: ".gitlab/ci/branch-rules.yml"
   - local: ".gitlab/ci/pipeline-check.yml"
+  - local: ".gitlab/ci/python.yml"
+  - local: ".gitlab/ci/terraform.yml"
   - local: ".gitlab/ci/docs.yml"
   - local: ".gitlab/ci/release.yml"
 

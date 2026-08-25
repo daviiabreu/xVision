@@ -1,0 +1,17 @@
+meta {
+  name: 2 register
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/auth/register
+  body: json
+}
+
+body:json {
+  {
+    "email": "voce@sou.inteli.edu.br",
+    "senha": "uma-senha-longa-de-verdade"
+  }
+}

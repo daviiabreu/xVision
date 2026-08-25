@@ -1,0 +1,1018 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "xVision",
+    "summary": "Extrai caracteristicas de finalizacao a partir de um clipe de video.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Lista as versoes que o servico responde.",
+        "description": "Lista as versoes que este servico responde.\n\nExiste para que uma chamada sem versao, que e o erro mais provavel de quem integra, encontre\no caminho em vez de receber 404 seco.",
+        "operationId": "raiz__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Raiz  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Diz se o servico subiu.",
+        "description": "Diz se o servico subiu.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Cria uma conta de usuario.",
+        "description": "Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.",
+        "operationId": "_rota_registro_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ja existe conta com esse email, ou o video ja saiu da fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Troca email e senha por uma sessao.",
+        "description": "Email desconhecido e senha errada respondem igual, e demoram igual.\n\nRespondendo diferente, a rota vira lista de emails cadastrados. Por isso a senha e conferida\nmesmo quando a conta nao existe: sem isso, o caminho do email desconhecido volta antes de\nrodar o `scrypt` e o tempo de resposta conta a diferenca sozinho.",
+        "operationId": "_rota_login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessaoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Diz quem o servico acha que voce e.",
+        "description": "Diz quem o servico acha que voce e, que e o que um cliente precisa para depurar sessao.",
+        "operationId": "_rota_eu_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos/upload-url": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Reserva um identificador e devolve o endereco de envio.",
+        "description": "Reserva um identificador e devolve o endereco para onde mandar o binario.",
+        "operationId": "_rota_upload_url_v1_videos_upload_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadUrlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "O tipo enviado nao e um dos que o pipeline abre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos/upload/{token}": {
+      "put": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Recebe o binario do video e enfileira o processamento.",
+        "description": "Recebe o binario do video e enfileira o processamento.",
+        "operationId": "receber_v1_videos_upload__token__put",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Aceito"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O corpo chegou vazio, ou o campo file nao e base64 valido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nao existe video com esse identificador, ou o endereco de envio e desconhecido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ja existe conta com esse email, ou o video ja saiu da fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "O arquivo passa do teto aceito.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "O tipo enviado nao e um dos que o pipeline abre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A fila esta cheia. O cabecalho Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos/processamento": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Aceita o video em base64 e enfileira o processamento.",
+        "description": "Aceita o video em base64 e enfileira o processamento.",
+        "operationId": "processar_v1_videos_processamento_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessamentoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Aceito"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O corpo chegou vazio, ou o campo file nao e base64 valido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "O arquivo passa do teto aceito.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "O tipo enviado nao e um dos que o pipeline abre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A fila esta cheia. O cabecalho Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos/status/{video_id}": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Diz em que ponto o video esta.",
+        "description": "Diz em que ponto o video esta, sem devolver o resultado.",
+        "operationId": "_rota_status_v1_videos_status__video_id__get",
+        "parameters": [
+          {
+            "name": "video_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nao existe video com esse identificador, ou o endereco de envio e desconhecido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos/{video_id}": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Devolve o resultado por etapa, quando o video ja terminou.",
+        "description": "Devolve o resultado por etapa quando terminou, e o motivo quando falhou.\n\nRecusar `Falhou` com 409 dizendo \"ainda nao terminou\" era falso duas vezes: o video terminou,\ne a mensagem mandava o frontend continuar consultando um estado que nunca muda. Pior, o campo\n`motivo` so e preenchido em `Falhou`, entao ele era inalcancavel por qualquer rota e toda a\nhigiene de nao vazar caminho protegia um texto que ninguem lia.",
+        "operationId": "_rota_resultado_v1_videos__video_id__get",
+        "parameters": [
+          {
+            "name": "video_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nao existe video com esse identificador, ou o endereco de envio e desconhecido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ja existe conta com esse email, ou o video ja saiu da fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Aceito": {
+        "properties": {
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "description": "Codigo HTTP repetido no corpo, como o contrato pede."
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Identificador do video para consultar o andamento."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "id"
+        ],
+        "title": "Aceito",
+        "description": "A resposta de quem so enfileirou: o trabalho comeca depois que esta resposta ja saiu."
+      },
+      "Erro": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "Erro",
+        "description": "A forma de toda recusa, para quem gera cliente a partir do contrato nao errar o tipo."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "title": "Email"
+          },
+          "senha": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Senha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "senha"
+        ],
+        "title": "LoginRequest"
+      },
+      "Metrica": {
+        "properties": {
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          },
+          "unidade_de_medida": {
+            "type": "string",
+            "title": "Unidade De Medida"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "float"
+            ],
+            "title": "Tipo"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor",
+            "description": "Nulo quando a feature nao pode ser medida."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "low_confidence",
+              "unavailable"
+            ],
+            "title": "Status",
+            "description": "Numero medido e numero indisponivel nao tem a mesma cara.",
+            "default": "ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nome",
+          "unidade_de_medida",
+          "tipo"
+        ],
+        "title": "Metrica"
+      },
+      "PrincipalResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "usuario",
+              "servico"
+            ],
+            "title": "Tipo"
+          },
+          "nome": {
+            "type": "string",
+            "title": "Nome"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tipo",
+          "nome"
+        ],
+        "title": "PrincipalResponse"
+      },
+      "ProcessamentoRequest": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "title": "File",
+            "description": "O video inteiro, em base64."
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Contenttype",
+            "description": "Tipo do arquivo enviado. Aceita os nomes contentType e type."
+          },
+          "fileName": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Filename",
+            "description": "Nome original, so para registro.",
+            "default": "upload.mp4"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "contentType"
+        ],
+        "title": "ProcessamentoRequest",
+        "description": "O caminho base64, que existe para atender o contrato escrito.\n\nEle carrega o video inteiro dentro de um campo de texto, e base64 infla 33%: um clipe de\n16 MB vira 22 MB de JSON que o servidor precisa manter em memoria antes de decodificar. Por\nisso ele tem teto proprio e o caminho recomendado e o `PUT` da URL de envio, que transmite o\nbinario direto para o disco."
+      },
+      "RegistroRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "title": "Email",
+            "description": "Serve de identificador da conta."
+          },
+          "senha": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 12,
+            "title": "Senha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "senha"
+        ],
+        "title": "RegistroRequest",
+        "description": "Comprimento minimo, e nenhuma regra de simbolo obrigatorio.\n\nExigir maiuscula, numero e simbolo produz `Senha@123` e nada mais: as pessoas satisfazem a\nregra pelo caminho mais curto, que e o mesmo caminho para todo mundo, e o conjunto de senhas\nprovaveis encolhe. Comprimento e o unico parametro que aumenta o custo de adivinhar sem\nempurrar todo mundo para o mesmo padrao."
+      },
+      "Resultado": {
+        "properties": {
+          "nome_processo": {
+            "type": "string",
+            "title": "Nome Processo"
+          },
+          "status": {
+            "type": "boolean",
+            "title": "Status",
+            "description": "Verdadeiro quando a etapa rodou sem falhar."
+          },
+          "frame": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frame",
+            "description": "Imagem de demonstracao em base64. Nula enquanto a visualizacao nao entrar."
+          },
+          "metricas": {
+            "items": {
+              "$ref": "#/components/schemas/Metrica"
+            },
+            "type": "array",
+            "title": "Metricas",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "nome_processo",
+          "status"
+        ],
+        "title": "Resultado"
+      },
+      "ResultadoResponse": {
+        "properties": {
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "description": "Codigo HTTP repetido no corpo, como o contrato pede."
+          },
+          "video_status": {
+            "type": "string",
+            "enum": [
+              "Pendente",
+              "Em processamento",
+              "Finalizado",
+              "Falhou"
+            ],
+            "title": "Video Status"
+          },
+          "resultados": {
+            "items": {
+              "$ref": "#/components/schemas/Resultado"
+            },
+            "type": "array",
+            "title": "Resultados",
+            "description": "Vazio ate o video chegar em Finalizado.",
+            "default": []
+          },
+          "motivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo",
+            "description": "Preenchido apenas quando Falhou."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "video_status"
+        ],
+        "title": "ResultadoResponse"
+      },
+      "SessaoResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "bearer",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expira_em": {
+            "type": "integer",
+            "title": "Expira Em",
+            "description": "Segundos ate a sessao deixar de valer."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expira_em"
+        ],
+        "title": "SessaoResponse"
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "description": "Codigo HTTP repetido no corpo, como o contrato pede."
+          },
+          "video_status": {
+            "type": "string",
+            "enum": [
+              "Pendente",
+              "Em processamento",
+              "Finalizado",
+              "Falhou"
+            ],
+            "title": "Video Status",
+            "description": "Em que ponto o video esta."
+          },
+          "motivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo",
+            "description": "Por que falhou. Nulo em qualquer outro estado."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "video_status"
+        ],
+        "title": "StatusResponse"
+      },
+      "UploadUrlRequest": {
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Filename",
+            "description": "Nome original do arquivo, so para registro."
+          },
+          "contentType": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Contenttype",
+            "description": "Tipo do arquivo, por exemplo video/mp4."
+          }
+        },
+        "type": "object",
+        "required": [
+          "fileName",
+          "contentType"
+        ],
+        "title": "UploadUrlRequest",
+        "description": "Os dois campos tem teto de tamanho porque os dois vao para o banco.\n\nSem teto, medido: um `fileName` de 5 MB era aceito e gravado, e o banco saiu de vazio para\n5 MB com uma requisicao."
+      },
+      "UploadUrlResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Identificador do video, usado para consultar o andamento."
+          },
+          "uploadUrl": {
+            "type": "string",
+            "title": "Uploadurl",
+            "description": "Endereco para onde mandar o binario por PUT."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "uploadUrl"
+        ],
+        "title": "UploadUrlResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

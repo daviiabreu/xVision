@@ -1,0 +1,13 @@
+meta {
+  name: 9 video result
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/videos/{{videoId}}
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

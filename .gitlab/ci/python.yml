@@ -1,0 +1,80 @@
+.python:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  extends:
+    - .actions-rules:python
+  variables:
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+    UV_PYTHON: "3.10"
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache/
+  before_script:
+    - uv sync --frozen --all-extras
+  after_script:
+    - uv cache prune --ci
+
+python:lint:
+  extends: .python
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache/
+    policy: pull
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+
+python:types:
+  extends: .python
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache/
+    policy: pull
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends libatomic1
+    - uv sync --frozen --all-extras
+  script:
+    - uv run pyright
+
+python:test:
+  extends: .python
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - uv sync --frozen --all-extras
+    - uv build --out-dir "$CI_PROJECT_DIR/.uv-warmup"
+  script:
+    - uv run pytest --cov --cov-report=term --cov-report=xml -q
+  coverage: '/^TOTAL.+?(\d+\%)$/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+python:arm64:
+  extends: .python
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache/
+    policy: pull
+  before_script: []
+  after_script: []
+  script:
+    - uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes -o /tmp/edge.txt
+    - >
+      uv pip compile --only-binary :all:
+      --python-platform aarch64-unknown-linux-gnu --python-version 3.10
+      /tmp/edge.txt -o /tmp/arm64.txt

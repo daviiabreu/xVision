@@ -1,0 +1,21 @@
+meta {
+  name: 3 login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/auth/login
+  body: json
+}
+
+body:json {
+  {
+    "email": "voce@sou.inteli.edu.br",
+    "senha": "uma-senha-longa-de-verdade"
+  }
+}
+
+script:post-response {
+  bru.setVar('token', res.body.access_token);
+}

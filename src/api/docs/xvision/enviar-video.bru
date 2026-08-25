@@ -1,0 +1,15 @@
+meta {
+  name: 6 upload video
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{uploadUrl}}
+  body: file
+}
+
+body:file {
+  file: @file({{videoPath}})
+  contentType: video/mp4
+}

@@ -1,0 +1,26 @@
+meta {
+  name: 5 request upload url
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/videos/upload-url
+  body: json
+}
+
+body:json {
+  {
+    "fileName": "clipe.mp4",
+    "contentType": "video/mp4"
+  }
+}
+
+script:post-response {
+  bru.setVar('uploadUrl', res.body.uploadUrl);
+  bru.setVar('videoId', res.body.id);
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}
