@@ -1,10 +1,8 @@
 import random
 
 import torch
-from ultralytics import YOLO
-
 from tracking_config import DATA_YAML, MODEL_PATH
-
+from ultralytics import YOLO
 
 DEVICE = 0
 IMGSZ = 960
@@ -70,17 +68,17 @@ def save_report(validation, test, analysis_dir):
 
 Validação
 ---------
-Precision: {validation['precision']:.4f}
-Recall:    {validation['recall']:.4f}
-mAP@50:    {validation['map50']:.4f}
-mAP@50-95: {validation['map50_95']:.4f}
+Precision: {validation["precision"]:.4f}
+Recall:    {validation["recall"]:.4f}
+mAP@50:    {validation["map50"]:.4f}
+mAP@50-95: {validation["map50_95"]:.4f}
 
 Teste
 -----
-Precision: {test['precision']:.4f}
-Recall:    {test['recall']:.4f}
-mAP@50:    {test['map50']:.4f}
-mAP@50-95: {test['map50_95']:.4f}
+Precision: {test["precision"]:.4f}
+Recall:    {test["recall"]:.4f}
+mAP@50:    {test["map50"]:.4f}
+mAP@50-95: {test["map50_95"]:.4f}
 """
     (analysis_dir / "report.txt").write_text(report, encoding="utf-8")
 

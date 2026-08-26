@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 MODULE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = MODULE_DIR.parents[2]
 

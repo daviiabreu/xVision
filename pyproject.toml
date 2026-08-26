@@ -19,7 +19,7 @@ xvision = "cli:app"
 
 [project.optional-dependencies]
 conformance = ["pytest>=8.3"]
-players = []
+players = ["ultralytics>=8.3,<9", "lap>=0.5.12"]
 ball = []
 field = []
 tracking = []
@@ -40,6 +40,17 @@ dev = [
     "httpx2>=2.0",
 ]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv]
+# O `ultralytics` exige `opencv-python`, que e a build com GUI e linka libxcb e libGL. A
+# borda e a imagem do CI sao slim e nao tem nenhuma das duas, entao o `import cv2` morria em
+# `libxcb.so.1: cannot open shared object file`. As duas distribuicoes instalam o mesmo modulo
+# `cv2`, entao ter as duas na env nunca foi opcao: uma sobrescreve a outra. O marcador abaixo
+# nunca e verdadeiro, e e assim que se tira um requisito da resolucao sem tocar no `ultralytics`.
+override-dependencies = ["opencv-python; sys_platform == 'nunca'"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -52,11 +63,19 @@ exclude = ["src/api/docs/xvision", "src/api/docs/README.md"]
 only-include = ["src", "pyproject.toml", "README.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["src/tests"]
+testpaths = ["src/tests", "packages/xvision-players-yolo/tests"]
 addopts = "--import-mode=importlib"
 
 [tool.coverage.run]
-source = ["src/api", "src/cli", "src/contracts", "src/edge", "src/mlops"]
+source = [
+    "src/api",
+    "src/cli",
+    "src/contracts",
+    "src/edge",
+    "src/mlops",
+    "src/models",
+    "packages/xvision-players-yolo/src/xvision_players_yolo",
+]
 
 [tool.coverage.report]
 fail_under = 80
@@ -69,9 +88,17 @@ extend-exclude = ["*.md"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "cli", "contracts", "edge", "mlops"]
+known-first-party = ["api", "cli", "contracts", "edge", "mlops", "xvision_players_yolo"]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "packages"]
+# `src/models` e script de operador em cima de `roboflow`, `ultralytics` e `torch`, que nao
+# publicam tipo. Em `strict` isso vira ruido puro: eram 233 erros na develop e 102 aqui, todos
+# `reportUnknown*` de biblioteca de terceiro. Nada disso entra na wheel (ver
+# `[tool.hatch.build.targets.wheel] packages`), e o gate vermelho permanente fazia o time parar
+# de ler a saida inteira. A cobertura continua medindo esses arquivos.
+# Os tres primeiros sao o padrao do pyright, repetidos porque declarar `exclude` substitui a
+# lista dele em vez de somar: sem eles um `.venv` dentro de `packages/` entra na verificacao.
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", "src/models"]
 pythonVersion = "3.10"
 typeCheckingMode = "strict"

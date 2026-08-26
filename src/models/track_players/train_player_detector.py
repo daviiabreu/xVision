@@ -5,8 +5,6 @@ import torch
 import yaml
 from dotenv import load_dotenv
 from roboflow import Roboflow
-from ultralytics import YOLO
-
 from tracking_config import (
     DATASET_DIR,
     MODEL_PATH,
@@ -14,6 +12,7 @@ from tracking_config import (
     RUN_NAME,
     RUNS_DIR,
 )
+from ultralytics import YOLO
 
 WORKSPACE = "roboflow-jvuqo"
 PROJECT = "football-players-detection-3zvbc"
@@ -68,9 +67,7 @@ def prepare_dataset(dataset_dir: Path) -> None:
         }
     else:
         keep_ids = {
-            index
-            for index, class_name in enumerate(names)
-            if class_name.lower() in KEEP_CLASSES
+            index for index, class_name in enumerate(names) if class_name.lower() in KEEP_CLASSES
         }
 
     if not keep_ids:
@@ -118,9 +115,7 @@ def main() -> None:
     api_key = os.getenv("ROBOFLOW_API_KEY")
 
     if not api_key:
-        raise RuntimeError(
-            "Crie um arquivo .env com: ROBOFLOW_API_KEY=sua_chave"
-        )
+        raise RuntimeError("Crie um arquivo .env com: ROBOFLOW_API_KEY=sua_chave")
 
     roboflow = Roboflow(api_key=api_key)
     project = roboflow.workspace(WORKSPACE).project(PROJECT)
@@ -174,9 +169,7 @@ def main() -> None:
     best_model = MODEL_PATH
 
     if not best_model.exists():
-        raise FileNotFoundError(
-            f"O treinamento terminou sem gerar o peso esperado: {best_model}"
-        )
+        raise FileNotFoundError(f"O treinamento terminou sem gerar o peso esperado: {best_model}")
 
     YOLO(str(best_model)).val(
         data=str(data_yaml),

@@ -13,7 +13,7 @@
     paths:
       - .uv-cache/
   before_script:
-    - uv sync --frozen --all-extras
+    - uv sync --frozen --all-extras --all-packages
   after_script:
     - uv cache prune --ci
 
@@ -41,7 +41,7 @@ python:types:
     policy: pull
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends libatomic1
-    - uv sync --frozen --all-extras
+    - uv sync --frozen --all-extras --all-packages
   script:
     - uv run pyright
 
@@ -49,7 +49,7 @@ python:test:
   extends: .python
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
-    - uv sync --frozen --all-extras
+    - uv sync --frozen --all-extras --all-packages
     - uv build --out-dir "$CI_PROJECT_DIR/.uv-warmup"
   script:
     - uv run pytest --cov --cov-report=term --cov-report=xml -q

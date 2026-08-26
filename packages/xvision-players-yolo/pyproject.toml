@@ -1,0 +1,40 @@
+[project]
+name = "xvision-players-yolo"
+version = "0.1.0"
+description = "Baseline de deteccao e tracking de jogadores para o xVision"
+requires-python = ">=3.10"
+dependencies = [
+    "lap>=0.5.12",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.10",
+    "ultralytics>=8.3,<9",
+    "xvision",
+]
+
+[project.scripts]
+xvision-player-detection = "xvision_players_yolo.cli:main"
+
+[project.entry-points."xvision.modules"]
+players-yolo = "xvision_players_yolo.module:PlayersModule"
+tracking-yolo = "xvision_players_yolo.module:TrackingModule"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+xvision = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"

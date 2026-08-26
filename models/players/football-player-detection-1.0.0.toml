@@ -1,0 +1,42 @@
+# Peso de hub, no formato que `edge.artifacts.read_manifest` le e `xvision artifact get` confere.
+#
+# O JSON que estava aqui antes tinha esquema proprio e nao passava por nenhum dos dois: o leitor
+# da borda usa `tomllib`, entao ele engasgava no primeiro `{`. Digest, caminho e verificacao de
+# integridade ja existiam no repositorio; faltava este arquivo falar a mesma lingua.
+#
+# O peso nao vem no Git, porque `*.pt` e ignorado. Para colocar no lugar certo:
+#
+#     uv run xvision artifact get models/players/football-player-detection-1.0.0.toml
+#
+# O comando falha dizendo o diretorio exato sob `var/models/` onde o arquivo deve ficar, e depois
+# que ele estiver la o mesmo comando confere o sha256 e imprime o caminho do entrypoint.
+
+schema_version = "1.0"
+kind = "players"
+name = "football-player-detection"
+version = "1.0.0"
+entrypoint = "football-player-detection.pt"
+
+[[files]]
+path = "football-player-detection.pt"
+sha256 = "75b09c377fbf9d0791d23f6cfb689f5aed6eaa43a6818bd1fb884cf7507fffaf"
+
+[source]
+repository = "https://github.com/roboflow/sports"
+setup = "https://github.com/roboflow/sports/blob/main/examples/soccer/setup.sh"
+download = "https://drive.google.com/uc?id=17PXFNlx-jI7VjVo_vQnB1sONjRyvoB-q"
+
+# Campos abaixo o leitor ignora: ficam para quem abrir o arquivo.
+
+[licenses]
+roboflow_sports = "MIT"
+dataset = "CC BY 4.0"
+artifact = "not declared separately by upstream"
+
+[classes]
+# O codigo nao le esta tabela: `roles_from_names` traduz o `model.names` do peso carregado, por
+# nome e nao por indice. Ela esta aqui so para dizer o que este peso traz dentro.
+0 = "ball"
+1 = "goalkeeper"
+2 = "player"
+3 = "referee"
