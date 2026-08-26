@@ -126,6 +126,23 @@ ground-truth/*
 weights/
 checkpoints/
 runs/
+
+# Resultados locais de treinamento e inferencia
+src/runs/
+src/analise_players_yolov8s/**/*.png
+src/analise_players_yolov8s/**/*.jpg
+src/video_validation/
+src/video_tracking/
+src/video_speed/
+
+# Resultados locais do modelo de rastreamento de jogadores
+src/models/track_players/runs/
+src/models/track_players/analise_players_yolov8s/**/*.png
+src/models/track_players/analise_players_yolov8s/**/*.jpg
+src/models/track_players/analise_players_yolov8s/
+src/models/track_players/video_validation/
+src/models/track_players/video_tracking/
+src/models/track_players/video_speed/
 # ============================================================================
 # FERRAMENTAL LOCAL — nunca versionar neste repositorio
 #
