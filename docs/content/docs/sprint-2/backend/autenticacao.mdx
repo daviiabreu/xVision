@@ -1,0 +1,361 @@
+---
+title: Autenticação e posse do vídeo
+description: Duas credenciais viram um Principal, a sessão assinada com HMAC que não é JWT, e por que vídeo de outro responde 404
+---
+
+Toda rota de negócio do [serviço HTTP](/docs/sprint-2/backend/servico-http) exige credencial, e
+todo vídeo pertence a quem o enviou. Esta página, que detalha a área `api` da
+[visão geral do backend](/docs/sprint-2/backend), descreve como as duas credenciais aceitas viram a
+mesma coisa antes de chegar na rota, e como a posse é cobrada depois disso.
+
+## Onde se encaixa no fluxo
+
+O desenho abaixo é o caminho de uma credencial, não o do vídeo. Ele começa no cabeçalho
+`Authorization` e termina em duas saídas possíveis: um `Principal` que a rota recebe, ou uma
+recusa que é sempre a mesma.
+
+```text
+  duas credenciais entram                          uma coisa sai
+  =======================                          =============
+
+  Bearer <sessao>              ┌────────────────────────────────────┐
+  corpo.assinatura de 43 car.  │  seguranca.principal_atual          │
+        │                      │                                     │
+        │   tem ponto? sim ───►│  auth.verificar                     │ HMAC-SHA256 + exp
+        │                      │       │                             │
+        │                      │       ▼                             │
+        │                      │  store.ler_principal(sub)           │
+  Bearer <token>               │                                     │
+  43 caracteres                │  auth.hash_de_token                 │ sha256
+        │                      │       │                             │
+        │   tem ponto? nao ───►│       ▼                             │
+                               │  store.principal_por_token(resumo)  │
+                               └──────────────────┬──────────────────┘
+                                                  │
+                              linha existe e revogado_em é nulo?
+                                    │                        │
+                                   não                      sim
+                                    │                        │
+                                    ▼                        ▼
+                   401 credencial ausente ou      Principal(id, tipo, nome)
+                   invalida, WWW-Authenticate                │
+                                                 ┌───────────┴───────────┐
+                                                 ▼                       ▼
+                                        rota de negócio      seguranca.conferir_posse
+                                        eu, upload-url,      video.principal_id == id?
+                                        processamento,       não ──► 404, e não 403
+                                        status, resultado
+```
+
+O `PUT` do envio não aparece aqui, e a ausência é o assunto de uma das decisões abaixo: ele é
+autorizado pelo próprio endereço, e não pelo cabeçalho.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele **não** faz |
+| --- | --- | --- |
+| `api/auth.py` | derivar e conferir senha, sortear e resumir token, assinar e verificar sessão, e o tipo `Principal` | não fala HTTP, não lê o banco e não sabe o que é um vídeo |
+| `api/seguranca.py` | ler o cabeçalho, resolver as duas credenciais no mesmo `Principal`, recusar sempre igual, cobrar a posse e semear o principal de serviço da variável de ambiente | não sorteia credencial nem decide o que a rota faz com o `Principal`: o valor da semente vem de fora e ele só o grava |
+| `api/tokens.py` | emitir, revogar e listar token de serviço pela linha de comando | não mexe em conta de usuário: `revogar` filtra por tipo antes de agir |
+| `api/schemas.py` | a forma de registro, login e sessão, com o mínimo de senha e a normalização do email | não confere senha nem escolhe código HTTP |
+| Tabela `principais` | uma linha por chamador, com os dois tipos no mesmo espaço de identificadores | não guarda senha nem token em claro, só o `scrypt$` e o resumo sha256 |
+| Rotas de auth em `api/__init__.py` | registro, login e `eu`, e o hash falso que iguala o tempo de resposta | não implementa criptografia, só chama `api/auth.py` |
+
+A fronteira entre `auth.py` e `seguranca.py` não é organização: é o que permite testar a
+credencial sem subir servidor. Os 23 testes de `test_auth_nucleo.py` não abrem nenhuma conexão
+HTTP e rodam em 0,4 s, mesmo com o `scrypt` no caminho. Somados aos de fronteira e aos da
+ferramenta de token, são 77 testes em 1,3 s, com cobertura de 98% em `auth.py` e 100% em
+`seguranca.py` e `tokens.py`. O primeiro tempo é o que o `pytest` reporta para
+`pytest src/tests/api/test_auth_nucleo.py`; o segundo, para o mesmo comando com os três arquivos.
+A cobertura sai desse comando acrescido de `--cov=api.auth --cov=api.seguranca --cov=api.tokens`,
+que instrumenta o interpretador e por isso mede tempo maior.
+
+## Fluxo de dados
+
+O que entra é sempre um cabeçalho `Authorization: Bearer` seguido de uma das duas credenciais.
+O que sai da fronteira é um `Principal` com três campos, ou um 401 com corpo fixo. Os exemplos
+abaixo saíram de uma execução real do serviço em memória, com um segredo de demonstração.
+
+Criar a conta normaliza o email antes de gravar, porque o `UNIQUE` do SQLite compara byte a byte
+e `Mixed@Case.com` criaria uma segunda conta para a mesma pessoa:
+
+```json
+{ "email": "  Pessoa@Exemplo.com ", "senha": "uma-senha-longa-de-verdade" }
+```
+
+```json
+{ "id": 1, "tipo": "usuario", "nome": "pessoa@exemplo.com" }
+```
+
+O login devolve a sessão. O campo `expira_em` repete a validade em segundos para o cliente não
+ter de decodificar nada:
+
+```json
+{
+  "access_token": "eyJleHAiOjE3ODc2NTU5NDcsInN1YiI6MX0.sc9ZEpBdzpDfucB-1Qt5VPnbup7VFb-A4GJYYxmENKo",
+  "token_type": "bearer",
+  "expira_em": 28800
+}
+```
+
+A assinatura tem sempre 43 caracteres, que são os 32 bytes do HMAC-SHA256 em base64url sem
+preenchimento. O corpo cresce com o identificador de quem entrou, então o total não é fixo: o
+token acima, do principal 1, tem 79 caracteres (35 de corpo, um ponto e 43 de assinatura), e o
+mesmo token para o principal 1000 tem 83. O corpo não é segredo, é só assinado, e decodifica para
+dois campos:
+
+```json
+{"exp":1787655947,"sub":1}
+```
+
+O token de serviço nasce pela linha de comando e é mostrado uma vez. O banco guarda apenas o
+resumo, então perder o token significa emitir outro e revogar o antigo:
+
+```bash
+python -m api.tokens criar borda-jetson
+python -m api.tokens listar
+python -m api.tokens revogar borda-jetson
+```
+
+A senha vai para a coluna `senha_hash` no formato abaixo, com 83 caracteres. Os parâmetros viajam
+junto do hash, e não numa constante do código, para que trocar o custo depois não invalide o que
+já está gravado:
+
+```text
+scrypt$16384$8$1$fNPIT5-gwAKZVfsvcvjSLw$l4DtiRH6vkYsv0DAkiUYZKP77UqzQo2p4vgFd9QyE4Y
+```
+
+As recusas têm corpo fixo e cabeçalho `WWW-Authenticate: Bearer`. O login recusa com uma mensagem
+e a fronteira recusa com outra, e nenhuma das duas diz o que faltou para acertar:
+
+```json
+{ "detail": "email ou senha invalidos" }
+```
+
+```json
+{ "detail": "credencial ausente ou invalida" }
+```
+
+As rotas de autenticação e as que dependem dela, com os códigos que o contrato declara:
+
+| Rota | Sucesso | Recusas declaradas |
+| --- | --- | --- |
+| `POST /v1/auth/register` | 201 | 409 email já tem conta, 422 senha menor que 12 ou email vazio |
+| `POST /v1/auth/login` | 200 | 401 email ou senha inválidos, 422 corpo fora da forma |
+| `GET /v1/auth/me` | 200 | 401 ausente, malformada, expirada ou revogada |
+| `POST /v1/videos/upload-url` | 200 | 401, 415, 422 |
+| `PUT /v1/videos/upload/{token}` | 202 | 400, 404, 409, 413, 415, 422, 503, e nenhum 401 |
+| `POST /v1/videos/processamento` | 202 | 400, 401, 413, 415, 422, 503 |
+| `GET /v1/videos/status/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 422 |
+| `GET /v1/videos/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 409, 422 |
+
+## Decisões
+
+**Duas credenciais viram um `Principal` só.** Um sistema que integra usa token de serviço e uma
+pessoa usa sessão, mas a partir da fronteira o resto do serviço nunca pergunta qual foi. A
+alternativa descartada era cada rota tratar os dois casos, e o motivo de descartar é a regra de
+posse: com dois caminhos, `conferir_posse` teria dois jeitos de estar errada e só um deles
+apareceria em teste. A tabela `principais` guarda os dois tipos porque `videos.principal_id`
+aponta para um espaço de identificadores único; com uma tabela por tipo, a coluna precisaria dizer
+também de qual delas, e toda leitura ganharia um caso a mais.
+
+**A sessão é assinada com HMAC-SHA256 e não é um JWT.** A alternativa descartada é o padrão de
+mercado, e o motivo é concreto: o JWT carrega o algoritmo dentro do próprio token, e a
+[RFC 8725](https://datatracker.ietf.org/doc/html/rfc8725) existe em boa parte por causa da
+família de erros que nasce daí, aceitar `alg: none` e confundir HS256 com RS256. Aqui quem assina e quem
+verifica são o mesmo processo e o algoritmo é fixo em código, então negociar algoritmo
+acrescentaria superfície de ataque sem comprar interoperabilidade nenhuma. O que sobrou do JWT é o
+que importava: corpo com `sub` e `exp`, assinatura conferida com `hmac.compare_digest`, e o
+instante exato de expiração contando como expirado.
+
+**A senha usa `hashlib.scrypt`, da biblioteca padrão, com sal por senha.** A alternativa
+descartada mais perigosa é o sha256 apressado, que é rápido justamente onde precisa ser lento; a
+outra é trazer `argon2-cffi` ou `bcrypt`, que resolveriam o mesmo problema custando uma
+dependência com extensão em C para compilar na Jetson. Os parâmetros são `N=16384`, `r=8` e `p=1`,
+que consomem 16 MiB por derivação (cálculo de `128 * N * r`) e levaram 19,4 ms por derivação na
+máquina de desenvolvimento, medido com a média de 20 execuções em Python 3.10.20 sobre Apple
+Silicon. Na Jetson esse número não foi medido e deve ser maior.
+
+**O `N` está abaixo do que o OWASP recomenda, e isso é dívida declarada e não descuido.** A
+[folha de armazenamento de senha do OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+pede, para `scrypt`, um piso de `N=2^17` com `r=8` e `p=1`, que são 128 MiB por derivação. O
+código usa `N=2^14`, oito vezes menos: `r` e `p` seguem a recomendação, `N` não. A alternativa
+descartada é justamente seguir o piso, e o motivo de descartá-la é o alvo de implantação: a Jetson
+divide a mesma memória entre CPU e GPU, o decodificador de vídeo disputa esse espaço, e 128 MiB
+por login concorrente não cabem no orçamento. A consequência é que o custo de quebrar o banco
+vazado é o de 16 MiB por tentativa, e não o de 128 MiB. A calibração na Jetson, na seção "Ainda
+não implementado", é onde essa conta será refeita com número medido no hardware de destino.
+
+**O token de serviço é sorteado e o banco guarda só o resumo sha256.** Ele tem 32 bytes de
+entropia, ou 256 bits, o que dá 43 caracteres em base64url. Como não há o que adivinhar por força
+bruta, sha256 basta e uma função lenta só custaria tempo em toda requisição; a alternativa
+descartada é usar `scrypt` também no token, que pagaria 19 ms por chamada para proteger contra um
+ataque que não existe nesse espaço. Guardar o token em claro foi descartado pelo motivo oposto: o
+banco vazado passaria a ser uma lista de credenciais funcionando.
+
+**Chave de API compartilhada não existe.** A alternativa descartada é a mais comum em serviço
+pequeno, um segredo fixo numa variável comparado a cada requisição, e ela falha em duas coisas que
+importam: não dá para revogar sem redeploy, e não responde "quem mandou esse vídeo". A comodidade
+de começar por uma variável continua: se `XVISION_API_TOKEN` estiver definida, a subida semeia um
+principal de serviço com aquele valor. A diferença é que ele nasce na tabela, revogável por
+`UPDATE` e atribuível a um vídeo. Semear é idempotente por nome e por resumo, então reiniciar três
+vezes continua criando um só.
+
+**A semente pelo ambiente tem piso de 32 caracteres.** O valor vira credencial exatamente como
+está escrito, e antes do piso, medido, `XVISION_API_TOKEN=x` autenticava: `Bearer x` abria a API
+inteira. Um token sorteado tem 43 caracteres, então aceitar 1 é ter senha fraca com nome de token.
+A alternativa de simplesmente avisar no log foi descartada porque o aviso não impede nada. Valor
+em branco significa "não quero semente" e não derruba a subida, que é o caso normal de quem
+exporta a variável vazia num compose.
+
+**Sem `XVISION_AUTH_SECRET` o serviço não sobe, e não inventa um padrão.** A alternativa
+descartada é o segredo padrão, e ela é pior do que a ausência: funciona, ninguém repara, e o mesmo
+valor viaja para produção dentro do código. A conferência mora em `_conferir_ambiente`, junto com
+a do `pipeline.toml`, porque descobrir que não há segredo na primeira tentativa de login é
+descobrir tarde demais.
+
+**Vídeo de outro responde 404, e não 403.** A alternativa descartada é a semanticamente correta
+pela [RFC 9110](https://datatracker.ietf.org/doc/html/rfc9110), cuja seção 15.5.4 reserva o 403
+para "entendi e me recuso". O motivo de não usá-la é que o identificador do vídeo é sequencial:
+com 403, quem conta de 1 em diante descobre quantos vídeos existem e quando cada um entrou, sem
+ler nenhum. Com 404, "não é seu" e "não existe" são indistinguíveis de fora. A mensagem também não
+entrega nada, e há teste conferindo que a resposta não contém "não é seu".
+
+**O login responde igual e demora igual para email desconhecido e senha errada.** A rota busca o
+principal, e quando não acha usa um hash falso sorteado na subida do módulo, de forma que o
+`scrypt` roda nos dois caminhos antes de qualquer recusa. Medido na máquina de desenvolvimento,
+60 amostras, comparando a versão atual com uma versão ingênua que retorna assim que o email não
+existe:
+
+| Caminho | Versão ingênua | Versão atual |
+| --- | --- | --- |
+| email desconhecido | 0,24 ms mínimo, 0,31 ms mediana | 22,80 ms mínimo, 25,04 ms mediana |
+| senha errada em conta que existe | 22,93 ms mínimo, 26,59 ms mediana | 22,64 ms mínimo, 24,88 ms mediana |
+
+Na versão ingênua o tempo de resposta separa sozinho quem tem conta de quem não tem, com uma
+diferença de duas ordens de grandeza. Na versão atual a diferença fica dentro do ruído, abaixo de
+0,2 ms na mediana. O teste que guarda isso é estrutural e não temporal, porque medir tempo em
+teste seria instável por construção: ele lê o corpo de `_rota_login` e cobra que `conferir_senha`
+apareça antes do `raise`.
+
+**O `PUT` do envio não exige Bearer, e isso é decisão e não esquecimento.** O endereço de envio já
+é uma credencial: 32 bytes sorteados, preso a um vídeo específico, válido uma vez só e reivindicado
+por `UPDATE` condicional, de modo que dois `PUT` no mesmo endereço nunca passam os dois. É o mesmo
+desenho de uma URL pré-assinada de armazenamento de objetos, e ele ainda não tem cliente escrito: o
+frontend de hoje manda o vídeo em base64 pela outra rota, como descreve
+[o serviço HTTP](/docs/sprint-2/backend/servico-http). A alternativa descartada era exigir também o
+cabeçalho, e ela não fecharia nada e custaria alcance: quem tem o endereço já passou por
+`POST /v1/videos/upload-url`, que exige credencial e é onde a posse do vídeo foi gravada, e exigir
+os dois obrigaria todo cliente futuro a carregar a sessão até o último passo do envio, inclusive um
+navegador que só recebeu o endereço pronto. A exceção está nomeada no conjunto
+`SEM_BEARER` do teste de varredura, junto com registro e login, e não escondida: a varredura
+percorre o OpenAPI e reprova qualquer rota de negócio publicada sem credencial, hoje cobrindo as
+5 rotas que sobram fora das exceções.
+
+**Revogar não apaga a linha.** A alternativa descartada é o `DELETE`, e o motivo é a posse: sem a
+linha, `videos.principal_id` apontaria para o nada e aqueles vídeos ficariam sem dono, ilegíveis
+por qualquer um e apagáveis por ninguém. A revogação preenche `revogado_em`, fecha a porta e
+preserva o registro. A ferramenta de token também filtra por tipo antes de revogar, porque o nome
+é único entre os dois tipos e `revogar davi@sou.inteli.edu.br` desativava a conta de uma pessoa
+devolvendo sucesso.
+
+## Trade-offs
+
+**A sessão dispensa tabela de sessão, e a desvantagem principal é não poder invalidar uma
+sessão sozinha.** Como o `Principal` é lido do banco a cada requisição, revogar a conta derruba
+todas as sessões dela no ato, o que é bom. O que não existe é o meio-termo: um token vazado vale
+até o `exp`, 28800 segundos por padrão, a menos que se revogue o principal inteiro e se derrube
+junto todas as outras sessões da mesma pessoa. Trocar `XVISION_AUTH_SECRET` derruba todas as
+sessões de todo mundo, que é o botão de emergência, não a operação de rotina.
+
+**O `scrypt` protege o banco vazado, e a desvantagem principal é que ele custa ao servidor
+também.** Cada derivação reserva 16 MiB, e as rotas de login e registro são síncronas, então
+correm no pool de threads que o anyio limita em 40 por padrão, valor conferido em execução. No
+pior caso isso são 640 MiB de memória só de derivação de senha (cálculo, não medição), disputando
+com o decodificador de vídeo numa máquina onde memória é o recurso escasso. Como não há limite de
+taxa, uma enxurrada de logins é hoje o caminho mais barato para pressionar a memória do serviço.
+
+**O 404 no lugar do 403 esconde a existência do vídeo, e a desvantagem principal recai sobre o
+usuário honesto.** Quem erra o identificador recebe exatamente a resposta de quem está sondando, e
+não tem como saber que o vídeo existe e é de outra pessoa. Hoje nem o suporte consegue separar os
+dois casos: `conferir_posse` levanta a recusa sem registrar nada, e o log de acesso mostra o mesmo
+404 nas duas situações. A saída é uma linha de log no caminho da posse, dizendo qual principal
+pediu qual vídeo, e ela ainda não existe.
+
+**Um `Principal` só simplifica a posse, e a desvantagem principal é a ausência de privilégio
+separado.** Usuário e serviço têm exatamente os mesmos poderes sobre os próprios vídeos, e não há
+papel, escopo nem administrador. Um token de borda comprometido faz tudo o que uma conta faz. A
+troca vale enquanto todo chamador precisar da mesma coisa, e deve ser revista no primeiro chamador
+que precisar de menos.
+
+**O `PUT` sem cabeçalho mantém o formato de URL pré-assinada, e a desvantagem principal é que o
+endereço interceptado envia no lugar do dono.** Quem observar o endereço em trânsito pode gravar o
+próprio arquivo no vídeo alheio, que continuará atribuído a quem pediu o endereço. O uso único
+limita a janela e o TLS é a proteção real, mas ela é externa ao serviço e não está implantada
+nesta sprint.
+
+## Riscos e incertezas
+
+O `compose.yaml` traz um valor padrão de desenvolvimento para `XVISION_AUTH_SECRET`. O código
+recusa segredo ausente justamente para forçar uma decisão, e esse padrão desfaz metade da proteção
+se alguém subir o compose como está fora da máquina de desenvolvimento. O impacto é direto: com o
+segredo conhecido, qualquer pessoa assina uma sessão para qualquer `sub`.
+
+Vídeo gravado antes da terceira migração tem `principal_id` nulo, e `conferir_posse` compara
+igualdade, então esse vídeo responde 404 para todo mundo, inclusive para quem o enviou. O impacto
+é perda de acesso a resultado antigo, não vazamento, e vale conferir antes de reaproveitar um
+banco anterior a esta sprint.
+
+Não há limite de taxa nem bloqueio após tentativas erradas. A única barreira contra adivinhação de
+senha é o custo do `scrypt` somado ao mínimo de 12 caracteres, e esse mínimo também está abaixo da
+recomendação: a
+[folha de autenticação do OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+trata como fraca, citando o NIST SP 800-63B, toda senha com menos de 15 caracteres quando não há
+segundo fator, e segundo fator não existe aqui. A 19 ms por derivação, uma tentativa de cada vez
+sustenta 52 por segundo, e multiplicar isso pelo número de núcleos daria um teto otimista demais,
+porque o `scrypt` disputa banda de memória e não só processador. Medido na máquina de
+desenvolvimento, de 10 núcleos lógicos: a vazão cresce quase em linha até 4 derivações simultâneas,
+por volta de 180 por segundo, e trava perto de 300 daí em diante, enquanto a mediana por derivação
+sobe de 19 ms para 53 ms com 16 simultâneas. A multiplicação simples prometeria 520.
+
+O `POST /v1/auth/register` responde 409 com `este email ja tem conta`, e isso derruba pelo cadastro
+a defesa de enumeração que o login constrói. O tempo de resposta é uniforme nos dois casos, porque
+a rota deriva o hash antes de tentar gravar, mas o código de status entrega a informação de graça:
+quem quiser saber se um email tem conta tenta registrá-lo. Fechar isso significa responder 201 em
+qualquer caso e mandar o aviso por email, que é a troca que ainda não foi feita nesta sprint.
+
+O tempo do `scrypt` na Jetson não foi medido. Todos os números desta página vieram da máquina de
+desenvolvimento, e o `N` saiu do orçamento de memória que se supõe para a placa, não de medição no
+hardware de destino nem da recomendação do OWASP, que pede oito vezes mais. Se a derivação passar
+de 100 ms lá, o login vira o gargalo do serviço e o parâmetro precisa cair; se sobrar memória, ele
+sobe até onde a placa aguentar.
+
+O frontend ainda não tem tela de login, então a metade de conta de usuário não tem consumidor. A
+integração hoje acontece por token de serviço, e a sessão só é exercitada por teste.
+
+## Ainda não implementado
+
+| O que falta | Como a hipótese será testada |
+| --- | --- |
+| Revogar uma sessão sem derrubar as outras | Guardar uma versão por principal dentro do corpo assinado; teste emite duas sessões, invalida uma e confere que a outra segue valendo |
+| Limite de taxa no login | Medir logins por minuto de um cliente real antes de escolher o teto; teste dispara N tentativas seguidas e espera 429 com `Retry-After` |
+| Parâmetro do `scrypt` calibrado na Jetson | Rodar a derivação na placa e subir `N` o mais perto possível do piso `2^17` do OWASP sem estourar o tempo de login nem a memória disputada com o decodificador; teste de regressão fixa o formato guardado, que já carrega os parâmetros |
+| Tela de login no frontend | Apontar `VITE_API_URL` para `/v1`, guardar o `access_token` e conferir que `GET /v1/auth/me` responde 200 com o email certo |
+| Registro que não revela se o email já tem conta | Responder 201 nos dois casos e avisar o dono por email; teste registra o mesmo email duas vezes e cobra a mesma resposta, como o teste de login já faz |
+| Mínimo de senha nos 15 caracteres do OWASP | Subir `SENHA_MINIMA` junto com a tela de login do frontend, para não invalidar conta já criada; teste cobra 422 em senha de 14 caracteres |
+| TLS na frente do serviço | Terminar TLS no proxy e conferir que o endereço de envio deixa de trafegar em claro |
+| Escopo ou papel por principal | Só entra quando existir um chamador que precise de menos que tudo; até lá seria complexidade sem consumidor |
+
+## Referências
+
+- [RFC 6750, Bearer Token Usage](https://datatracker.ietf.org/doc/html/rfc6750), que define o esquema `Bearer` e o cabeçalho `WWW-Authenticate` usados na recusa uniforme.
+- [RFC 8725, JSON Web Token Best Current Practices](https://datatracker.ietf.org/doc/html/rfc8725), cuja seção sobre confusão de algoritmo sustenta a decisão de assinar sem JWT.
+- [RFC 2104, HMAC](https://datatracker.ietf.org/doc/html/rfc2104), construção da assinatura da sessão.
+- [RFC 7914, The scrypt Password-Based Key Derivation Function](https://datatracker.ietf.org/doc/html/rfc7914), origem dos parâmetros `N`, `r` e `p` e do custo de memória citado.
+- [RFC 9110, HTTP Semantics](https://datatracker.ietf.org/doc/html/rfc9110), seções 15.5.4 e 15.5.5, que definem 403 e 404 e enquadram a escolha de responder 404 na posse.
+- [Documentação de `hashlib.scrypt`](https://docs.python.org/3/library/hashlib.html#hashlib.scrypt), função de derivação usada nas senhas, da biblioteca padrão.
+- [Documentação de `hmac.compare_digest`](https://docs.python.org/3/library/hmac.html#hmac.compare_digest), comparação em tempo constante cobrada por teste estrutural.
+- [Documentação do módulo `secrets`](https://docs.python.org/3/library/secrets.html), fonte do sorteio de token e de sal.
+- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), origem do piso `N=2^17`, `r=8` e `p=1` para `scrypt`, do qual o código fica abaixo em `N`.
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), que descreve a enumeração de contas por resposta e por tempo, o problema que o hash falso resolve, e que fixa o comprimento mínimo de senha em 15 caracteres sem segundo fator.
+- [URLs pré-assinadas do Amazon S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html), desenho que o endereço de envio copia e para onde ele migra quando houver armazenamento de objetos.

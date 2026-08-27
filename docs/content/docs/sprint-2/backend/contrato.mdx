@@ -1,0 +1,350 @@
+---
+title: O contrato do evento de finalização
+description: Um JSON Schema congelado como fonte única, tipos que leem as regras dele, e validação nos dois sentidos
+---
+
+Esta página descreve `src/contracts`, a área que define o que é um evento de finalização e que não
+importa nenhuma outra: `edge` e `cli` a importam direto, e `mlops` e `api` chegam ao evento por
+`edge`. Ela é o acordo entre quem produz o evento na borda e quem o consome, e é a peça de
+`contracts` na [arquitetura do backend](/docs/sprint-2/backend).
+
+## Onde se encaixa no fluxo
+
+```text
+   quem produz                        o contrato                      quem consome
+
+  edge.modules                 ┌────────────────────────┐        cli
+  edge.features  ────────────► │  ShotEvent congelado   │ ─────► var/runs/.../events.jsonl
+  edge.pipeline                │  FeatureValue          │
+                               │  PipelineMetadata      │        api
+                               └────────────┬───────────┘ ─────► lista de Metrica no JSON
+                                            │
+                                    to_dict │ dict só com escalares JSON
+                                            ▼
+                               ┌────────────────────────┐        nuvem
+                               │  validate_shot_event   │ ─────► transporte ainda não existe
+                               │  Draft202012Validator  │
+                               └────────────┬───────────┘
+                                            │ lê
+                               ┌────────────▼───────────┐
+                               │  shot_event.v1.json    │
+                               │  fonte única do que    │
+                               │  o evento pode ser     │
+                               └────────────┬───────────┘
+                                            │ padrão do shot_id, enum de status
+                                            └──► lidos por events.py na importação
+```
+
+A seta de baixo é a que sustenta a decisão da fonte única: o mesmo arquivo que o validador consome
+também alimenta os tipos Python na hora do import. Ele não é documentação do contrato, ele é o
+contrato.
+
+## Componentes e responsabilidades
+
+| Arquivo | Responsabilidade | O que ele **não** faz |
+| --- | --- | --- |
+| `shot_event.v1.json` | declara o evento em JSON Schema draft 2020-12: campos obrigatórios, tipos, `additionalProperties: false`, o padrão do `shot_id`, o enum de `status` e o perfil de data | não conhece Python, não valida nada sozinho e não diz nada sobre o conteúdo de `evidence` |
+| `schema.py` | localiza e lê esse arquivo por `importlib.resources`, e expõe `load_schema`, `SCHEMA_VERSION`, `SCHEMA_FILENAME` e `SCHEMA_PATH` | não importa biblioteca de terceiro, não valida e não guarda o schema em cache: cada chamada de `load_schema` relê o arquivo |
+| `events.py` | os tipos congelados `ShotEvent`, `FeatureValue` e `PipelineMetadata`, as invariantes cobradas na construção e a serialização explícita | não importa `jsonschema` e não confere presença de chave: `from_dict` assume payload já validado |
+| `validation.py` | valida um dicionário contra o schema e traduz o erro do validador para `SchemaValidationError` | não constrói evento e não importa `jsonschema` no topo do módulo |
+| `perception.py` | os tipos que circulam dentro da borda entre os módulos, como `Clip`, `Box` e `FramePerception` | nunca é serializado no evento, e por isso não tem `to_dict` nem entrada no schema |
+| `demo.py` | monta um evento completo, valida e imprime, servindo de prova ao vivo e de fixture dos testes | não abre vídeo e não roda módulo: os valores são de exemplo, não medidos |
+
+A fronteira mais forte da tabela é a primeira linha da própria área: `contracts` não importa
+`edge`, `mlops`, `cli` nem `api`. Isso é cobrado pelo teste de fronteira descrito na
+[visão geral](/docs/sprint-2/backend), e é o que permite que qualquer uma das outras
+áreas dependa do contrato sem arrastar o resto do sistema junto.
+
+## Fluxo de dados
+
+Entra o resultado do pipeline da borda: a percepção montada quadro a quadro, o instante de contato
+apontado pelo módulo `shot`, a lista de `FeatureValue` que os extratores produziram e a procedência
+da execução. O `edge.pipeline` junta isso num `ShotEvent`, derivando `shot_id` de `clip_id` mais o
+índice do quadro e `shot_timestamp_s` desse índice dividido pelos fps do clipe.
+
+Sai um dicionário só com escalares que o JSON serializa, e daí uma linha por evento. O `cli` grava
+`json.dumps(evento.to_dict())` seguido de quebra de linha em `var/runs/.../events.jsonl`, no
+formato [JSON Lines](https://jsonlines.org/); o `api` traduz a mesma lista de features para o JSON
+que o frontend consome.
+
+O evento abaixo não é exemplo inventado. Ele é a saída de:
+
+```bash
+uv run python -m contracts.demo
+```
+
+```json
+{
+  "schema_version": "1.0",
+  "shot_id": "clip-demo-001:187",
+  "clip_id": "clip-demo-001",
+  "match_id": "match-2026-08-18-flamengo-palmeiras",
+  "shot_timestamp_s": 7.48,
+  "features": [
+    {
+      "name": "shot_distance_m",
+      "version": "1.0.0",
+      "status": "ok",
+      "value": 16.24,
+      "confidence": 0.91,
+      "reason": null,
+      "evidence": {
+        "frames": [185, 186, 187],
+        "shooter_track_id": 9,
+        "pitch_xy_m": { "x": -3.4, "y": 15.87 },
+        "intermediate": {
+          "homography_error_px": 2.1,
+          "used_keypoints": ["big_box_tl"]
+        }
+      }
+    },
+    {
+      "name": "shot_angle_deg",
+      "version": "1.0.0",
+      "status": "low_confidence",
+      "value": 27.9,
+      "confidence": 0.42,
+      "reason": "erro de reprojeccao de 9.7 px acima do limite de 5.0 px",
+      "evidence": { "frames": [187], "homography_error_px": 9.7 }
+    },
+    {
+      "name": "gaze_on_ball",
+      "version": "0.1.0",
+      "status": "unavailable",
+      "value": null,
+      "confidence": null,
+      "reason": "modulo pose nao rodou: nenhum modelo configurado para a janela fina",
+      "evidence": { "missing_module": "pose" }
+    }
+  ],
+  "pipeline": {
+    "versions": {
+      "players": "stub-players@0.1.0",
+      "ball": "stub-ball@0.1.0",
+      "field": "stub-field@0.1.0",
+      "shot": "stub-shot@0.1.0"
+    },
+    "timings_ms": {
+      "decode": 118.4,
+      "coarse": 342.7,
+      "window": 96.2,
+      "features": 11.9
+    },
+    "host": "dev-station",
+    "started_at": "2026-08-18T13:00:00Z"
+  }
+}
+```
+
+As listas e objetos aninhados aparecem compactados aqui só para caber na página; o comando imprime
+o mesmo conteúdo com um item por linha. Gravado como o `cli` grava, com `json.dumps` e os
+separadores padrão, esse evento ocupa 1231 bytes numa linha, medido nesta estação.
+
+As três features existem para mostrar os três estados que o contrato admite. `shot_distance_m` é
+número medido, com confiança. `shot_angle_deg` é número medido que a borda não confia, e por isso
+carrega `reason` dizendo qual limiar estourou. `gaze_on_ball` é ausência declarada: valor nulo,
+confiança nula e o motivo por extenso. O contrato proíbe que o terceiro caso se disfarce dos dois
+primeiros, porque `reason` vazio com `status` diferente de `ok` é recusado nos dois lados. Zero
+inventado passando por medida é o modo de falha que a área inteira existe para evitar, e a
+[página da borda](/docs/sprint-2/backend/borda) descreve como os extratores degradam para chegar
+aqui.
+
+O `pipeline` é a procedência: qual módulo rodou, em que versão, quanto tempo cada etapa levou e em
+que máquina. Os tempos acima são do `demo`, não de uma execução real.
+
+## Decisões
+
+**O contrato é um JSON Schema, e não apenas a dataclass Python.** O evento atravessa uma fronteira
+onde o outro lado pode não ser Python: a nuvem, o frontend e qualquer consumidor futuro precisam de
+um artefato que diga o que o evento é sem importar o nosso código, e o `$id` do arquivo dá a esse
+artefato uma identidade estável. *Alternativa descartada:* só as dataclasses congeladas, ou exportar
+um modelo Pydantic. A dataclass não diz nada a um consumidor que não é Python, e é mais permissiva
+onde importa: medido, um payload com o campo extra `expected_goals` é aceito por `ShotEvent.from_dict`
+e recusado pelo schema por causa de `additionalProperties: false`. Pydantic resolveria parte disso
+e traria uma dependência pesada para a borda, além de amarrar o contrato à versão de uma biblioteca
+Python. Do jeito atual, quem só monta e serializa o evento não precisa nem do `jsonschema`.
+
+**O schema é a fonte única, e os tipos leem as regras dele em vez de repeti-las.** Na importação de
+`contracts.events`, a função `_regras_do_schema` abre o arquivo e tira dele duas coisas: o `pattern`
+de `shot_id` e o enum de `status`. Se o arquivo perder uma delas, `import contracts` falha na hora
+com a mensagem `shot_event.v1.json nao traz as regras que o tipo cobra`, e um teste prova isso
+rodando um subprocesso contra uma cópia mutilada do pacote. *Alternativa descartada:* escrever a
+expressão regular e o enum de novo em Python. Duplicação assim só fica sincronizada enquanto alguém
+lembra, e a hora em que ela deixa de estar sincronizada é a hora em que a borda emite um evento que
+a nuvem recusa. Dois testes existem por causa disso: um compara `get_args(FeatureStatus)` com o
+enum do schema, o outro compara os dois padrões de `started_at`.
+
+**A única regra reescrita em Python é o padrão de data, e ela é reescrita com um teste em cima.** O
+schema declara `started_at` com `format: date-time` e repete o formato como `pattern`, porque no
+draft 2020-12 `format` é anotação e não asserção: sem o `pattern`, um validador conforme pode
+aceitar qualquer string. O tipo não consegue reutilizar o padrão do schema letra por letra, porque
+ele termina em `$`, e em Python `$` casa também antes de uma quebra de linha final. O tipo usa
+`\Z`, que casa só no fim de verdade. O teste afirma a transformação exata, ou seja, o padrão do
+schema sem o `$` mais `\Z` tem de ser igual ao padrão do tipo, então a duplicação existe mas não
+consegue divergir em silêncio. *Alternativa descartada:* aceitar o `$` também no tipo, o que
+deixaria passar `started_at` com quebra de linha no fim, e essa string vai para o banco do outro
+lado.
+
+**Validação nos dois sentidos, porque nenhum lado contém o outro.** A construção do tipo cobra as
+invariantes que o JSON Schema não sabe expressar, como `shot_id` derivar do `clip_id` do mesmo
+evento; o schema cobra a forma do documento, que o tipo não vê. As onze sondas abaixo foram rodadas
+contra o evento do `demo` e mostram onde cada lado é o único a pegar o defeito:
+
+| Payload mutilado | Schema | Tipo |
+| --- | --- | --- |
+| `shot_id` com quebra de linha no fim | aceita | recusa |
+| `shot_id` de outro clipe, `outro-clipe:999` | aceita | recusa |
+| `started_at` com dia que não existe no mês | aceita | recusa |
+| `started_at` com quebra de linha no fim | aceita | recusa |
+| campo extra `expected_goals` | recusa | aceita |
+| `match_id` ausente | recusa | levanta `KeyError` |
+| `shot_id` com dígito árabe-índico | recusa | recusa |
+| `status` fora do enum | recusa | recusa |
+| `status` diferente de `ok` com `reason` nulo | recusa | recusa |
+| `confidence` igual a 5.0 | recusa | recusa |
+| `shot_timestamp_s` igual a `true` | recusa | recusa |
+
+Quatro linhas só o tipo recusa, uma só o schema recusa e cinco os dois recusam. A do `match_id`
+ausente é o caso à parte: o schema recusa, e o tipo estoura com `KeyError` em vez de
+`ContractError`, porque `from_dict` assume payload já validado. *Alternativa descartada:*
+validar num lugar só. Escolher o schema deixaria passar as quatro primeiras linhas, e escolher o
+tipo deixaria passar um evento com campo inventado. A última linha da tabela é uma armadilha
+específica de Python: `True` é instância de `int`, então uma checagem ingênua de número aceitaria
+`shot_timestamp_s` valendo `true`, e por isso a função interna exclui `bool` de propósito.
+
+**O arquivo mora dentro do pacote e é lido como recurso, nunca por caminho relativo ao
+repositório.** *Alternativa descartada:* uma pasta `schemas/` na raiz, ou `Path(__file__).parents[N]`.
+As duas funcionam na máquina de quem escreveu e quebram na imagem de contêiner, onde o pacote está
+instalado e a raiz do repositório não existe. Um teste constrói o wheel com `uv build` e afirma que
+`contracts/shot_event.v1.json` está dentro dele com a mesma SHA-256 do arquivo do repositório, e
+outro teste varre o repositório inteiro afirmando que existe uma cópia só do arquivo. Verificado:
+o digest é `2cef64e155c0…`, e o repositório tem exatamente uma ocorrência do nome.
+
+**O `jsonschema` é importado dentro da função, não no topo do módulo.** Como o `__init__` do pacote
+reexporta `validate_shot_event`, um import no topo faria todo `import contracts` carregar o
+validador, inclusive no processo da borda que só monta e serializa. Um teste em subprocesso guarda
+a propriedade afirmando que `jsonschema` não está em `sys.modules` depois de `import contracts`.
+*Alternativa descartada:* o import no topo do módulo, que é a forma normal, é mais fácil de ler e
+faz quem só monta o evento carregar o validador junto. Medido nesta estação com
+`python -X importtime`, dez execuções de cada: `import contracts` ficou entre 15 ms e 27 ms
+acumulados, com mediana de 23 ms, e `import jsonschema` sozinho entre 32 ms e 58 ms, com mediana de
+34 ms. A dispersão de cada série é maior que a diferença entre as duas medianas, então o ganho em
+milissegundos não sustenta a decisão sozinho, e nada disso foi medido na Jetson. O motivo mais
+forte é a forma da dependência: o código já monta e serializa o evento com o import de `jsonschema`
+bloqueado, verificado assim fora da suíte. O empacotamento ainda não acompanha essa propriedade,
+porque `jsonschema` está declarado como dependência de raiz e entra em toda instalação, e movê-lo
+para um extra é trabalho que esta sprint não fez.
+
+**O que o JSON não serializa é recusado na construção, não na hora de gravar.** O campo `evidence`
+é livre por desenho, e uma função interna percorre o valor inteiro convertendo dicionário em
+`MappingProxyType` e lista em tupla, e levantando `ContractError` para qualquer outra coisa. Os
+casos estão num teste parametrizado: `Decimal`, `datetime`, `set` e `bytes`. Chave que não é texto
+também é recusada, porque em JSON chave de objeto é sempre string, então `185` voltaria como `"185"`
+do outro lado e uma tupla não voltaria. *Alternativa descartada:* deixar `json.dumps` falhar na
+escrita. A falha apareceria no escritor do `cli` ou no manipulador HTTP, longe da linha que
+produziu o valor, e com uma mensagem que só fala do tipo. A mensagem daqui estoura na construção da
+feature e diz qual campo, qual tipo e o que fazer: `evidence carrega Decimal, que o json nao
+serializa. Converta antes: int(), float(), .tolist(), .isoformat()`. O `.tolist()` está ali porque
+o suspeito mais provável é um `numpy.float32` saindo de um modelo. O nome da feature fica de fora
+nesse caminho, e só aparece quando é o campo `value` que carrega o tipo errado, em
+`feature 'shot_distance_m' com value do tipo Decimal`. A assimetria é conhecida e não está
+resolvida.
+O congelamento tem um efeito colateral desejado: mutar o dicionário de origem depois de construída
+a feature não muda a feature, e tentar escrever dentro de `evidence` levanta `TypeError`.
+
+**Versão nova é arquivo novo ao lado, não edição no lugar.** O campo `schema_version` é `const` com
+valor `"1.0"`, o nome do arquivo e o `$id` carregam o `v1`, e um teste fixa a SHA-256 do arquivo,
+então qualquer edição deixa o CI vermelho até alguém trocar o digest de propósito. *Alternativa
+descartada:* `additionalProperties: true` com evolução aditiva e negociação por versão menor. Ela
+permitiria acrescentar um campo sem quebrar consumidor antigo, e permitiria também que um produtor
+mandasse um campo com nome errado para sempre sem ninguém notar. Num projeto em que produtor e
+consumidor são dois times que se falam uma vez por semana, a versão estrita pega a divergência no
+primeiro evento e a permissiva não pega nunca. A consequência prática está declarada: o campo de
+probabilidade de gol que a nuvem vai querer não é remendo no v1, é um `shot_event.v2.json` ao lado
+e um leitor que despacha por `schema_version`.
+
+## Trade-offs
+
+O que o desenho compra: um artefato só define o evento, a borda não consegue emitir algo que a
+nuvem recusaria sem um teste falhar antes, um valor que o JSON não serializa morre na linha que o
+produziu, e ausência de medida chega ao consumidor com cara de ausência.
+
+**A desvantagem principal:** a mesma regra vive em dois formalismos. Só duas regras são de fato
+lidas do schema pelo tipo, o padrão do `shot_id` e o enum de `status`. As outras, como `reason`
+obrigatório quando o status não é `ok`, o intervalo de `confidence` e o `shot_timestamp_s` não
+negativo, estão escritas duas vezes, uma em cada linguagem. Os testes seguram as duas versões
+juntas nos casos que alguém pensou em escrever, e nada impede que o par divirja num caso que
+ninguém pensou.
+
+Segunda desvantagem, escolhida de propósito: `additionalProperties: false` deixa o contrato rígido.
+Cada campo novo custa versão nova e implantação coordenada dos dois lados. Para um contrato que vai
+se mexer bastante nas próximas sprints, é atrito que resolvemos pagar, e a alternativa permissiva
+foi descartada pelo motivo da decisão acima.
+
+Terceira: `evidence` é `type: object` e nada mais. Foi para lá que a liberdade foi, e ela não é
+validada. Medido: um `evidence` com conteúdo arbitrário aninhado passa pelo schema sem reclamação.
+O que vai dentro é convenção entre quem escreve a feature e quem depura, não contrato.
+
+## Riscos e incertezas
+
+**O dialeto da expressão regular.** A especificação manda ler `pattern` como expressão regular de
+ECMA-262, o guia oficial recomenda ficar num subconjunto porque o dialeto inteiro não é suportado em
+todo lugar, e a implementação Python usa o módulo `re`, que é um terceiro dialeto. Medido:
+`clip-demo-001:187` com quebra de linha no fim passa pelo padrão `^.+:[0-9]+$` no validador Python,
+porque `$` em `re` casa antes de uma quebra final. Em ECMA-262 sem a flag de múltiplas linhas, `$`
+casa só no fim da entrada, e o mesmo padrão no motor do Node recusa a mesma string, conferido fora
+da suíte. Hoje isso não muda nada, porque o tipo recusa de qualquer jeito e porque o único validador
+que roda é o Python. No dia em que a nuvem validar em outra linguagem, os dois lados vão discordar
+sobre quais eventos são válidos, e a discordância vai ser silenciosa de um dos lados. É a maior
+incerteza aberta desta página: o que continua sem teste é o schema inteiro contra um validador de
+JSON Schema em ECMA-262, e não o padrão isolado.
+
+**Nenhuma prova cruzada de implementação.** Os dois lados que validam hoje rodam no mesmo processo.
+A afirmação que o contrato quer fazer é que duas implementações independentes concordam, e essa
+afirmação não tem teste.
+
+**O tamanho da linha não tem teto.** O evento do `demo`, com três features, dá 1231 bytes numa
+linha. `evidence` não tem limite de tamanho, então uma feature que despejar dados por quadro
+multiplica isso pelo número de quadros da janela. Ninguém mediu ainda o percentil 95 do tamanho da
+linha numa execução sobre os clipes do parceiro.
+
+**`from_dict` confia em quem chamou.** A docstring do módulo diz isso com todas as letras: ela
+assume payload já validado. Medido: um payload sem `match_id` levanta `KeyError`, não
+`ContractError`. Quem for desserializar evento vindo da rede precisa validar antes, e nada no tipo
+obriga essa ordem.
+
+**`match_id` pode ser nulo, e ele é a chave de partição.** Um clipe que chega sem partida associada
+produz um evento válido que ninguém consegue particionar, e é o caso de todo evento que sai de
+`xvision run --clip`, porque `probe` monta o `Clip` sem partida. Esse nulo não é tratado em lugar
+nenhum: em `mlops`, onde mora a
+[partição por partida](/docs/sprint-2/backend/dados-e-avaliacao), o campo `match_id` do `ShotRecord` é
+declarado `str` e vem sempre das tabelas do parceiro, então o evento de `match_id` nulo
+simplesmente não tem caminho até lá. Falta decidir se ele é recusado na entrada ou se ganha um
+balde próprio.
+
+**O relógio da máquina.** `started_at` vem de quem montou o `PipelineMetadata`. Numa Jetson sem
+sincronização de horário, dois dispositivos podem ordenar eventos errado. O contrato cobra o
+formato, nunca a verdade do valor.
+
+## Ainda não implementado
+
+| O que falta | Como a hipótese será testada |
+| --- | --- |
+| Consumidor validando em outra linguagem | Rodar o mesmo `shot_event.v1.json` num validador ECMA-262 sobre os onze payloads da tabela de sondas e comparar aceito e recusado, caso a caso |
+| `shot_event.v2.json` e o leitor que despacha por versão | Escrever o v2 ao lado do v1 e afirmar que um payload v1 continua carregando pelo mesmo caminho, sem ramificação no chamador |
+| Teto de tamanho para `evidence` | Medir o percentil 95 do tamanho da linha do `events.jsonl` sobre os clipes do parceiro antes de escolher qualquer limite |
+| Transporte da borda para a nuvem | Enviar o evento e validar do outro lado contra o mesmo arquivo, e não contra uma cópia dele |
+| Idempotência conferida no consumidor | Reenviar o mesmo `shot_id` e afirmar que o consumidor grava uma vez só |
+
+## Referências
+
+- [Especificação de validação do JSON Schema, draft 2020-12](https://json-schema.org/draft/2020-12/json-schema-validation), que sustenta repetir o `format: date-time` como `pattern`: no draft 2020-12 `format` é anotação, e só vira asserção se a implementação decidir isso.
+- [JSON Schema, expressões regulares](https://json-schema.org/understanding-json-schema/reference/regular_expressions), que sustenta o risco do dialeto: o guia diz que a sintaxe é a de ECMA-262 e recomenda restringir-se a um subconjunto porque ela não é suportada por inteiro em todo lugar, enquanto a implementação usada é a do módulo `re`.
+- [Documentação do `jsonschema`](https://python-jsonschema.readthedocs.io/en/stable/), a implementação de `Draft202012Validator` usada em `validation.py`.
+- [Âncoras `$` e `\Z` no módulo `re`](https://docs.python.org/3/library/re.html), a diferença exata que obriga o tipo a reescrever o padrão de `started_at`: `$` casa também antes de uma quebra de linha final, e `\Z` casa só no fim da string. A documentação atual já chama essa âncora de `\z` e mantém `\Z` como nome de compatibilidade, e o piso do projeto é Python 3.10, onde só `\Z` existe.
+- [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339), o formato de data e hora do qual `started_at` adota um perfil estreito.
+- [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259), que define chave de objeto JSON como sempre textual, motivo de `evidence` recusar chave que não é string.
+- [Documentação de `importlib.resources`](https://docs.python.org/3/library/importlib.resources.html), que sustenta ler o schema como recurso do pacote em vez de caminho do repositório.
+- [Configuração de build do Hatch](https://hatch.pypa.io/latest/config/build/), que descreve como o arquivo entra no wheel, propriedade verificada pelo teste que constrói o pacote.
+- [Documentação de `dataclasses`](https://docs.python.org/3/library/dataclasses.html) e [de `types.MappingProxyType`](https://docs.python.org/3/library/types.html#types.MappingProxyType), a base do congelamento em profundidade dos tipos.
+- [JSON Lines](https://jsonlines.org/), o formato de uma linha por evento em que o `cli` grava a saída.

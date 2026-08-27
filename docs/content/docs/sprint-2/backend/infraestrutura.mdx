@@ -1,0 +1,340 @@
+---
+title: Infraestrutura, contêiner e integração contínua
+description: A imagem única que vira sete trocando um argumento, a topologia declarada sem provedor e os oito portões que rodam em cada merge request
+---
+
+Esta página cobre como o backend sai da máquina de quem escreveu: a imagem que empacota o sistema,
+o wheel que uma instalação produz, a topologia declarada em HCL e os oito jobs do CI. Ela é o par
+operacional da [visão geral do backend](/docs/sprint-2/backend), e o que cada portão
+prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+
+## Onde se encaixa no fluxo
+
+```text
+  repositório
+     │
+     ├─ pyproject.toml ──► uv build ──► xvision-0.1.0-py3-none-any.whl
+     │                                  64 entradas, 108.649 bytes
+     │                                  api · cli · contracts · edge · mlops
+     │
+     ├─ Dockerfile + .dockerignore ──► docker build      contexto: 8,34 kB
+     │        │                             │
+     │        │   sem EXTRA  ───────────────┼──► imagem edge   498 MB
+     │        │   EXTRA=api  ───────────────┘    imagem api    538 MB
+     │        │
+     │        └─ compose.yaml ──► serviço edge  (data do parceiro em :ro)
+     │                            serviço api   (porta 8080, healthcheck)
+     │
+     ├─ infra/*.tf ──► terraform fmt · validate · plan
+     │                 3 recursos planejados, nenhum aplicado
+     │
+     └─ .gitlab/ci/*.yml ──► 8 jobs na merge request, 7 no merge para develop
+              pipeline:check
+              python:lint · python:types · python:test · python:arm64
+              terraform:fmt · terraform:validate · terraform:plan
+```
+
+## Componentes e responsabilidades
+
+| Arquivo | Responsabilidade | O que ele **não** faz |
+| --- | --- | --- |
+| `Dockerfile` | uma imagem parametrizada por `ARG EXTRA`, com usuário não-root e healthcheck próprio | não constrói para a Jetson, não publica em registro, não roda teste |
+| `.dockerignore` | limitar o que um `COPY` consegue alcançar no repositório | não protege material que já entrou numa camada e não é o que faz o contexto ser pequeno |
+| `compose.yaml` | dois serviços da mesma imagem, com montagens e variáveis de desenvolvimento | não é o modo de produção e não guarda segredo de verdade |
+| `infra/*.tf` | declarar a topologia: serviços, portas, rota de saúde, dependências e armazenamento | não cria recurso, não conhece provedor, não guarda estado |
+| `.gitlab/ci/*.yml` | oito portões por merge request, mais os jobs de documentação e release | não constrói imagem, não aplica infraestrutura, não roda na placa |
+| `pyproject.toml` | o que entra no wheel, o console script `xvision` e o piso de cobertura | não descreve o contêiner nem a topologia |
+
+## Fluxo de dados
+
+Entra o repositório e saem três artefatos: uma imagem, um wheel e uma topologia resolvida. Nenhum
+dos três é publicado nesta sprint. Os três são produzidos sob demanda, na máquina de quem roda o
+comando, e é isso que torna o digest da base e o `uv.lock` a única garantia de que duas pessoas
+obtêm a mesma coisa.
+
+A construção, com os números medidos em 25/08/2026 numa estação `arm64` com Docker 29.2.1:
+
+```bash
+docker build -t xvision-edge .    # transferiu 8,34 kB: só o que os COPY alcançam
+docker build --build-arg EXTRA=api -t xvision-api .
+```
+
+| Imagem | Uso em disco | Conteúdo | Entradas em `site-packages` |
+| --- | --- | --- | --- |
+| sem `EXTRA` (a borda) | 498 MB | 127 MB | 39 |
+| `EXTRA=api` | 538 MB | 135 MB | 76 |
+| `EXTRA=ball` | 498 MB | 127 MB | 39 |
+
+As 39 entradas da borda correspondem a 17 distribuições instaladas, e as 76 do serviço HTTP a 35;
+o resto são arquivos `.pth`, diretórios `.libs` e metadados de instalação. `EXTRA=ball` sai idêntica
+à imagem sem extra porque os sete extras de percepção estão declarados e vazios hoje. O mecanismo
+existe, o conteúdo dele ainda não: quem entregar um modelo acrescenta a dependência ao extra da sua
+espécie e passa a ter uma imagem própria sem tocar no `Dockerfile`.
+
+A imagem roda o pipeline inteiro sem rede e sem nada montado, o que é a evidência de que o
+ambiente foi resolvido na construção e não na partida:
+
+```bash
+docker run --rm --network none --entrypoint sh xvision-edge -c \
+  'uv run --no-sync xvision clip && uv run --no-sync xvision run --clip /var/xvision/out/synthetic.mp4'
+```
+
+```text
+/var/xvision/out/synthetic.mp4
+  ball       ok           22.1 ms
+  field      ok            0.6 ms
+  players    ok            0.5 ms
+  shot       ok            0.2 ms
+  identity   ok           30.2 ms
+  pose       ok            3.2 ms
+  tracking   ok            3.3 ms
+/var/xvision/runs/synthetic/events.jsonl
+```
+
+A coluna de tempo varia muito de uma execução para outra, e `ball` já apareceu entre 7,6 ms e
+22,1 ms na mesma máquina. Ela serve para mostrar que as sete etapas rodaram dentro do contêiner
+isolado, e não como medida de desempenho: o número que vale para desempenho está em
+[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+
+O wheel carrega cinco pacotes e o dado empacotado que eles precisam, e nada mais:
+
+```text
+xvision-0.1.0-py3-none-any.whl   108.649 bytes, 64 entradas
+  api/ (10)  cli/ (2)  contracts/ (8)  edge/ (33)  mlops/ (7)
+  contracts/shot_event.v1.json     entra: é o contrato
+  api/docs/openapi.json            entra: é a descrição do serviço
+  src/tests/                       fica fora
+  config/                          fica fora
+  api/docs/xvision/*.bru           fica fora: coleção do Bruno, não é código
+```
+
+A topologia resolvida é o que o `plan` imprime, e é isso que a merge request revisa:
+
+```bash
+cd infra && terraform init -backend=false && terraform plan
+```
+
+```text
+Plan: 3 to add, 0 to change, 0 to destroy.
+  terraform_data.service["api"]        xvision-production-api        porta 8080  /health
+  terraform_data.service["frontend"]   xvision-production-frontend   porta 3000  /
+  terraform_data.store["database"]     xvision-production-database   postgres 16
+```
+
+O formato que um passo de implantação futuro consome é o de `outputs.tf`, um `terraform output
+-json topology` com os mesmos campos. Ele ainda não existe nesta sprint, porque `output` só
+responde depois de um `apply` que a decisão abaixo proíbe de propósito.
+
+O job `python:arm64` não produz artefato de instalação: ele produz uma resolução. O comando é
+`uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes`, que transforma o
+`uv.lock` em 43 linhas de dependência de execução, e essas 43 linhas viram 38 pacotes resolvidos
+para `aarch64-unknown-linux-gnu` em Python 3.10, todos com roda binária publicada, entre eles
+`numpy==2.2.6` e `opencv-python-headless==5.0.0.93`. O `--all-extras` é o que põe `fastapi` e
+`uvicorn` nessa conta: o portão resolve o pacote inteiro, e não só o subconjunto que a borda
+instala.
+
+## Decisões
+
+**Uma imagem parametrizada por `ARG EXTRA`, e não um Dockerfile por área.** A alternativa
+descartada era oito arquivos, um por pessoa, que é o desenho que aparece sozinho quando cada dono
+de módulo precisa de dependências diferentes. Oito arquivos não compartilhariam camada e
+divergiriam no primeiro mês. Com um arquivo só, a base, o usuário, o healthcheck e a política de
+cache são os mesmos para todo mundo, e a diferença entre a imagem da borda e a do serviço HTTP
+cabe em uma linha do `compose.yaml`.
+
+**A base fixada por digest, e a instalação com `--frozen`.** Alternativa descartada: fixar pela
+tag `python3.10-bookworm-slim`, que se move. Tag móvel faz duas pessoas construírem ambientes
+diferentes a partir do mesmo arquivo, e o sintoma aparece semanas depois como "na minha máquina
+funciona". O digest resolve a metade de baixo e o `--frozen` resolve a de cima: ele recusa
+atualizar o `uv.lock` durante a construção, então a imagem instala exatamente o que a revisão
+aprovou. Um teste cobra a forma do `FROM`, porque a linha é fácil de afrouxar sem ninguém notar.
+
+**O usuário não-root existe antes do primeiro `COPY`, e cada `COPY` já chega com o dono certo.**
+Alternativa descartada: copiar como root e corrigir depois com `chown -R /app`. Ela custa uma
+camada com o venv inteiro reescrito. Medido hoje, construindo as duas variantes lado a lado: 715 MB
+contra 498 MB em disco, 186 MB contra 127 MB de conteúdo. São 59 MB a mais em toda transferência
+da imagem, por uma linha que não muda comportamento nenhum. A nota no `Dockerfile` registra
+716 MB contra 566 MB, medidos em outro momento; o valor da variante ruim reproduziu, o da boa não,
+provavelmente por diferença de arquitetura ou de versão de dependência.
+
+**`UV_NO_CACHE=1`, com um ganho menor do que a nota do `Dockerfile` sugere.** Alternativa
+descartada: montar o cache do uv com `RUN --mount=type=cache`, que acelera a reconstrução e
+também não deixa nada na camada final. Ela foi recusada porque amarra a construção ao cache
+local de quem constrói, e este projeto não tem registro nem job de CI que construa imagem, então
+o ganho ficaria numa máquina só enquanto o arquivo passaria a depender de um recurso do BuildKit
+que a base da Jetson ainda vai ter de suportar. Dentro do contêiner
+o cache do uv ocupa 150 MB ao lado dos 147 MB do venv, e o `du` confirma os dois números. O que
+não se confirmou foi a economia: construindo sem a variável, a imagem foi de 498 MB para 503 MB em
+disco e ficou em 127 MB de conteúdo, ou seja, sem diferença nenhuma no que trafega. O motivo é que
+o uv liga o venv ao cache por hardlink, então os mesmos bytes aparecem duas vezes na listagem e
+uma vez no disco. A decisão fica de pé com a justificativa corrigida: cache de construção não tem
+função dentro de uma imagem de execução, e o ganho é de higiene, não de tamanho.
+
+**O `ENTRYPOINT` usa `uv run --no-sync`, e isso é o que faz o contêiner subir sem rede.** Sem a
+flag, `uv run` sincroniza antes de executar, e a sincronização inclui o grupo `dev` por padrão,
+desfazendo o `--no-dev` da construção. Medido: com `--network none` e a flag, o CLI responde
+normalmente; sem a flag, o uv começa reconstruindo `xvision @ file:///app` e morre num download
+de dependência do grupo `dev`, na execução que registrei o `idna`, com a própria mensagem do uv
+rastreando o caminho até `xvision:dev` depender de `httpx2`. Qual pacote aparece primeiro depende
+da ordem dos downloads, então o nome não é estável e a causa é. Alternativa descartada:
+fixar o `PATH` para o venv e chamar o console script direto, que funcionaria e perderia o
+diagnóstico que o uv dá quando o ambiente está incoerente.
+
+**O healthcheck mora na imagem, e não só no `compose.yaml`.** Alternativa descartada: declarar só
+no compose, que é onde a maioria dos exemplos coloca. Quem usar a imagem fora do compose, e a
+unidade systemd da Jetson é o caso previsto, fica sem sinal de saúde nenhum. Medido em duas
+execuções: o contêiner do serviço HTTP passa a `healthy` aos 5 s e aos 6 s, bem dentro do
+`start-period` de 20 s, porque o Docker sonda a cada 5 s enquanto o período de partida corre em
+vez de esperar o `interval` de 10 s. `/health` responde `{"status":"ok"}` e o processo roda como
+`uid 10001`, os dois conferidos de dentro do contêiner.
+
+**A configuração padrão vai para a imagem, mesmo com o compose montando `./config` por cima.**
+Alternativa descartada: manter `config/` só como bind mount. A imagem passava a só funcionar
+montada, e qualquer outro uso falhava com a mensagem de configuração ausente, que hoje é
+`/caminho/pipeline.toml nao existe: passe --config com o caminho do arquivo`. Com a cópia na
+imagem, o bind mount continua sendo o caminho normal de quem opera, e passa a ser uma escolha e
+não uma obrigação.
+
+**O `.dockerignore` nasceu no mesmo commit do `Dockerfile`, e o que ele protege é o `COPY`, não o
+tamanho do contexto.** Alternativa descartada: não versionar arquivo de exclusão nenhum e confiar
+no `COPY` estreito que o `Dockerfile` já tem, que copia apenas `pyproject.toml`, `uv.lock`, `src`
+e `config`. Ela cai porque a proteção some no dia em que alguém escreve `COPY . .`, e a raiz do
+repositório tem 3,5 GB de clipe do parceiro: um `COPY` largo demais assa material restrito dentro
+de uma camada, que é exatamente o que o acordo com a Footstats proíbe. Medido nesta estação com
+Docker 29.2.1, num diretório de 200 MB montado só para isso: com `COPY um-arquivo.txt` o daemon
+recebe 39 B, e com `COPY . /app` recebe 209,77 MB. Ou seja, o número que o BuildKit imprime em
+`transferring context` mede o que o `COPY` alcança e não o que existe na pasta, e por isso ele
+não serve de evidência aqui: neste repositório ele deu 8,34 kB numa reconstrução e 1,01 MB numa
+cópia limpa, com o arquivo de exclusão no lugar. A evidência que dá para conferir é direta e é
+outra: com o `.dockerignore`, `src/tests/` não entra na imagem, e `ls /app/src/tests` dentro do
+contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`,
+`var/`, `.git/`, `.venv/`) esteja listada, porque não há CI que construa imagem para pegar a
+regressão.
+
+**Terraform declara a topologia e nunca aplica, e é por isso que ele é entrega e não decoração.**
+A proposta tinha sido rejeitada antes, com motivo escrito: o provider comunitário do provedor
+cogitado acrescenta dependência de terceiro numa sprint que já tem risco, e o `apply` inverte o
+risco do projeto. Hoje o perigo é criar recurso sem querer; com `apply`, passaria a ser apagar
+configuração de que oito pessoas dependem. Um segundo provider chegou a ser cogitado, o do próprio
+GitLab, para declarar label e milestone como código, e a consulta à instância real matou a ideia:
+as labels institucionais voltam com `is_project_label: false`, ou seja, são de grupo, e um recurso
+de label de projeto criaria sombras com o mesmo nome. O que sobrou foi o recorte que mata a
+objeção: HCL sem bloco `provider`, resolvido com o recurso
+`terraform_data` que o próprio Terraform fornece, com `fmt`, `validate` e `plan` como portão e
+nenhum `apply`. Um teste varre os arquivos e reprova qualquer recurso cujo tipo comece com
+`aws_`, `google_`, `azurerm_`, `kubernetes_`, `docker_`, `heroku_` ou `railway_`, e outro afirma
+que nem `apply` nem `destroy` aparecem nos três jobs. O ganho concreto é que `terraform plan` roda
+no CI de verdade, sem credencial e sem escolha de nuvem ainda feita, e o que a MR revisa é a
+topologia: dois serviços, um armazenamento, quem depende de quem e qual rota de saúde cada um
+expõe. Duas validações de variável recusam porta fora da faixa e `needs` apontando para recurso
+não declarado.
+
+**A regra do CI cobre a branch de integração, e não só a MR.** Alternativa descartada: manter
+`merge_request_event` mais a branch padrão, que é o recorte que vem de fábrica. Como toda MR deste
+projeto tem `develop` como alvo, o commit de merge que integra o trabalho de oito pessoas era
+justamente o único momento em que nada rodava. A regra `.actions-rules:python` acrescenta
+`develop` explicitamente, e um teste compara essa constante com o alvo declarado no arquivo de
+configuração local da pipeline, pulando quando o arquivo não existe, porque ele não é versionado e
+o runner não o tem. O `pipeline:check` ficou de fora dessa correção: ele herda a regra genérica,
+que cobre a merge request e a branch padrão, e a branch padrão do projeto é `main`. São oito jobs
+na merge request e sete no commit que cai em `develop`, e fechar essa diferença é trabalho de uma
+linha que ainda não foi feito.
+
+**O `python:arm64` exige roda binária, e não só uma resolução.** Ele exporta o lock com as flags
+listadas acima e resolve o resultado para `aarch64-unknown-linux-gnu` com `--only-binary :all:`,
+sem instalar nada. Alternativa descartada: resolver sem a flag, que aceita
+distribuição de código fonte e não prova nada sobre a placa, já que a compilação aconteceria só na
+Jetson. Medido: `nvidia-pyindex==1.0.9`, que não publica roda nenhuma, resolve normalmente sem a
+flag e é recusado com `has no usable wheels` quando ela está lá.
+
+**O wheel declara os cinco pacotes um a um, e nada resolve caminho a partir de `__file__`.**
+Alternativa descartada: descoberta automática de pacotes, que arrastaria `src/tests` para dentro
+da distribuição. A consequência menos óbvia está na outra ponta: o wheel não carrega `config/`,
+então `Path(__file__).parents[2] / "config"` resolve para dentro de `site-packages`, onde a pasta
+não existe. Foi assim que `mlops` quebrou uma vez, com `xvision run --all` morrendo com um
+`FileNotFoundError` cru apontando para dentro do venv. A regra passou a ser caminho relativo ao
+diretório de trabalho, com `importlib.resources` quando o arquivo for dado empacotado, e um teste
+varre a árvore sintática de `src/` recusando o padrão fora dos testes.
+
+## Trade-offs
+
+O que o desenho compra: um arquivo descreve o ambiente de todo mundo, o contêiner roda o pipeline
+inteiro sem rede e sem montagem, a topologia de produção é revisável numa MR antes de existir
+qualquer conta de nuvem, e os sete portões de código e de infraestrutura rodam tanto na MR quanto
+no commit que integra `develop`.
+
+**A desvantagem principal: nenhum dos oito jobs toca a imagem nem a infraestrutura de verdade.**
+O CI prova lint, tipos, teste, resolução para `aarch64`, formato e validade do HCL. Ele não
+constrói a imagem e nunca chama `apply`. Os dois artefatos desta página são exatamente os que
+menos verificação automática têm: uma regressão no `Dockerfile` só aparece quando alguém constrói
+à mão, e o `plan` de uma configuração sem provedor não pode falhar do jeito que um `plan` com
+provedor falha, porque não há API do outro lado para discordar. Os testes de infraestrutura
+compensam parte disso lendo os arquivos, mas ler um arquivo é mais fraco do que executá-lo.
+
+Segunda desvantagem: a imagem tem 498 MB em uma etapa só. Construção em múltiplas etapas não foi
+feita porque a camada do `uv sync` pesa 154 MB e as camadas da base somam cerca de 216 MB, medido
+em `docker history`, então o ganho estaria em trocar a base, e trocar a base é justamente o que a
+sprint 3 vai fazer ao ir para a Jetson. Otimizar agora seria trabalho jogado fora, e essa é uma
+estimativa, não uma medição.
+
+Terceira, menor: sem registro de imagem, a reprodutibilidade depende do digest da base continuar
+disponível e de cada pessoa construir localmente. Publicar a imagem custaria configurar o registro
+do projeto e um job novo, e a troca foi aceitar o custo de construir em cada máquina enquanto o
+time cabe em oito pessoas.
+
+## Riscos e incertezas
+
+**A imagem da Jetson não existe, e a armadilha registrada no `Dockerfile` está pela metade.** A
+base `l4t-jetpack` já traz uma OpenCV instalada pelo sistema, então instalar
+`opencv-python-headless` do PyPI dentro dela põe duas OpenCV no mesmo contêiner, e qual delas o
+`import cv2` encontra passa a depender da ordem do `sys.path`. A nota do `Dockerfile` justifica o
+cuidado dizendo que a OpenCV do JetPack vem compilada com CUDA, e essa parte não se sustenta: a
+página do JetPack lista OpenCV entre os componentes sem afirmar suporte a CUDA, e o relato
+repetido no fórum da NVIDIA é que o pacote distribuído sai com `CUDA: NO` e precisa ser
+recompilado da fonte para acelerar. O caminho previsto continua sendo `uv venv
+--system-site-packages` somado a `--no-install-package opencv-python-headless`, agora por uma
+razão mais modesta: evitar duas cópias da mesma biblioteca, e não herdar uma aceleração que
+provavelmente não vem pronta. Isso é hipótese registrada, não medição: ninguém do time tem a placa
+nesta sprint, e copiar o arquivo de dependências da estação para a imagem da Jetson continua sendo
+a forma mais provável de quebrar.
+
+**O portão `arm64` prova existência de roda, não execução.** As 38 rodas resolvidas para
+`aarch64-unknown-linux-gnu` dizem que os pacotes existem para a arquitetura. Elas não dizem nada
+sobre o driver, a versão do CUDA nem a memória da placa.
+
+**O `plan` de hoje não é o `plan` de amanhã.** `terraform_data` não confere nada contra uma API
+real. Quando um provedor entrar, os três recursos viram recursos de provedor, o `plan` passa a
+exigir credencial, e a distância entre o que está declarado e o que já existe na conta pode ser
+grande o bastante para exigir `import` antes de qualquer coisa. A escolha de provedor está aberta.
+
+**O segredo do compose é um valor literal no arquivo.** Ele está marcado como descartável e o
+serviço recusa subir sem segredo em vez de inventar um padrão, o que é a proteção certa. Ainda
+assim, nada impede alguém levar esse valor para um ambiente real, e não há gerenciador de segredos
+no caminho hoje.
+
+## Ainda não implementado
+
+| O que falta | Como a hipótese será testada |
+| --- | --- |
+| Imagem para a Jetson | Construir sobre `l4t-jetpack` na placa e conferir que existe uma só OpenCV no contêiner e que ela enxerga a GPU |
+| Job que constrói a imagem no CI | Medir o tempo de construção no runner antes de decidir se cabe em toda MR ou só no merge para `develop` |
+| Registro de imagem | Publicar no registro do projeto e comparar o tempo de download na borda com o tempo de construção local |
+| Provedor real no Terraform | Escolher, importar o que já existe e rodar `plan` contra a conta, comparando com a topologia declarada |
+| Segredo fora do arquivo | Substituir o valor do compose por variável de CI mascarada e conferir que o serviço recusa subir sem ela |
+| `pipeline:check` na branch de integração | Acrescentar `develop` à regra genérica e conferir, no primeiro merge, que o pipeline volta com oito jobs e não sete |
+
+## Referências
+
+- [Referência do Dockerfile](https://docs.docker.com/reference/dockerfile/), que define o comportamento de `ARG`, `USER`, `HEALTHCHECK` e `ENTRYPOINT` usado nas decisões acima.
+- [Guia de integração do uv com Docker](https://docs.astral.sh/uv/guides/integration/docker/), base das escolhas de `--frozen` e de cache dentro da imagem; ele não trata de `--no-sync`.
+- [Referência de linha de comando do uv](https://docs.astral.sh/uv/reference/cli/#uv-run), onde `uv run --no-sync` está definido como a forma de não sincronizar o ambiente antes de executar.
+- [Referência do arquivo Compose](https://docs.docker.com/reference/compose-file/), que sustenta a substituição de `entrypoint` por serviço e a montagem somente leitura.
+- [Especificação de imagem OCI, descritores e digests](https://github.com/opencontainers/image-spec/blob/main/descriptor.md), que fundamenta fixar a base por digest em vez de por tag.
+- [Recurso `terraform_data`](https://developer.hashicorp.com/terraform/language/resources/terraform-data), o recurso interno que permite declarar topologia sem provider.
+- [Variáveis e validação no Terraform](https://developer.hashicorp.com/terraform/language/values/variables), base das duas validações de porta e de dependência declarada.
+- [Referência de `rules` do GitLab CI](https://docs.gitlab.com/ci/yaml/#rules), que sustenta a regra que cobre a branch de integração além do evento de merge request.
+- [Formato de distribuição binária, o wheel](https://packaging.python.org/en/latest/specifications/binary-distribution-format/), que define o que o arquivo carrega e onde ele é instalado; a exclusão de `config/` em si vem da configuração do Hatch, logo abaixo.
+- [Configuração de construção do Hatch](https://hatch.pypa.io/latest/config/build/), base da lista explícita de pacotes e das exclusões do wheel.
+- [`importlib.resources` na biblioteca padrão](https://docs.python.org/3/library/importlib.resources.html), a alternativa correta a `__file__` para dado empacotado.
+- [JetPack SDK da NVIDIA](https://developer.nvidia.com/embedded/jetpack), que lista OpenCV entre os componentes já presentes na base da Jetson.
+- [Discussão no fórum da NVIDIA sobre a OpenCV do JetPack sem CUDA](https://forums.developer.nvidia.com/t/jetpack-4-5-opencv-without-cuda-support/169178), a fonte de que o pacote distribuído sai com `CUDA: NO`.

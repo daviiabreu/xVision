@@ -1,0 +1,447 @@
+---
+title: A borda, do clipe ao evento
+description: Decode único, a interface que todo módulo cumpre, o grafo que os liga, a plataforma de features e o cache endereçado por conteúdo
+---
+
+A borda é a parte do backend que abre o clipe de vídeo e produz o evento de finalização. Ela é a
+metade que vai para a Jetson, e a metade de baixo da
+[arquitetura do backend](/docs/sprint-2/backend).
+
+Os sete módulos de percepção desta sprint são stubs: respondem a partir do gabarito da fixture
+sintética, e não dos pixels. Isso é deliberado. É o que permite que a plataforma exista, seja
+exercitada de ponta a ponta e seja medida antes de qualquer modelo. Toda medida de tempo desta
+página, por consequência, é custo da plataforma e não custo de inferir.
+
+## Onde se encaixa no fluxo
+
+```text
+config/pipeline.toml                        clipe .mp4
+  [frames.coarse] [frames.window]                │
+  [modules.players] ... [modules.shot]           │
+  [features.*]                                   ▼
+        │                             ┌──────────────────────┐
+        │                             │ frames.provider      │
+        │                             │ FrameProvider        │  decode uma vez
+        │                             │ + frames.preprocess  │  por quadro cru
+        │                             └──────────┬───────────┘
+        │                                        │ FrameBatch por PreprocessSpec
+        ▼                                        ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │ graph.order  +  graph.framesets  +  graph.runner          │
+  │   ordem topologica sobre needs e sobre a ancora da janela │
+  │   ball, field, players, shot        conjunto coarse       │
+  │   identity, pose, tracking          conjunto window       │
+  │   etapa que levanta vira StageRun com estado e motivo     │
+  └───────┬───────────────────────────────────────┬──────────┘
+          │ ModuleOutput por especie              │ StageRun por etapa
+          ▼                                       │
+  ┌────────────────────┐                          │
+  │ cache.perception   │  chave = identidade      │
+  │ var/cache/         │  do que foi computado    │
+  └─────────┬──────────┘                          │
+            ▼                                     ▼
+  ┌────────────────────┐              ┌────────────────────────┐
+  │ runner.assemble    │              │ PipelineMetadata       │
+  │ Perception         │              │ versions e timings_ms  │
+  └─────────┬──────────┘              └───────────┬────────────┘
+            ▼                                     │
+  ┌────────────────────┐                          │
+  │ features.base      │  quem nao mede sai       │
+  │ run_features       │  unavailable com motivo  │
+  └─────────┬──────────┘                          │
+            └──────────────────┬──────────────────┘
+                               ▼
+                  ┌────────────────────────────┐
+                  │ edge.pipeline.process_clip │
+                  │ ShotEvent                  │
+                  └────────────────────────────┘
+```
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele **não** faz |
+| --- | --- | --- |
+| `frames/provider.py` | abrir o clipe, decodificar cada quadro uma vez e entregar o lote na `PreprocessSpec` pedida | não sabe o que é módulo, feature ou grafo; não limita o próprio pico de memória |
+| `frames/preprocess.py` | aplicar cor, enquadramento, tratamentos e normalização sempre na mesma ordem | não escolhe a spec; não converte coordenada de volta para o quadro original |
+| `modules/base.py` | o contrato de três métodos que todo modelo cumpre, mais os tipos que entram e saem | não escolhe qual implementação roda nem valida o conteúdo dos registros |
+| `modules/conformance.py` | a suíte herdável que diz se um adaptador é integrável, sem revisão de ninguém do backend | não testa qualidade de detecção; não roda em vídeo real; não dispensa o dono de importar `edge.modules` |
+| `modules/records.py` | conferir o mínimo que cada espécie promete devolver, por etapa | não cobra faixa de valor, calibração de confiança nem JSON Schema |
+| `modules/registry.py` | carregar a implementação declarada em `config/pipeline.toml` e aplicar `frames`, `needs` e `artifact` por cima da spec | não valida o que a implementação devolve |
+| `graph/framesets.py` | resolver quais índices de quadro cada conjunto nomeado cobre | não decodifica; não sabe qual módulo pediu |
+| `graph/order.py` | ordenar por dependência e recusar ciclo antes de qualquer execução | não executa nada |
+| `graph/runner.py` | ordem, execução, degradação declarada, medição de tempo e montagem da `Perception` | não abre vídeo, não escolhe features e não decide o que vira evento |
+| `cache/perception.py` | gravar e servir saída de módulo endereçada pela identidade da computação | não decide o que é igual: quem decide é a chave; não tem teto nem expiração |
+| `artifacts.py` | descrever o peso por pares de caminho e sha256, e conferir antes de entregar o entrypoint | não carrega o modelo, não converte formato, não escolhe device e não baixa de URL pública |
+| `features/base.py` | rodar os extractors e transformar impossibilidade de medir em `unavailable` com motivo | não sabe de onde veio a percepção nem quais features existem |
+| `features/registry.py` | resolver a seleção declarada em `[features.*]` | não roda nada e não confere resultado |
+| `paths.py` | as três raízes (`data/`, `var/`, `config/`), resolvidas na chamada | não conhece conceito da API; não guarda fonte de verdade em `var/` |
+| `pipeline.py` | a cola: roda o grafo, lê o instante de contato, chama as features e monta o `ShotEvent` | não abre vídeo, não decide `clip_id`, não lê CSV e não escreve relatório |
+
+## Fluxo de dados
+
+Entra um clipe `.mp4` e o arquivo `config/pipeline.toml`. Sai um `ShotEvent` em JSON, validado
+contra o schema, mais uma lista de `StageRun` com o estado e o tempo de cada etapa.
+
+A configuração declara os conjuntos de quadros e a implementação de cada espécie. O trecho abaixo
+é o arquivo real em uso nesta sprint:
+
+```toml
+[frames.coarse]
+strategy = "uniform"
+fps = 5
+
+[frames.window]
+strategy = "around"
+anchor   = "shot"
+before_s = 1.5
+after_s  = 0.5
+fps      = "native"
+
+[modules.players]
+impl   = "edge.modules.stubs:StubPlayers"
+frames = "coarse"
+
+[modules.pose]
+impl   = "edge.modules.stubs:StubPose"
+frames = "window"
+```
+
+A janela é assimétrica de propósito: contexto, assistência e tipo de jogada precisam do que veio
+antes do contato, então `before_s` é três vezes `after_s`.
+
+Cada módulo declara o que consome, e o provider entrega exatamente aquilo:
+
+```python
+@dataclass(frozen=True)
+class ModuleSpec:
+    kind: str            # players, ball, field, tracking, pose, identity, shot
+    name: str
+    version: str
+    frames: str          # qual conjunto de quadros ele consome
+    preprocess: PreprocessSpec
+    needs: tuple[str, ...] = ()
+    batching: Batching = PerFrame()
+    artifact: str | None = None
+
+
+class PerceptionModule(Protocol):
+    spec: ModuleSpec
+
+    def load(self) -> None: ...
+    def infer(self, batch: FrameBatch, ctx: ModuleInputs) -> ModuleOutput: ...
+    def close(self) -> None: ...
+```
+
+O `ModuleOutput` traz um conjunto de registros por quadro, e cada espécie promete um mínimo de
+chaves: `players` e `ball` devolvem `box` e `confidence`, `tracking` e `identity` devolvem
+`track_id`, `shot` devolve `frame_index`, e `field` e `pose` não têm mínimo cobrado. A caixa sai
+em pixel do quadro original, nunca do tensor pré-processado.
+
+Rodando o grafo sobre a fixture sintética, que tem 30 quadros a 10 fps, o resultado é este:
+
+```text
+etapa      conjunto  estado        ms  nome@versao
+ball       coarse    ok           3.2  stub-ball@0.1.0
+field      coarse    ok           0.1  stub-field@0.1.0
+players    coarse    ok           0.1  stub-players@0.1.0
+shot       coarse    ok           0.1  stub-shot@0.1.0
+identity   window    ok           5.4  stub-identity@0.1.0
+pose       window    ok           0.7  stub-pose@0.1.0
+tracking   window    ok           0.6  stub-tracking@0.1.0
+
+quadros na percepcao: 26, de 0 a 28
+primeiro quadro calibrado: 0, 6 jogadores
+bola em metros: (36.0, -9.0)
+```
+
+Duas etapas custam uma ordem de grandeza a mais que as outras, e elas são exatamente a primeira
+etapa de cada conjunto de quadros: `ball` é a primeira a tocar o `coarse` e `identity` é a primeira
+a tocar o `window`. O tempo delas é o decode e o pré-processamento, cobrados de quem chega
+primeiro. Em sete execuções seguidas na mesma máquina, `ball` ficou entre 2,9 ms e 3,5 ms,
+`identity` entre 4,2 ms e 5,0 ms, e `field`, `players` e `shot` deram 0,1 ms em todas: a razão
+entre a primeira etapa do `coarse` e as três seguintes fica perto de trinta. Isso é a medida do
+decode único acontecendo, e é também o motivo de nenhum número desta página descrever inferência:
+os stubs leem um dicionário.
+
+O mesmo se enxerga contando as chamadas. Os sete módulos pedem 123 pares de quadro e módulo, o
+provider prepara 47 tensores distintos e decodifica 26 quadros crus, em 2 idas ao leitor de vídeo.
+As duas specs de pré-processamento em uso são as constantes `COARSE` e `FINE` de
+`edge.modules.stubs.perception`, e não os conjuntos de quadros de mesmo nome: a `COARSE` responde
+por 26 tensores e a `FINE` por 21. Instrumentando etapa por etapa, `ball` faz 1 leitura de 15
+quadros crus e prepara 15 tensores, `identity` faz 1 leitura de 11 quadros e prepara 21, e
+`tracking` prepara mais 11 sem voltar ao arquivo, porque roda no `window` com a spec `COARSE`.
+`field`, `players`, `pose` e `shot` não decodificam nem preparam nada: leem do dicionário em
+memória. Medido instrumentando `VideoSource.read` e `frames.preprocess.prepare` numa execução
+completa.
+
+O evento que sai é este, com os campos de procedência preenchidos pelo runner:
+
+```json
+{
+  "schema_version": "1.0",
+  "shot_id": "synthetic:18",
+  "clip_id": "synthetic",
+  "match_id": null,
+  "shot_timestamp_s": 1.8,
+  "features": [],
+  "pipeline": {
+    "versions": {
+      "ball": "stub-ball@0.1.0",
+      "field": "stub-field@0.1.0",
+      "players": "stub-players@0.1.0",
+      "shot": "stub-shot@0.1.0",
+      "identity": "stub-identity@0.1.0",
+      "pose": "stub-pose@0.1.0",
+      "tracking": "stub-tracking@0.1.0"
+    },
+    "timings_ms": {
+      "ball": 3.773, "field": 0.368, "players": 0.321, "shot": 0.219,
+      "identity": 5.404, "pose": 0.652, "tracking": 0.844
+    },
+    "host": "laptop",
+    "started_at": "2026-08-25T03:09:02.584Z"
+  }
+}
+```
+
+`features` sai vazio porque `config/pipeline.toml` ainda não declara nenhuma seção
+`[features.nome]`. A plataforma existe e nenhuma feature foi escrita: essa é a situação real, e o
+evento a declara em vez de esconder.
+
+O mesmo comando sobre um clipe real do parceiro não produz evento nenhum:
+
+```text
+a especie 'shot' rodou e nao apontou instante de contato em nenhum quadro
+```
+
+O stub de `shot` só aponta contato no quadro 18 do gabarito da fixture. Num clipe de 420 quadros
+esse índice não é amostrado, a espécie roda e não devolve registro, e o pipeline recusa produzir
+evento em vez de inventar um instante. É a degradação declarada funcionando no caso mais
+desconfortável, que é o de hoje.
+
+## Decisões
+
+**Ler em sequência, e só buscar quando o salto compensa.** Quem implementa a política é o
+`VideoSource`: ele ordena os índices pedidos, avança com `grab()` e só chama `CAP_PROP_POS_FRAMES`
+quando o alvo ficou para trás da posição atual ou quando o salto à frente passa de 64 quadros, o
+valor da constante `SEEK_WORTH_IN_FRAMES`. Medido num clipe real do parceiro com 360 quadros em
+1920x1080 a 59,94 fps, cinco repetições na mesma máquina: percorrer tudo em sequência levou de
+0,33 s a 0,39 s e buscar cada índice levou de 26,5 s a 35,5 s, um fator de 67 a 100 vezes, o que
+dá de 74 ms a 98 ms por busca contra 0,9 ms a 1,1 ms por quadro pulado. A medição registrada no
+código, feita antes e em outra condição de carga, dá 0,31 s contra 27,78 s, dentro dessa faixa. O
+que não se mexe é a ordem de grandeza: uma busca custa dezenas de milissegundos e um quadro pulado
+custa cerca de um. O ponto de equilíbrio é o próprio fator, de 67 a 100 quadros, e o limiar de 64
+fica logo abaixo do menor deles, o que faz o código errar para o lado de buscar numa faixa
+estreita: a seção de riscos abaixo mede o tamanho desse erro. O que a decisão compra de verdade é
+não pagar busca nenhuma nos saltos de 12 quadros que a configuração de hoje produz.
+*Alternativa descartada:* buscar sempre, que é o código mais curto e o que qualquer pessoa escreve
+primeiro.
+
+**Um único componente sabe abrir vídeo.** Nenhum módulo recebe caminho de arquivo, só um
+`FrameBatch` já decodificado e pré-processado. É o que faz o decode acontecer uma vez em vez de
+uma vez por espécie, e é também o único ponto a trocar quando o decode passar a ser por hardware
+na Jetson. *Alternativa descartada:* cada módulo abrir o clipe com a biblioteca da pilha dele, que
+é o caminho natural quando cinco pessoas trazem cinco stacks. Custaria sete decodes do mesmo clipe
+e tornaria o custo total imprevisível. A regra não é só documentada: um dos sete testes de
+conformidade instala um audit hook do Python e falha se o módulo abrir qualquer arquivo de vídeo
+durante a inferência.
+
+**A interface é um `Protocol` de três métodos, e a prova de que ela foi cumprida é uma suíte que
+se herda.** Quem escreve um modelo herda `ModuleConformance`, fornece a fixture `module` e
+descobre sozinho se o adaptador é integrável, sem abrir código do backend e sem pedir revisão a
+ninguém. São sete testes: respeitar a `PreprocessSpec` declarada e recusar lote que não bate,
+devolver `ModuleOutput` do próprio `kind` com os mesmos índices, aguentar detecção vazia e lote
+vazio, ser determinístico para a mesma entrada, liberar no `close` o que o `load` adquiriu, não
+abrir vídeo, e devolver os registros que a espécie promete. Aplicados aos sete stubs, são 49 casos
+que rodam no CI. *Alternativa descartada:* classe base abstrata com herança obrigatória, que
+forçaria cada pessoa a importar do backend e amarraria a implementação dela à nossa árvore de
+classes.
+
+**Módulo que falha vira etapa com motivo, e quem dependia dele é pulado com o motivo.** O evento
+só lista em `versions` a espécie que terminou com estado `ok`, e `timings_ms` registra todas,
+inclusive as que morreram, porque saber que uma etapa gastou 40 ms antes de estourar é informação
+verdadeira. *Alternativa descartada:* deixar o módulo seguir com entrada vazia. Ela é pior de um
+jeito específico: a feature mediria sobre nada, sairia `ok`, e ninguém conseguiria distinguir isso
+de ausência de detecção.
+
+**Coordenada em metros só sobrevive onde houve homografia.** Na montagem, `pitch_xy` só é copiado
+para o evento quando a espécie `field` devolveu homografia naquele quadro; sem ela o campo sai
+nulo, mesmo que o módulo tenha mandado um par de números. *Alternativa descartada:* cair para
+pixel quando a homografia falha. Cair calado faz a feature medir noutra unidade sem ninguém notar,
+e distância em pixel de uma câmera de transmissão não é distância em metro nem por aproximação.
+
+**Feature que não consegue medir devolve `unavailable` com motivo, e nunca zero.** Vale para os
+três casos: dependência que não produziu saída, exceção dentro do extractor, e extractor que
+devolve um nome ou versão diferente do que declarou. Feature que estoura também não derruba as
+outras do mesmo clipe. *Alternativa descartada:* devolver zero ou nulo. Número inventado chega ao
+consumidor com a mesma cara de um número medido, e essa é a falha que não aparece em relatório
+nenhum. O contrato reforça: `status` diferente de `ok` exige `reason` preenchido.
+
+**A seleção de módulos e de features mora no TOML, não numa tupla de código.** *Alternativa
+descartada:* registro por decorador, com import fazendo o efeito colateral. O modo de falha é o
+mesmo (feature não importada some em silêncio), mas com o TOML a omissão aparece no diff da
+revisão, e sete pessoas editando linhas diferentes de um arquivo de configuração conflitam menos
+que sete editando a mesma tupla num arquivo Python.
+
+**A chave do cache leva o código do módulo, e não só o nome dele.** A chave é o conteúdo do que
+foi computado: clipe, spec de pré-processamento, índices de quadro, saída dos módulos de que ele
+depende, digest do peso e digest do arquivo que define a classe. Medido: editar o corpo de um
+stub, sem mudar nome nem versão nem caminho, e rodar de novo servia o resultado anterior.
+*Alternativa descartada:* chave pelo caminho da classe. Para módulo escrito em Python o conteúdo é
+o código, e trocar stub por implementação de verdade no mesmo arquivo é exatamente o fluxo desta
+sprint. Há teste que reescreve um módulo em disco entre duas execuções e cobra que a segunda
+devolva o valor novo.
+
+**O peso é endereçado pelo digest do conteúdo, num manifesto versionável.** O digest é calculado
+sobre os pares de caminho e sha256 dos arquivos, ordenados, então ele muda quando o peso muda e
+não muda quando o manifesto é renomeado. São vários arquivos de propósito, porque TensorFlow
+SavedModel é diretório, OpenVINO IR é `.xml` mais `.bin` e ONNX com dado externo tem um `.data` ao
+lado. O manifesto abaixo saiu de `xvision artifact add` sobre um diretório de exemplo:
+
+```toml
+schema_version = "1.0"
+kind = "players"
+name = "exemplo"
+version = "0.1.0"
+entrypoint = "model.onnx"
+
+[[files]]
+path = "model.onnx"
+sha256 = "251d401741e55f57965decf4ae17197cb37e27964def1179c64a9edcb59c6608"
+bytes = 15
+
+[[files]]
+path = "model.onnx.data"
+sha256 = "fe0b35c097221cc0aa530ff5f724ef300be832fbe09178c082859f9ad129c981"
+bytes = 14
+```
+
+*Alternativa descartada:* usar o caminho do manifesto como identidade, que era o comportamento
+anterior. Trocar o peso dentro dele sem renomear o arquivo mantinha a chave e o cache servia saída
+velha depois de retreinar, em silêncio. Peso vindo de hub pode omitir a lista de arquivos: a
+estimativa, não medida, é que pelo menos metade dos donos obtenha o primeiro modelo assim, com o
+`ultralytics` baixando sozinho ou com um `from_pretrained`, e proibir empurraria a pessoa a mentir
+no manifesto. Nesse caso o `artifact_digest` sai nulo no registro da execução, e o peso passa a ser
+endereçado por nome e versão em `var/models/hub/`: a garantia some, mas some visível.
+
+## Trade-offs
+
+O decode único troca memória por tempo, e o preço é calculável. Para o p95 dos clipes do parceiro,
+11 s a 59,94 fps, o conjunto `coarse` resolve 55 quadros e a `window` 121, com 11 em comum, então
+o dicionário de quadros crus guarda 165 quadros de 5,93 MiB, ou 0,96 GiB. Os tensores prontos
+somam 0,085 GiB, porque as duas specs em uso são pequenas. Total de 1,04 GiB num dispositivo de
+8 GB, dentro do teto de 70% que o [RNF-04](/docs/sprint-1/requisitos/nao-funcionais) fixa. Esse
+número é aritmética sobre estatística medida dos clipes, não medição de memória residente: quem
+domina é o quadro cru de 1080p e não o tensor.
+
+**A desvantagem principal é que o teto de memória não está no provider, está em quem escolhe os
+conjuntos de quadros.** O provider guarda tudo que foi pedido até alguém chamar `close`. Trocar as
+sete specs por 640x640 em float32, que é o tamanho típico de detector, leva o total para cerca de
+3,6 GiB e ainda cabe. O que não cabe com folga é um conjunto `uniform` a fps nativo: os 660 quadros
+do clipe de p95 sozinhos são 3,82 GiB em quadro cru, antes de qualquer spec. Uma linha de TOML,
+`fps = "native"` no conjunto errado, multiplica o pico por quatro sem uma palavra de aviso.
+
+O cache é endereçado por conteúdo, e a segunda desvantagem é que o conteúdo é o arquivo inteiro
+que define a classe, não a função que mudou. Quem mexer numa função auxiliar do mesmo arquivo
+invalida o cache do módulo todo, e trocar uma dependência de outro arquivo continua fora do
+alcance. Isso está declarado, não descoberto: quem mexer em vários arquivos limpa o cache com
+`xvision cache clear`, ou aceita resultado de antes.
+
+A terceira é que `var/` cresce e ninguém a poda. Não tem teto nem expiração, e quem limpa é a
+pessoa. O que existe em troca é uma garantia mais forte: `var/` não guarda fonte de verdade, e
+apagar a pasta inteira deixa o sistema funcionando, só mais lento. Essa garantia está coberta por
+teste pela metade, e vale dizer qual metade. Testado: entrada de cache corrompida é ignorada e a
+saída recomputada, e a raiz de escrita nunca cai dentro do dump do parceiro. Não testado: apagar
+`var/` inteira entre duas execuções, que hoje é contrato declarado em `edge.paths` e não asserção
+executável.
+
+A quarta é a que sustenta a página inteira. Os stubs deixam o pipeline correr de ponta a ponta sem
+nenhum modelo pronto, o que permitiu medir decode, ordem, degradação, cache e montagem antes de
+qualquer inferência existir. Em troca, **nenhum número de desempenho desta sprint prevê o da
+próxima**. Os 3,2 ms de `ball` são decode e pré-processamento de 15 quadros de uma fixture 320x240,
+e os 0,1 ms de `shot` são uma leitura de dicionário. Quando entrar um detector de verdade, e quando
+a entrada for 1080p em vez da fixture, a distribuição inteira muda de forma, e o
+[RNF-01](/docs/sprint-1/requisitos/nao-funcionais) continua sem número medido.
+
+## Riscos e incertezas
+
+**O gabarito do parceiro tem grão grosso, e isso limita o que dá para verificar.** A coluna de
+distância tem 2585 finalizações com valor e apenas 10 valores distintos, todos múltiplos de 5,
+de 5 m a 50 m. A marcação de tempo dos eventos é em segundos inteiros, o que a 59,94 fps são cerca
+de 60 quadros de incerteza. Medido lendo as tabelas de finalizações e de eventos do dump. O
+impacto é direto sobre o [RNF-03](/docs/sprint-1/requisitos/nao-funcionais): a grade de 5 m sozinha
+já contribui com erro absoluto médio de 1,25 m, então abaixo dessa faixa o número mede o rótulo e
+não o modelo, e o grão de 1 s é o piso equivalente para o erro de instante. A derivação está em
+[o dado do parceiro, e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao).
+
+**Parte do material não abre.** Dos 633 clipes entregues, 24 têm 261 bytes cada e não abrem como
+vídeo, provavelmente truncados no envio. Os 609 restantes são todos 1920x1080, H.264, yuv420p, com
+582 a 59,94 fps e 27 a exatamente 60 fps. A duração mediana é 7 s e a de p95 é 11 s, com máximo de
+19 s. Medido com `ffprobe` sobre o dump inteiro. Quem tira os truncados da população é o catálogo,
+por tamanho e não por tentativa de abrir, porque abrir 633 clipes só para descobrir isso custa tempo
+na Jetson; o limiar exato e o que ele ainda deixa passar estão na página do dado do parceiro.
+
+**A memória nunca foi medida no dispositivo.** Todos os números de memória desta página vêm de
+aritmética sobre resolução, taxa e contagem de quadros. Memória residente real inclui o runtime, o
+modelo e os buffers do decodificador, e num Jetson CPU e GPU compartilham a mesma RAM. O teto real
+só a medição com `tegrastats` no dispositivo responde, e ela é da Sprint 3.
+
+**O decode é por software.** `cv2.VideoCapture` decodifica na CPU. Na Jetson o caminho certo passa
+por NVDEC, e o custo dominante de hoje muda de natureza. Esse custo ainda não foi medido no
+tamanho que importa: os 3,2 ms de `ball` são 15 quadros de uma fixture 320x240, e a leitura
+sequencial de um clipe real do parceiro, a 1080p, deu de 0,9 ms a 1,1 ms por quadro no experimento
+de busca, o que põe um conjunto `coarse` de 55 quadros na casa de dezenas de milissegundos só de
+decode. O risco é contido por desenho, porque o provider é o único componente que abre vídeo, mas
+contido não é resolvido, e a substituição ainda não foi feita nem medida.
+
+**O limiar de busca está do lado errado do equilíbrio medido.** Nas cinco repetições, o equilíbrio
+ficou entre 67 e 100 quadros, e o limiar do código é 64. Como o código busca quando o salto passa
+do limiar, a faixa entre 65 e o equilíbrio é uma faixa em que ele busca onde pular sairia mais
+barato, por até algumas dezenas de milissegundos por ocorrência. Hoje isso não acontece, porque a
+configuração produz saltos de 12 quadros no `coarse` e de 1 no `window`, e o limiar nunca dispara.
+Passa a acontecer no dia em que alguém declarar um conjunto mais esparso. O limiar é uma constante
+nomeada num único arquivo justamente por isso, e a Sprint 3 deve refazer a medição na Jetson e
+decidir o valor a partir dela, em vez de mantê-lo por inércia.
+
+**Lote temporal com sobreposição resolve empate pelo primeiro.** Quando um mesmo quadro aparece em
+dois lotes de uma spec `Temporal`, a montagem guarda o registro do primeiro lote e descarta o
+segundo. Nenhum módulo em uso hoje declara `Temporal`, então a regra nunca foi exercitada em
+produção, e ela pode não ser a que o dono de um modelo de sequência espera.
+
+## Ainda não implementado
+
+Faltam os sete módulos de verdade e todas as features. A suíte inteira do backend passa com 743
+testes e cobertura de 96,9%, mais um teste pulado, que confere o alvo das MRs contra um arquivo
+não versionado e por isso só roda em quem o tem localmente. E ainda assim ela mede a plataforma,
+não a percepção.
+
+A hipótese a testar primeiro é a de `modules.shot`, e a ordem não é arbitrária: `shot` é a âncora
+do conjunto `window`, então `pose`, `tracking` e `identity` medem a janela que ele decidir. O
+experimento é trocar `impl = "edge.modules.stubs:StubShot"` por uma implementação real, rodar o
+catálogo com `xvision run --all` e comparar o `shot_timestamp_s` do evento com a marcação de tempo
+do parceiro, sabendo de antemão que a incerteza do rótulo é de cerca de 60 quadros. Um erro mediano
+menor que isso não prova acerto: prova só que o método não é pior que o grão do gabarito.
+
+O segundo experimento é o de memória. A previsão é que o pico fique em 1,04 GiB para o clipe de
+p95 com a configuração atual, e em cerca de 3,6 GiB se as sete specs virarem 640x640 em float32.
+A forma de testar é rodar o catálogo inteiro na Jetson com `tegrastats` amostrando, e comparar o
+pico observado com esses dois valores. Se a aritmética errar por mais de 20%, o modelo de custo
+desta página está errado e o teto de `var/` deixa de ser o único problema de recursos.
+
+O terceiro é o decode por hardware, trocando `VideoSource` por um provider apoiado em NVDEC. A
+métrica é a mesma da tabela de etapas: o tempo da primeira etapa de cada conjunto de quadros, que
+é onde o decode aparece hoje.
+
+## Referências
+
+- [OpenCV, classe `VideoCapture`](https://docs.opencv.org/4.x/d8/dfe/classcv_1_1VideoCapture.html), que documenta `CAP_PROP_POS_FRAMES` e `grab`, base da decisão de ler em sequência com limiar.
+- [FFmpeg, documentação da opção `-ss`](https://ffmpeg.org/ffmpeg.html), que declara que na maioria dos formatos não é possível buscar exatamente, então a busca cai no ponto anterior e o trecho entre ele e a posição pedida é decodificado e descartado. É a razão de uma busca custar dezenas de milissegundos.
+- [PEP 544, Protocols](https://peps.python.org/pep-0544/), que é a base de tipagem estrutural do contrato de três métodos, e o motivo de nenhum módulo precisar herdar do backend.
+- [PEP 578, Python Runtime Audit Hooks](https://peps.python.org/pep-0578/), mecanismo usado pelo teste de conformidade que detecta um módulo abrindo vídeo por conta própria.
+- [pytest, fixtures](https://docs.pytest.org/en/stable/how-to/fixtures.html), base da suíte de conformidade herdável, em que o dono do modelo só fornece a fixture `module`.
+- [TOML v1.0.0](https://toml.io/en/v1.0.0), formato da configuração que seleciona módulos, conjuntos de quadros e features.
+- [Python, `importlib.metadata`](https://docs.python.org/3/library/importlib.metadata.html), que sustenta a resolução por entry point do grupo `xvision.modules`, alternativa ao caminho de import literal.
+- [TensorFlow, SavedModel](https://www.tensorflow.org/guide/saved_model), que é um diretório com `saved_model.pb` e a pasta `variables/`, e [OpenVINO, formato IR](https://docs.openvino.ai/2025/documentation/openvino-ir-format.html), que é o par `.xml` mais `.bin`: os dois formatos de várias partes que justificam o manifesto de peso aceitar mais de um arquivo.
+- [JSON Schema, draft 2020-12](https://json-schema.org/draft/2020-12/release-notes), contrato do evento que a borda produz.
+- [NVIDIA, desempenho do DeepStream](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_Performance.html), que mede o pipeline completo incluindo decodificação e pré-processamento, e sustenta a decisão de medir a etapa inteira e não só a inferência.
+- [NVIDIA, utilitário `tegrastats`](https://docs.nvidia.com/jetson/archives/r36.2/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html), ferramenta do experimento de memória descrito acima.
