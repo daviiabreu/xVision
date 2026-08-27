@@ -1,8 +1,7 @@
 """Modulo sem teste precisa entrar no relatorio com 0%, nao sumir dele.
 
-Area e pasta de `src/` que tem Python dentro. A qualificacao existe porque o frontend mora em
-`src/interface` e e TypeScript: sem ela, o dia em que ele entrar este teste falha em cima de quem
-fizer o merge, por um motivo que nao tem nada a ver com a mudanca dele.
+Area e cada pasta declarada em `coverage.run.source`. Scripts que exigem modelos, GPU ou dados
+locais podem ficar fora dessa lista sem criar uma falha artificial na cobertura.
 
 Quando `source` nao aponta para diretorio, o coverage lista apenas o que foi importado, e
 codigo sem teste nenhum desaparece em vez de puxar o total para baixo. O piso de cobertura
@@ -18,14 +17,14 @@ from coverage import Coverage
 
 SRC = Path(__file__).resolve().parents[1]
 ROOT = SRC.parent
-AREAS = tuple(
-    sorted(d for d in SRC.iterdir() if d.is_dir() and d.name != "tests" and any(d.rglob("*.py")))
-)
 
 
 def _fontes_declaradas() -> list[str]:
     configurada = Coverage(config_file=str(ROOT / "pyproject.toml")).config.source
     return list(configurada or [])
+
+
+AREAS = tuple(sorted((ROOT / fonte).resolve() for fonte in _fontes_declaradas()))
 
 
 @pytest.fixture
