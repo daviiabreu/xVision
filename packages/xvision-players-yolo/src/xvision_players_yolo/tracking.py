@@ -67,6 +67,7 @@ class UltralyticsTrackingBackend:
             imgsz=self._image_size,
             conf=self._confidence_threshold,
             iou=0.7,
+            agnostic_nms=True,
             device=self._device,
             verbose=False,
         )

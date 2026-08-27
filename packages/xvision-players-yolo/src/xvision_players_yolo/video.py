@@ -25,6 +25,10 @@ COLORS: Mapping[str, tuple[int, int, int]] = {
     "goalkeeper": (0, 215, 255),
     "referee": (255, 0, 180),
 }
+TEAM_COLORS: Mapping[str, tuple[int, int, int]] = {
+    "team_a": (255, 90, 40),
+    "team_b": (40, 210, 255),
+}
 SCHEMA_VERSION = "player-tracking.v1"
 TRAIL_LENGTH = 35
 Trajectories = dict[int, deque[tuple[int, int]]]
@@ -110,12 +114,19 @@ def annotate_frame(
     frame: Frame,
     detections: tuple[PlayerDetection, ...],
     trajectories: Trajectories | None = None,
+    teams: Mapping[int, str] | None = None,
 ) -> Frame:
     annotated = frame.copy()
     height, width = annotated.shape[:2]
     for detection in detections:
         box = detection.box
-        color = COLORS.get(detection.role or "", UNKNOWN_COLOR)
+        track_id = detection.track_id
+        team = teams.get(track_id) if teams is not None and track_id is not None else None
+        color = (
+            TEAM_COLORS[team]
+            if team is not None
+            else COLORS.get(detection.role or "", UNKNOWN_COLOR)
+        )
         center = _ground_point(detection, width, height)
         box_width = max(round(box.x2 - box.x1), 1)
         axes = (max(box_width // 2, 4), max(box_width // 8, 2))
@@ -142,7 +153,9 @@ def annotate_frame(
             cv2.LINE_AA,
         )
         identifier = "?" if detection.track_id is None else str(detection.track_id)
-        label = f"#{identifier} {detection.role or '?'} {detection.confidence:.2f}"
+        team_label = f" {team}" if team is not None else ""
+        role_label = detection.role or "?"
+        label = f"#{identifier} {role_label}{team_label} {detection.confidence:.2f}"
         _draw_badge(annotated, center, label, color, axes[1])
     return annotated
 

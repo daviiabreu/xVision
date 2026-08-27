@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from xvision_players_yolo.batch import process_batch
+from xvision_players_yolo.identification import process_identification
 from xvision_players_yolo.tracking import PlayerTracker
 from xvision_players_yolo.video import process_video
 
@@ -34,12 +35,34 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--overwrite", action="store_true")
     batch.add_argument("--show-trails", action="store_true")
     add_model_arguments(batch)
+
+    identify = subparsers.add_parser(
+        "identify",
+        help="classifica jogadores por equipe a partir do tracking",
+    )
+    identify.add_argument("--input", type=Path, required=True)
+    identify.add_argument("--tracking", type=Path, required=True)
+    identify.add_argument("--output-dir", type=Path, required=True)
+    identify.add_argument("--max-samples", type=int, default=5)
+    identify.add_argument("--minimum-samples", type=int, default=2)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "identify":
+            result = process_identification(
+                args.input,
+                args.tracking,
+                args.output_dir,
+                max_samples=args.max_samples,
+                minimum_samples=args.minimum_samples,
+            )
+            available = sum(track["status"] == "available" for track in result["tracks"])
+            print(f"identificação concluída: {available} trajetórias classificadas")
+            return 0
+
         tracker = PlayerTracker(
             args.weights,
             image_size=args.image_size,

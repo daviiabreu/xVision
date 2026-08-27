@@ -72,6 +72,20 @@ def roles_from_names(names: Mapping[int, str]) -> dict[int, Role]:
     return mapa
 
 
+def as_role(value: str | None) -> Role | None:
+    """Le o `role` de uma deteccao do contrato de volta para o vocabulario deste detector.
+
+    `PlayerDetection.role` e `str | None` porque o contrato serve toda especie de percepcao e nao
+    pode fechar a lista de papeis que cada uma reconhece. Quem consome aqui precisa de `Role`, e a
+    conversao tem que ser uma so: espalhar `cast` pelos modulos transformava papel desconhecido em
+    `KeyError` no meio do desenho do quadro. Papel que este detector nao reconhece devolve `None`,
+    e cada chamador decide se ignora a deteccao ou se pinta com a cor de desconhecido.
+    """
+    if value is None:
+        return None
+    return NAME_TO_ROLE.get(value.strip().lower())
+
+
 def ground_point(box: Box) -> tuple[float, float]:
     """Centro inferior da caixa, aproximacao do contato com o gramado."""
     return ((box.x1 + box.x2) / 2, box.y2)
@@ -127,6 +141,7 @@ __all__ = [
     "PlayerDetection",
     "Role",
     "UnknownClassNames",
+    "as_role",
     "clip_box",
     "frame_to_dict",
     "ground_point",
