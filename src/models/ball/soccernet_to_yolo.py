@@ -18,8 +18,8 @@ dos diretorios e a escrita do dataset.
 
 Exemplo:
 
-    python src/models/ball/soccernet_to_yolo.py \
-      --src data/soccernet/tracking --out data/ball-yolo --train train --val test
+    python models/ball/soccernet_to_yolo.py \
+        --src ../data/soccernet/tracking --out ../data/ball-yolo --train train --val test
 """
 
 from __future__ import annotations

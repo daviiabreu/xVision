@@ -62,6 +62,7 @@ porcentagem na MR. Os comandos são estes, e são os quatro do CI, que só acres
 `--cov-report=term --cov-report=xml` ao último para escrever esse arquivo:
 
 ```bash
+cd src
 uv run --all-extras ruff check .
 uv run --all-extras ruff format --check .
 uv run --all-extras pyright

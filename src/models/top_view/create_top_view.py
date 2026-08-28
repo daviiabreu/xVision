@@ -232,7 +232,7 @@ def build_top_view_video(video_path, input_dir, homography_model, tracking, team
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(
-            "Uso: python src/models/top_view/create_top_view.py "
+            "Uso: python models/top_view/create_top_view.py "
             "caminho/para/video.mp4 ou caminho/para/pasta"
         )
 

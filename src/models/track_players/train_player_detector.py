@@ -1,3 +1,16 @@
+"""Treina o detector de jogadores, baixando o dataset do Roboflow.
+
+Script de operador: roda a mao, exige GPU e uma chave de API no `.env`. O `roboflow` NAO esta
+declarado no `pyproject.toml` de proposito, e a razao foi medida: acrescenta-lo ao lock arrasta
+`typer` de 0.27.1 para 0.25.1, o que quebra o `pyright` com 33 erros, e prender o `typer` faz o
+`roboflow` puxar `httpx2` de 2.12 para 2.3, `idna` e `opencv-python-headless` junto. Um script que
+roda uma vez nao paga esse preco para o projeto inteiro.
+
+Instale por cima, sem tocar no lock:
+
+    uv run --extra training --with roboflow python models/track_players/train_player_detector.py
+"""
+
 import os
 from pathlib import Path
 

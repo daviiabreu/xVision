@@ -327,7 +327,8 @@ o detector marcava um borrão branco na placa de publicidade da FIFA como sendo 
 ## A causa da causa: o detector nunca foi treinado em futebol
 
 Um diagnóstico paralelo encontrou o que nenhuma medição anterior tinha olhado. Os manifestos
-`models/ball/yolov8n-8.4.0.toml` e `models/players/yolov8n-8.4.0.toml` declaram os dois o mesmo
+`models/manifests/ball/yolov8n-8.4.0.toml` e
+`models/manifests/players/yolov8n-8.4.0.toml` declaram os dois o mesmo
 `entrypoint`, o `yolov8n.pt` pré-treinado no COCO. A bola sai da classe genérica 32, `sports ball`,
 que no COCO reúne bola de basquete, de tênis e de futebol vistas de perto.
 

@@ -22,6 +22,7 @@ else:  # pragma: no cover - a borda suporta 3.10, onde tomllib ainda nao existe
     import tomli as tomllib
 
 REPOSITORIO = Path(__file__).resolve().parents[2]
+PROJETO = REPOSITORIO / "src"
 
 GERADO = [
     "var/cache/perception/a.json",
@@ -30,6 +31,7 @@ GERADO = [
     "artifacts/train.parquet",
     "outputs/relatorio.json",
     "features.csv",
+    "src/coverage.xml",
     "embeddings.npy",
     "embeddings.npz",
     "artifacts/x.feather",
@@ -118,7 +120,9 @@ def test_no_source_file_builds_a_path_inside_the_partner_dump() -> None:
 
 def test_the_source_tree_has_no_package_the_gitignore_would_swallow() -> None:
     """`runs/` no ignore faria um pacote `src/runs/` nascer invisivel, e ninguem notaria."""
-    pacotes = sorted(p.parent for p in (REPOSITORIO / "src").rglob("__init__.py"))
+    pacotes = sorted(
+        p.parent for p in (REPOSITORIO / "src").rglob("__init__.py") if ".venv" not in p.parts
+    )
     engolidos = [
         p.relative_to(REPOSITORIO)
         for p in pacotes
@@ -139,7 +143,7 @@ CONTEXTO_PROIBIDO = [
     "data/footstats/cortes/900/900_004_Mexico_gol_10.mp4",
     "var/runs/x/events.jsonl",
     ".git/config",
-    ".venv/lib/x.py",
+    "src/.venv/lib/x.py",
 ]
 
 
@@ -155,9 +159,13 @@ def test_the_build_context_never_carries_partner_material(caminho: str) -> None:
         for linha in (REPOSITORIO / ".dockerignore").read_text(encoding="utf-8").splitlines()
         if linha.strip() and not linha.startswith("#")
     ]
-    primeiro = caminho.split("/")[0]
+    coberto = any(
+        caminho == regra.rstrip("/") or caminho.startswith(f"{regra.rstrip('/')}/")
+        for regra in regras
+        if not regra.startswith("*")
+    )
 
-    assert f"{primeiro}/" in regras or primeiro in regras, f"{caminho} iria para o daemon"
+    assert coberto, f"{caminho} iria para o daemon"
 
 
 def test_the_compose_mounts_the_partner_data_read_only() -> None:
@@ -214,7 +222,7 @@ def test_the_image_carries_every_file_the_package_metadata_points_at() -> None:
     portoes locais passavam e o `uv sync` dentro do `docker build` morria com
     `OSError: Readme file does not exist`. O mesmo vale para qualquer caminho que a metadata cite.
     """
-    declarado = tomllib.loads((REPOSITORIO / "pyproject.toml").read_text(encoding="utf-8"))
+    declarado = tomllib.loads((PROJETO / "pyproject.toml").read_text(encoding="utf-8"))
     readme = declarado["project"].get("readme")
 
     if readme is None:
@@ -228,14 +236,14 @@ def test_the_image_carries_every_file_the_package_metadata_points_at() -> None:
 
 
 def test_the_image_carries_the_manifests_the_pipeline_config_points_at() -> None:
-    """Sem `models/` dentro da imagem, o render morre em `RenderUnavailable` em todo video."""
-    pipeline = (REPOSITORIO / "config" / "pipeline.toml").read_text(encoding="utf-8")
+    """Sem os manifestos dentro da imagem, o render morre em todo video."""
+    pipeline = (PROJETO / "config" / "pipeline.toml").read_text(encoding="utf-8")
     copiados = _copiados()
 
-    for manifesto in re.findall(r'"(models/[^"]+\.toml)"', pipeline):
-        assert (REPOSITORIO / manifesto).is_file(), f"{manifesto} nao existe"
-        assert manifesto.split("/")[0] in copiados, (
-            f"{manifesto} nao chega em /app dentro da imagem, e o render morre em todo video"
+    for manifesto in re.findall(r'"(models/manifests/[^"]+\.toml)"', pipeline):
+        assert (PROJETO / manifesto).is_file(), f"{manifesto} nao existe"
+        assert "src" in copiados, (
+            f"{manifesto} nao chega em /app/src dentro da imagem, e o render morre em todo video"
         )
 
 
@@ -251,7 +259,7 @@ def test_no_module_walks_out_of_the_package_to_find_a_file() -> None:
     """
     ofensores: list[str] = []
     for arquivo in sorted((REPOSITORIO / "src").rglob("*.py")):
-        if "tests" in arquivo.parts:
+        if "tests" in arquivo.parts or ".venv" in arquivo.parts:
             continue
         arvore = ast.parse(arquivo.read_text(encoding="utf-8"))
         for no in ast.walk(arvore):

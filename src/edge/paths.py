@@ -5,10 +5,11 @@ cache de percepcao, pesos baixados, execucoes e saida. A separacao existe porque
 Footstats e material restrito de 3,5 GB, e misturar o que escrevemos com ele faz o contexto de um
 `docker build` passar a incluir video de partida.
 
-As duas sao relativas ao diretorio de trabalho, e nao ao arquivo. Derivar de `__file__` parece
-mais robusto e nao e: instalado como wheel, a raiz cairia dentro de `site-packages` e o cache
-gravaria na camada da imagem, ou estouraria em filesystem somente leitura. Relativo ao diretorio
-de trabalho vale igual instalado ou nao, e quem precisa de outro lugar tem as duas variaveis.
+As duas sao relativas a raiz do projeto Python em `src/`, e nao ao arquivo. Derivar de `__file__`
+parece mais robusto e nao e: instalado como wheel, a raiz cairia dentro de `site-packages` e o
+cache gravaria na camada da imagem, ou estouraria em filesystem somente leitura. Relativo ao
+diretorio de trabalho vale igual instalado ou nao, e quem precisa de outro lugar tem as duas
+variaveis.
 
 So existe aqui o que tem chamador: cache de percepcao, saida, execucoes e pesos de modelo. A
 API usa `var_dir()` direto para o que e dela, o banco de videos enviados e os arquivos em
@@ -32,8 +33,8 @@ VAR_ENV = "XVISION_VAR_DIR"
 DATA_ENV = "XVISION_DATA_DIR"
 CONFIG_ENV = "XVISION_CONFIG_DIR"
 
-DEFAULT_VAR = Path("var")
-DEFAULT_DATA = Path("data") / "footstats"
+DEFAULT_VAR = Path("..") / "var"
+DEFAULT_DATA = Path("..") / "data" / "footstats"
 DEFAULT_CONFIG = Path("config")
 
 
@@ -62,12 +63,12 @@ class ConfigUnavailable(FileNotFoundError): ...
 def config_dir() -> Path:
     """A terceira raiz: o que a pessoa edita, e nem `data/` nem `var/`.
 
-    Ela e relativa ao diretorio de trabalho pelo mesmo motivo das outras duas, e o motivo tem
+    Ela e relativa a raiz Python em `src/` pelo mesmo motivo das outras duas, e o motivo tem
     caso medido: `mlops` derivava o caminho de `__file__` com `parents[2]`, e instalado como
     wheel isso resolvia para dentro de `site-packages`, onde `config/` nao existe. `xvision run
     --all` morria com `FileNotFoundError` cru apontando para o venv.
 
-    O `compose.yaml` monta `./config:/app/config:ro`, entao esta e a raiz que quem opera
+    O `compose.yaml` monta `./src/config:/app/src/config:ro`, entao esta e a raiz que quem opera
     substitui sem tocar em codigo.
     """
     declarado = os.environ.get(CONFIG_ENV)
@@ -78,7 +79,7 @@ def config_file(nome: str) -> Path:
     caminho = config_dir() / nome
     if not caminho.is_file():
         raise ConfigUnavailable(
-            f"{caminho.resolve()} nao existe. Rode a partir da raiz do repositorio, ou aponte "
+            f"{caminho.resolve()} nao existe. Rode a partir de src/, ou aponte "
             f"{CONFIG_ENV} para a pasta onde a configuracao esta"
         )
     return caminho

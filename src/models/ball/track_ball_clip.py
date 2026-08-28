@@ -11,7 +11,7 @@ candidatos reprovados pelo filtro em cinza fino (para ver a marca do penalti sen
 
 Requer o extra opcional `detector` (ultralytics) e opencv. Exemplo:
 
-    python src/models/ball/track_ball_clip.py entrada.mkv saida.mp4 --start 25 --end 50 --imgsz 1280
+    python models/ball/track_ball_clip.py entrada.mkv saida.mp4 --start 25 --end 50 --imgsz 1280
 """
 
 from __future__ import annotations

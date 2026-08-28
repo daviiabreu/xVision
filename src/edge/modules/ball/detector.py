@@ -3,7 +3,7 @@
 O detector fica atras da interface `BallDetector` para o rastreador nao depender do YOLO: assim o
 YOLOv8n (baseline de controle da arquitetura) e o YOLO26n (candidato) sao comparaveis sem reescrever
 o rastreamento, e os testes rodam com um detector de mentira. A dependencia pesada (ultralytics e
-torch) e opcional, no extra `detector`, e so e importada quando o detector YOLO e realmente
+torch) e opcional, no extra `ball`, e so e importada quando o detector YOLO e realmente
 construido.
 
 O detector devolve **todos** os candidatos a bola do quadro, ja filtrados por forma e tamanho, e

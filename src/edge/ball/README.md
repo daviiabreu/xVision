@@ -20,10 +20,11 @@ O detector devolve **todos** os candidatos a bola do quadro (já filtrados por f
 
 ## Pré-requisitos
 
-O detector real usa o YOLO (Ultralytics), que é uma dependência **opcional** (extra `detector`):
+O detector real usa o YOLO (Ultralytics), que é uma dependência **opcional** (extra `ball`):
 
 ```bash
-uv sync --extra detector
+cd src
+uv sync --extra ball
 ```
 
 Os pesos `yolov8n.pt` são baixados automaticamente pelo Ultralytics no primeiro uso (ou coloque um
@@ -34,10 +35,10 @@ O peso ajustado no SoccerNet é declarado como artefato, do mesmo jeito que os d
 campo, e não vai no git:
 
 ```bash
-uv run xvision artifact get models/ball/ball-yolov8n-0.1.0.toml
+uv run xvision artifact get models/manifests/ball/ball-yolov8n-0.1.0.toml
 ```
 
-O comando falha dizendo o diretório exato sob `var/models/` onde o arquivo deve ficar, e depois
+O comando falha dizendo o diretório exato sob `../var/models/` onde o arquivo deve ficar, e depois
 que ele estiver lá o mesmo comando confere o sha256 e imprime o caminho do entrypoint. Ele não
 baixa sozinho de propósito: peso derivado de dado restrito não sai por download automático.
 
@@ -45,10 +46,10 @@ Este peso não é derivado de dado restrito, veio do SoccerNet, então ele está
 pacotes do projeto. Baixe para a pasta que o comando acima indicou:
 
 ```bash
-set -a; . ./.env; set +a
+set -a; . ../.env; set +a
 curl -sf -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   "https://git.inteli.edu.br/api/v4/projects/29510/packages/generic/ball-yolov8n/0.1.0/ball_yolov8n.pt" \
-  -o var/models/<pasta-que-o-comando-disse>/ball_yolov8n.pt
+  -o ../var/models/<pasta-que-o-comando-disse>/ball_yolov8n.pt
 ```
 
 O endereço também está no campo `download` do manifesto. Rode o `artifact get` de novo depois de
@@ -56,11 +57,11 @@ baixar: é ele que confere o sha256 do que chegou.
 
 ## Rodar no vídeo (script de avaliação)
 
-O script `src/models/ball/track_ball_clip.py` roda o detector + a `BallTracker` num clipe e grava um
+O script `models/ball/track_ball_clip.py` roda o detector + a `BallTracker` num clipe e grava um
 vídeo anotado (bola em vermelho, posição interpolada em círculo, candidatos reprovados em cinza):
 
 ```bash
-python src/models/ball/track_ball_clip.py \
+python models/ball/track_ball_clip.py \
   "entrada.mkv" "saida_anotada.mp4" \
   --start 35 --end 50 --imgsz 1280 --conf 0.15 --weights yolov8n.pt
 ```
@@ -109,9 +110,9 @@ lógica com detecções de mentira, sem GPU.
 ## Testes
 
 ```bash
-uv run pytest src/tests/edge     # inclui os testes do rastreador e do filtro de forma
-uv run ruff check src/edge
-uv run pyright src/edge
+uv run pytest tests/edge     # inclui os testes do rastreador e do filtro de forma
+uv run ruff check edge
+uv run pyright edge
 ```
 
 ## Notas

@@ -29,6 +29,7 @@ else:  # pragma: no cover - a borda suporta 3.10, onde tomllib ainda nao existe
     import tomli as tomllib
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+PROJECT = REPOSITORY / "src"
 PYTHON_CI = REPOSITORY / ".gitlab" / "ci" / "python.yml"
 COMANDOS = {
     "python:lint": ("uv run ruff check .", "uv run ruff format --check ."),
@@ -46,7 +47,7 @@ CONFIG_LOCAL = REPOSITORY / "pipeline.config.json"
 
 
 def pyproject() -> dict[str, Any]:
-    return tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
+    return tomllib.loads((PROJECT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
 def ci() -> dict[str, Any]:
@@ -181,7 +182,7 @@ def test_the_arm64_job_never_installs_anything() -> None:
 
 
 def test_the_local_interpreter_is_pinned_to_the_same_floor_the_ci_runs() -> None:
-    arquivo = REPOSITORY / ".python-version"
+    arquivo = PROJECT / ".python-version"
 
     assert arquivo.exists(), "sem `.python-version` o uv escolhe o interpretador da maquina"
     assert (
@@ -191,7 +192,7 @@ def test_the_local_interpreter_is_pinned_to_the_same_floor_the_ci_runs() -> None
 
 
 def test_the_pinned_floor_is_the_floor_the_package_declares() -> None:
-    fixado = (REPOSITORY / ".python-version").read_text(encoding="utf-8").strip()
+    fixado = (PROJECT / ".python-version").read_text(encoding="utf-8").strip()
     declarado = cast("str", pyproject()["project"]["requires-python"])
 
     assert declarado == f">={fixado}"

@@ -41,12 +41,12 @@ fps      = "native"
 
 [modules.players]
 impl     = "xvision_players_yolo.module:PlayersModule"
-artifact = "models/players/football-player-detection-1.0.0.toml"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
 
 [modules.ball]
 impl     = "edge.modules.ball:YoloBall"
-artifact = "models/ball/yolo-football-ball-detection-0.1.0.toml"
+artifact = "models/manifests/ball/yolo-football-ball-detection-0.1.0.toml"
 frames   = "dense"
 conf            = 0.10
 imgsz           = 1600
@@ -67,7 +67,7 @@ frames   = "dense"
 
 [modules.pose]
 impl     = "edge.modules.pose:YoloPose"
-artifact = "models/pose/yolov8n-pose-8.4.0.toml"
+artifact = "models/manifests/pose/yolov8n-pose-8.4.0.toml"
 frames   = "dense"
 
 [modules.identity]

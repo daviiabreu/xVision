@@ -113,9 +113,10 @@ A sequência completa, exatamente como foi rodada em 25/08/2026 numa estação d
 `aarch64`:
 
 ```bash
+cd src
 uv sync --frozen --all-extras
 uv run xvision clip
-uv run xvision run --clip var/out/synthetic.mp4
+uv run xvision run --clip ../var/out/synthetic.mp4
 ```
 
 O primeiro comando resolve o ambiente pelo lock e não imprime nada de interessante. O segundo
@@ -124,7 +125,7 @@ linha por etapa, com o tempo de cada uma, e o caminho do evento no fim. A saída
 na ordem em que apareceu no terminal:
 
 ```text
-var/out/synthetic.mp4
+../var/out/synthetic.mp4
   ball       ok           17.2 ms
   field      ok            0.6 ms
   players    ok            0.7 ms
@@ -132,7 +133,7 @@ var/out/synthetic.mp4
   identity   ok           14.8 ms
   pose       ok            1.3 ms
   tracking   ok            1.2 ms
-var/runs/synthetic/events.jsonl
+../var/runs/synthetic/events.jsonl
 ```
 
 A fixture tem 30 quadros a 10 fps, ou seja 3 s, em 320 por 240 e 25 618 bytes, medido com
@@ -248,9 +249,10 @@ um time de oito pessoas que compartilha uma máquina, isso custava três versõe
 publicação interna, sobre o `uv.lock` único que o espaço de trabalho já compartilhava entre os
 membros. A fronteira virou teste, que custa 27 linhas de código e menos de meio segundo.
 
-**As três raízes do sistema de arquivos têm significado único.** `data/` é o que o parceiro mandou
-e nada nosso escreve lá, `var/` é tudo que o sistema produz e pode ser apagado inteiro, `config/` é
-o que a pessoa edita. *Alternativa descartada:* uma pasta só, ou escrever cache ao lado do dado.
+**As três raízes do sistema de arquivos têm significado único.** `../data/` é o que o parceiro
+mandou e nada nosso escreve lá, `../var/` é tudo que o sistema produz e pode ser apagado inteiro,
+`config/` é o que a pessoa edita dentro da raiz Python. *Alternativa descartada:* uma pasta só, ou
+escrever cache ao lado do dado.
 Misturar o que escrevemos com os 3,5 GB restritos faz o contexto de um `docker build` passar a
 incluir vídeo de partida, o que o RNF-08 e o contrato com a Footstats proíbem. O `compose.yaml`
 monta `./data/footstats:/data:ro`, então a garantia é técnica e não promessa em documento.

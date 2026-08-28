@@ -4,7 +4,7 @@ services:
       context: .
     volumes:
       - ./data/footstats:/data:ro
-      - ./config:/app/config:ro
+      - ./src/config:/app/src/config:ro
       - ./var:/var/xvision
 
   api:
@@ -31,8 +31,8 @@ services:
       XVISION_API_TOKEN: ${XVISION_API_TOKEN:-}
       XVISION_PIPELINE: ${XVISION_PIPELINE:-pipeline.toml}
     volumes:
-      - ./config:/app/config:ro
-      - ./models:/app/models:ro
+      - ./src/config:/app/src/config:ro
+      - ./src/models/manifests:/app/src/models/manifests:ro
       - ./var:/var/xvision
     healthcheck:
       test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]

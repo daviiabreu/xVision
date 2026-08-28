@@ -1,7 +1,7 @@
 # A configuracao que roda os modelos de verdade, e nao os stubs.
 #
 # Ela e um arquivo separado porque `pipeline.toml` precisa rodar em qualquer clone: os pesos moram
-# em `var/models`, que e ignorado pelo git, e a suite inteira carregaria torch para provar coisas
+# em `../var/models`, que e ignorado pelo git, e a suite inteira carregaria torch para provar coisas
 # que nao dependem de modelo nenhum. Aqui o peso e obrigatorio, e quando ele nao esta em disco o
 # `resolve` levanta `ArtifactMissing` com o caminho exato, que e o comportamento certo: quem pediu
 # o modelo precisa saber que ele nao carregou.
@@ -29,12 +29,12 @@ fps      = "native"
 
 [modules.players]
 impl     = "edge.modules.players:YoloPlayers"
-artifact = "models/players/football-player-detection-1.0.0.toml"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
 
 [modules.ball]
 impl     = "edge.modules.ball:YoloBall"
-artifact = "models/ball/yolo-football-ball-detection-0.1.0.toml"
+artifact = "models/manifests/ball/yolo-football-ball-detection-0.1.0.toml"
 frames   = "dense"
 conf            = 0.10
 imgsz           = 1600
@@ -55,7 +55,7 @@ frames   = "dense"
 
 [modules.pose]
 impl     = "edge.modules.pose:YoloPose"
-artifact = "models/pose/yolov8n-pose-8.4.0.toml"
+artifact = "models/manifests/pose/yolov8n-pose-8.4.0.toml"
 frames   = "dense"
 
 [modules.identity]

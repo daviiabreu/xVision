@@ -7,7 +7,7 @@ cada conf (rapido) e roda com um comando curto — util em terminal de celular.
 Descobre sozinho o `best.pt` mais recente em `runs/` e o clipe em `src/edge/ball/`,
 entao normalmente basta:
 
-    uv run python src/models/ball/sweep_conf.py
+    uv run python models/ball/sweep_conf.py
 """
 
 from __future__ import annotations

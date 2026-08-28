@@ -22,7 +22,8 @@ from edge.testing.make_clip import make_synthetic_clip
 from .apoio import cliente_autenticado
 
 REPOSITORIO = Path(__file__).resolve().parents[3]
-PIPELINE = REPOSITORIO / "config" / "pipeline.toml"
+PROJETO = REPOSITORIO / "src"
+PIPELINE = PROJETO / "config" / "pipeline.toml"
 SCRIPT = REPOSITORIO / "src" / "models" / "top_view" / "create_top_view.py"
 HOMOGRAFIA = REPOSITORIO / "src" / "models" / "top_view" / "homography_view.py"
 
@@ -93,7 +94,7 @@ def test_o_pipeline_do_repositorio_declara_os_dois_pesos_do_render() -> None:
 
     assert configuracao is not None, f"{PIPELINE} nao declara [{render.SECAO}]"
     for manifesto in (configuracao.players, configuracao.field):
-        assert (REPOSITORIO / manifesto).is_file(), f"{manifesto} nao existe"
+        assert (PROJETO / manifesto).is_file(), f"{manifesto} nao existe"
 
 
 def test_sem_a_secao_o_render_fica_desligado_em_vez_de_falhar(tmp_path: Path) -> None:

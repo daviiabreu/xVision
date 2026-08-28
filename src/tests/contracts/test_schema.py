@@ -38,7 +38,17 @@ IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".claude", "var"
 o proprio `shot_event.v1.json`; `var` guarda cache e execucao. As duas sao ignoradas pelo git, entao
 copia dentro delas nao e o defeito que este teste procura, que e schema duplicado e versionado."""
 
-_RAIZES_DO_SDIST = {"src", "pyproject.toml", "README.md", "PKG-INFO", ".gitignore"}
+_RAIZES_DO_SDIST = {
+    "api",
+    "cli",
+    "contracts",
+    "edge",
+    "mlops",
+    "xvision_players_yolo",
+    ".gitignore",
+    "pyproject.toml",
+    "PKG-INFO",
+}
 
 
 @pytest.fixture
@@ -125,7 +135,7 @@ def artefatos(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
     destino = tmp_path_factory.mktemp("dist")
     saida = subprocess.run(
         ["uv", "build", "--offline", "--out-dir", str(destino)],
-        cwd=repository_root(),
+        cwd=repository_root() / "src",
         capture_output=True,
         text=True,
     )

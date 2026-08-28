@@ -372,7 +372,7 @@ reproduzíveis e valem para este hardware, não para a Jetson. Os números marca
 serviço anterior vêm das docstrings e dos testes que guardam cada correção, e descrevem um código
 que não existe mais: eles justificam a decisão, e não descrevem o comportamento atual. O que não
 tem medição está escrito como projeção. A suíte da API tem 194 testes e cobre 96,48% das linhas
-de `src/api`, medidos em 28/08/2026 com `uv run pytest src/tests/api --cov=src/api`; a mesma
+de `src/api`, medidos em 28/08/2026 com `cd src && uv run pytest tests/api --cov=api`; a mesma
 execução sem a medição de cobertura leva 4,3 s nesta máquina. O número caiu de 203 para 194 quando
 a rota de envio em base64 saiu: dez testes eram sobre a codificação e morreram com ela, e três
 entraram no lugar cobrindo o mesmo risco pelo caminho do `PUT`.
@@ -457,7 +457,7 @@ a imagem do frontend e o serviço em pé, feita à mão.
 | `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir, na tela, que a unidade que chega é a mesma que a `FeatureSpec` declara, e que uma feature sem leitura aparece com `status` diferente de `ok` |
 | `frame` de demonstração | Desenhar a caixa do atirador no quadro do contato e comparar com o gabarito da fixture sintética, que é conhecido pixel a pixel |
 | O tempo real de um clipe | Medir o pipeline com o primeiro modelo de verdade sobre um clipe da Footstats, e só então fixar o teto da fila e o `Retry-After` com base no número |
-| O vídeo anotado dentro da imagem | Os dois manifestos de `models/` passaram a entrar na imagem, e o que falta é o resto: o render exige `torch`, `ultralytics` e os dois pesos, o que leva a imagem de 932 MB para alguns GB, e essa decisão é do time. Hoje o extra `topview` liga isso fora da imagem; o teste é medir a imagem com os extras e o tempo de subida antes de escolher |
+| O vídeo anotado dentro da imagem | Os dois manifestos de `src/models/manifests/` passaram a entrar na imagem, e o que falta é o resto: o render exige `torch`, `ultralytics` e os dois pesos, o que leva a imagem de 932 MB para alguns GB, e essa decisão é do time. Hoje o extra `topview` liga isso fora da imagem; o teste é medir a imagem com os extras e o tempo de subida antes de escolher |
 | Mais de uma instância | Trocar SQLite por PostgreSQL e a fila em processo por uma externa; o teste é subir duas instâncias sobre o mesmo estado e conferir que nenhum vídeo é processado duas vezes |
 | Limite de taxa por chamador | Medir requisições por minuto de um cliente real antes de escolher o teto, para não inventar um número |
 | Transporte da borda para a nuvem | O contrato do evento já existe; falta a frente de serviços decidir o meio, e o teste é o mesmo evento sair de uma máquina e chegar íntegro na outra |

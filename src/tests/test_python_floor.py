@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+PROJETO = REPOSITORY / "src"
 
 VERSION_FLOOR = re.compile(r'^requires-python\s*=\s*">=\s*(\d+)\.(\d+)', re.MULTILINE)
 PYRIGHT_VERSION = re.compile(r'^pythonVersion\s*=\s*"(\d+)\.(\d+)"', re.MULTILINE)
@@ -26,8 +27,8 @@ def _floor(path: Path, pattern: re.Pattern[str]) -> tuple[int, int]:
 
 
 def test_o_lock_resolve_no_piso_declarado() -> None:
-    declarado = _floor(REPOSITORY / "pyproject.toml", VERSION_FLOOR)
-    lock = _floor(REPOSITORY / "uv.lock", VERSION_FLOOR)
+    declarado = _floor(PROJETO / "pyproject.toml", VERSION_FLOOR)
+    lock = _floor(PROJETO / "uv.lock", VERSION_FLOOR)
 
     assert lock == declarado, (
         f"o lock exige Python {lock[0]}.{lock[1]} e o projeto declara {declarado[0]}.{declarado[1]}"
@@ -35,8 +36,8 @@ def test_o_lock_resolve_no_piso_declarado() -> None:
 
 
 def test_o_pyright_verifica_no_piso_declarado() -> None:
-    declarado = _floor(REPOSITORY / "pyproject.toml", VERSION_FLOOR)
-    pyright = _floor(REPOSITORY / "pyproject.toml", PYRIGHT_VERSION)
+    declarado = _floor(PROJETO / "pyproject.toml", VERSION_FLOOR)
+    pyright = _floor(PROJETO / "pyproject.toml", PYRIGHT_VERSION)
 
     assert pyright == declarado, (
         f"pyright verifica em {pyright[0]}.{pyright[1]} e o projeto declara "

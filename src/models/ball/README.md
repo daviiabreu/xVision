@@ -31,11 +31,12 @@ tem rótulo** (só submissão); (3) a bola é minúscula e às vezes não anotad
 inviável; então rode as duas primeiras etapas localmente e o treino numa GPU:
 
 ```bash
+cd src
 uv sync --extra training
-python src/models/ball/run.py --stages download,convert   # local
-python src/models/ball/run.py --stages train --device 0   # numa GPU (Colab/Kaggle/servidor)
+python models/ball/run.py --stages download,convert   # local
+python models/ball/run.py --stages train --device 0   # numa GPU (Colab/Kaggle/servidor)
 # ou tudo de uma vez numa GPU:
-python src/models/ball/run.py --epochs 100 --device 0
+python models/ball/run.py --epochs 100 --device 0
 ```
 
 As etapas individuais continuam disponíveis (abaixo), úteis para reexecutar ou depurar cada parte.
@@ -69,24 +70,24 @@ uv sync --extra training
 ### 1. Baixar (precisa da senha do SoccerNet)
 
 ```bash
-python src/models/ball/download_soccernet.py --out data/soccernet --split train test
+python models/ball/download_soccernet.py --out ../data/soccernet --split train test
 # tracking baixa sem senha; use --password so se algum split retornar 403 (ai preencha o NDA)
 ```
 
 ### 2. Converter MOTChallenge → YOLO
 
 ```bash
-python src/models/ball/soccernet_to_yolo.py \
-  --src data/soccernet/tracking --out data/ball-yolo --train train --val test
+python models/ball/soccernet_to_yolo.py \
+  --src ../data/soccernet/tracking --out ../data/ball-yolo --train train --val test
 ```
 
-Gera `data/ball-yolo/{images,labels}/{train,val}` e `data.yaml` (uma classe: `ball`). Por padrão mantém
+Gera `../data/ball-yolo/{images,labels}/{train,val}` e `data.yaml` (uma classe: `ball`). Por padrão mantém
 só quadros com bola; `--keep-background` inclui quadros sem bola como negativos.
 
 ### 3. Treinar (GPU)
 
 ```bash
-python src/models/ball/train_ball.py --data data/ball-yolo/data.yaml --epochs 100 --device 0
+python models/ball/train_ball.py --data ../data/ball-yolo/data.yaml --epochs 100 --device 0
 ```
 
 Sai um `best.pt` em `runs/ball/...`. Para usá-lo no rastreamento, aponte `DetectorConfig(weights=...)`
@@ -98,7 +99,7 @@ Rode o script de avaliação da frente de rastreamento com os pesos novos e comp
 baseline sem ajuste fino:
 
 ```bash
-python src/models/ball/track_ball_clip.py entrada.mkv saida.mp4 \
+python models/ball/track_ball_clip.py entrada.mkv saida.mp4 \
   --weights runs/ball/yolov8n-ball/weights/best.pt --start 2 --end 15 --imgsz 1280
 ```
 

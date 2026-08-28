@@ -3889,7 +3889,10 @@ topview = [
     { name = "ultralytics", version = "8.4.129", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
 ]
 training = [
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "soccernet" },
+    { name = "torch" },
     { name = "tqdm" },
     { name = "ultralytics", version = "8.4.123", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'darwin'" },
     { name = "ultralytics", version = "8.4.129", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
@@ -3918,9 +3921,12 @@ requires-dist = [
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pydantic", marker = "extra == 'api'", specifier = ">=2.9" },
     { name = "pytest", marker = "extra == 'conformance'", specifier = ">=8.3" },
+    { name = "python-dotenv", marker = "extra == 'training'", specifier = ">=1.0" },
+    { name = "pyyaml", marker = "extra == 'training'", specifier = ">=6.0" },
     { name = "soccernet", marker = "extra == 'training'", specifier = ">=0.1" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "torch", marker = "extra == 'topview'", specifier = ">=2.2" },
+    { name = "torch", marker = "extra == 'training'", specifier = ">=2.2" },
     { name = "tqdm", marker = "extra == 'training'", specifier = ">=4.66" },
     { name = "typer", specifier = ">=0.15" },
     { name = "ultralytics", marker = "extra == 'ball'", specifier = ">=8.3,<9" },

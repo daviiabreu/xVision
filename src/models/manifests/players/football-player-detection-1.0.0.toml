@@ -4,7 +4,7 @@
 # `develop` com a procedencia e as licencas, e o `0.1.0`, que veio da branch do instante da
 # finalizacao com a medida do que o peso muda na metrica. Os dois declaravam o mesmo `path` e o
 # mesmo `sha256`, e o digest e sobre esse par, entao os dois enderecavam
-# `var/models/fac37e36b0dc6f605ace4b134107d134396734a99254931aee2acbc2768a0256/` e o peso ja em
+# `../var/models/fac37e36b0dc6f605ace4b134107d134396734a99254931aee2acbc2768a0256/` e o peso ja em
 # disco continua servindo. Ficou a versao `1.0.0`, que e a que o `develop` publicou.
 #
 # ## O que o peso resolve
@@ -26,9 +26,9 @@
 #
 # O peso nao vem no Git, porque `*.pt` e ignorado. Para colocar no lugar certo:
 #
-#     uv run xvision artifact get models/players/football-player-detection-1.0.0.toml
+#     uv run xvision artifact get models/manifests/players/football-player-detection-1.0.0.toml
 #
-# O comando falha dizendo o diretorio exato sob `var/models/` onde o arquivo deve ficar, e depois
+# O comando falha dizendo o diretorio exato sob `../var/models/` onde o arquivo deve ficar, e depois
 # que ele estiver la o mesmo comando confere o sha256 e imprime o caminho do entrypoint.
 
 schema_version = "1.0"

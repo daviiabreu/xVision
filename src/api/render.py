@@ -27,7 +27,7 @@ if sys.version_info >= (3, 11):  # pragma: no cover - o piso e 3.10, e e nele qu
 else:
     import tomli as tomllib
 
-MODELOS = Path("src") / "models"
+MODELOS = Path("models")
 
 SECAO = "render.top_view"
 SUFIXO = "_tracking_visao_superior.mp4"
@@ -169,7 +169,7 @@ def _script() -> tuple[_TopView, _Homography]:
     if not (pasta / "top_view" / "create_top_view.py").is_file():
         raise RenderUnavailable(
             f"{pasta} nao tem o script da visao superior. Ele mora em src/models e o servico o "
-            "procura relativo ao diretorio de trabalho: rode a partir da raiz do repositorio"
+            "procura relativo a raiz Python: rode a partir de src/"
         )
     if str(pasta) not in sys.path:
         sys.path.insert(0, str(pasta))

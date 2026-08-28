@@ -19,11 +19,10 @@ import pytest
 from coverage import Coverage
 
 SRC = Path(__file__).resolve().parents[1]
-ROOT = SRC.parent
 
 
 def _fontes_declaradas() -> list[str]:
-    configurada = Coverage(config_file=str(ROOT / "pyproject.toml")).config.source
+    configurada = Coverage(config_file=str(SRC / "pyproject.toml")).config.source
     return list(configurada or [])
 
 
@@ -44,9 +43,9 @@ def _executa_line_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "ultralytics", modulo_falso)
 
     for arquivo in (
-        ROOT / "src" / "models" / "line_tracking" / "dataset.py",
-        ROOT / "src" / "models" / "line_tracking" / "train.py",
-        ROOT / "src" / "models" / "line_tracking" / "validate.py",
+        SRC / "models" / "line_tracking" / "dataset.py",
+        SRC / "models" / "line_tracking" / "train.py",
+        SRC / "models" / "line_tracking" / "validate.py",
     ):
         nome = f"coverage_probe_{arquivo.stem}"
         sys.modules.pop(nome, None)
@@ -57,14 +56,14 @@ def _executa_line_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
         spec.loader.exec_module(modulo)
 
 
-AREAS = tuple(sorted((ROOT / fonte).resolve() for fonte in _fontes_declaradas()))
+AREAS = tuple(sorted((SRC / fonte).resolve() for fonte in _fontes_declaradas()))
 
 
 @pytest.fixture
 def measured_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Path]:
-    monkeypatch.chdir(ROOT)
+    monkeypatch.chdir(SRC)
     coverage = Coverage(
-        config_file=str(ROOT / "pyproject.toml"),
+        config_file=str(SRC / "pyproject.toml"),
         data_file=str(tmp_path / ".coverage"),
     )
     coverage.config.disable_warnings = ["no-data-collected"]
@@ -89,7 +88,7 @@ def test_todo_modulo_da_area_entra_no_relatorio(area: Path, measured_files: set[
 
 def test_a_fonte_da_cobertura_nao_alcanca_os_testes() -> None:
     testes = Path(__file__).resolve().parent
-    fontes = [(ROOT / declarada).resolve() for declarada in _fontes_declaradas()]
+    fontes = [(SRC / declarada).resolve() for declarada in _fontes_declaradas()]
 
     assert fontes, "a cobertura nao declara fonte nenhuma"
     for fonte in fontes:

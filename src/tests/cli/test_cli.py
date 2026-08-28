@@ -530,6 +530,36 @@ def test_artifact_add_writes_a_manifest_that_describes_what_is_there(tmp_path: P
     assert lido.digest is not None
 
 
+def test_artifact_add_defaults_to_the_versioned_manifest_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    peso = tmp_path / "peso"
+    peso.mkdir()
+    (peso / "model.onnx").write_bytes(b"peso")
+    monkeypatch.chdir(tmp_path)
+
+    resultado = runner.invoke(
+        app,
+        [
+            "artifact",
+            "add",
+            "--kind",
+            "players",
+            "--name",
+            "demo",
+            "--version",
+            "0.0.1",
+            str(peso),
+            "--entrypoint",
+            "model.onnx",
+        ],
+    )
+
+    esperado = tmp_path / "models" / "manifests" / "players" / "demo-0.0.1.toml"
+    assert resultado.exit_code == 0, resultado.output
+    assert esperado.is_file()
+
+
 def test_artifact_get_refuses_a_weight_whose_hash_diverges(tmp_path: Path) -> None:
     """Peso adulterado com o mesmo nome e o caso que o digest existe para pegar."""
     peso = tmp_path / "pesos"

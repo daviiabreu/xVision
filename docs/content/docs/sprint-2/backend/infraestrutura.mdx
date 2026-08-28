@@ -13,11 +13,11 @@ prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qual
 ```text
   repositório
      │
-     ├─ pyproject.toml ──► uv build ──► xvision-0.1.0-py3-none-any.whl
-     │                                  64 entradas, 108.649 bytes
-     │                                  api · cli · contracts · edge · mlops
+     ├─ src/pyproject.toml ──► uv build ──► xvision-0.1.0-py3-none-any.whl
+     │                                  111 entradas, 227.298 bytes
+     │                                  api · cli · contracts · edge · mlops · players
      │
-     ├─ Dockerfile + .dockerignore ──► docker build      contexto: 8,34 kB
+     ├─ Dockerfile + .dockerignore ──► docker build      contexto: 9,26 kB
      │        │                             │
      │        │   sem EXTRA  ───────────────┼──► imagem edge   498 MB
      │        │   EXTRA=api  ───────────────┘    imagem api    538 MB
@@ -47,19 +47,19 @@ prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qual
 | `compose.yaml` | três serviços, dois da mesma imagem do backend e um do frontend, com montagens e variáveis de desenvolvimento | não é o modo de produção, não guarda segredo e recusa subir sem `XVISION_AUTH_SECRET` |
 | `infra/*.tf` | declarar a topologia: serviços, portas, rota de saúde, dependências e armazenamento | não cria recurso, não conhece provedor, não guarda estado |
 | `.gitlab/ci/*.yml` | nove portões em toda merge request, mais os seis do frontend e o da documentação quando a mudança os alcança | não publica imagem em registro, não aplica infraestrutura, não roda na placa |
-| `pyproject.toml` | o que entra no wheel, o console script `xvision` e o piso de cobertura | não descreve o contêiner nem a topologia |
+| `src/pyproject.toml` | o que entra no wheel, o console script `xvision` e o piso de cobertura | não descreve o contêiner nem a topologia |
 
 ## Fluxo de dados
 
 Entra o repositório e saem três artefatos: uma imagem, um wheel e uma topologia resolvida. Nenhum
 dos três é publicado nesta sprint. Os três são produzidos sob demanda, na máquina de quem roda o
-comando, e é isso que torna o digest da base e o `uv.lock` a única garantia de que duas pessoas
+comando, e é isso que torna o digest da base e o `src/uv.lock` a única garantia de que duas pessoas
 obtêm a mesma coisa.
 
 A construção, com os números medidos em 25/08/2026 numa estação `arm64` com Docker 29.2.1:
 
 ```bash
-docker build -t xvision-edge .    # transferiu 8,34 kB: só o que os COPY alcançam
+docker build -t xvision-edge .    # transferiu 9,26 kB: só o que os COPY alcançam
 docker build --build-arg EXTRA=api -t xvision-api .
 ```
 
@@ -100,14 +100,15 @@ A coluna de tempo varia muito de uma execução para outra, e `ball` já aparece
 isolado, e não como medida de desempenho: o número que vale para desempenho está em
 [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
-O wheel carrega cinco pacotes e o dado empacotado que eles precisam, e nada mais:
+O wheel carrega seis pacotes e o dado empacotado que eles precisam, e nada mais:
 
 ```text
-xvision-0.1.0-py3-none-any.whl   108.649 bytes, 64 entradas
-  api/ (10)  cli/ (2)  contracts/ (8)  edge/ (33)  mlops/ (7)
+xvision-0.1.0-py3-none-any.whl   227.298 bytes, 111 entradas
+  api/ (11)  cli/ (2)  contracts/ (8)  edge/ (61)  mlops/ (14)
+  xvision_players_yolo/ (11)
   contracts/shot_event.v1.json     entra: é o contrato
   api/docs/openapi.json            entra: é a descrição do serviço
-  src/tests/                       fica fora
+  tests/                           fica fora
   config/                          fica fora
   api/docs/xvision/*.bru           fica fora: coleção do Bruno, não é código
 ```
@@ -177,7 +178,7 @@ função dentro de uma imagem de execução, e o ganho é de higiene, não de ta
 **O `ENTRYPOINT` usa `uv run --no-sync`, e isso é o que faz o contêiner subir sem rede.** Sem a
 flag, `uv run` sincroniza antes de executar, e a sincronização inclui o grupo `dev` por padrão,
 desfazendo o `--no-dev` da construção. Medido: com `--network none` e a flag, o CLI responde
-normalmente; sem a flag, o uv começa reconstruindo `xvision @ file:///app` e morre num download
+normalmente; sem a flag, o uv começa reconstruindo `xvision @ file:///app/src` e morre num download
 de dependência do grupo `dev`, na execução que registrei o `idna`, com a própria mensagem do uv
 rastreando o caminho até `xvision:dev` depender de `httpx2`. Qual pacote aparece primeiro depende
 da ordem dos downloads, então o nome não é estável e a causa é. Alternativa descartada:
@@ -192,7 +193,7 @@ execuções: o contêiner do serviço HTTP passa a `healthy` aos 5 s e aos 6 s, 
 vez de esperar o `interval` de 10 s. `/health` responde `{"status":"ok"}` e o processo roda como
 `uid 10001`, os dois conferidos de dentro do contêiner.
 
-**A configuração padrão vai para a imagem, mesmo com o compose montando `./config` por cima.**
+**A configuração padrão vai para a imagem, mesmo com o compose montando `./src/config` por cima.**
 Alternativa descartada: manter `config/` só como bind mount. A imagem passava a só funcionar
 montada, e qualquer outro uso falhava com a mensagem de configuração ausente, que hoje é
 `/caminho/pipeline.toml nao existe: passe --config com o caminho do arquivo`. Com a cópia na
@@ -201,14 +202,14 @@ não uma obrigação.
 
 **O `.dockerignore` nasceu no mesmo commit do `Dockerfile`, e o que ele protege é o `COPY`, não o
 tamanho do contexto.** Alternativa descartada: não versionar arquivo de exclusão nenhum e confiar
-no `COPY` estreito que o `Dockerfile` já tem, que copia apenas `pyproject.toml`, `uv.lock`, `src`
-e `config`. Ela cai porque a proteção some no dia em que alguém escreve `COPY . .`, e a raiz do
+no `COPY` estreito que o `Dockerfile` já tem, que copia apenas `src/`. Ela cai porque a proteção
+some no dia em que alguém escreve `COPY . .`, e a raiz do
 repositório tem 3,5 GB de clipe do parceiro: um `COPY` largo demais assa material restrito dentro
 de uma camada, que é exatamente o que o acordo com a Footstats proíbe. Medido nesta estação com
 Docker 29.2.1, num diretório de 200 MB montado só para isso: com `COPY um-arquivo.txt` o daemon
 recebe 39 B, e com `COPY . /app` recebe 209,77 MB. Ou seja, o número que o BuildKit imprime em
 `transferring context` mede o que o `COPY` alcança e não o que existe na pasta, e por isso ele
-não serve de evidência aqui: neste repositório ele deu 8,34 kB numa reconstrução e 1,01 MB numa
+não serve de evidência aqui: neste repositório ele deu 9,26 kB numa reconstrução e 1,01 MB numa
 cópia limpa, com o arquivo de exclusão no lugar. A evidência que dá para conferir é direta e é
 outra: com o `.dockerignore`, `src/tests/` não entra na imagem, e `ls /app/src/tests` dentro do
 contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`,
@@ -254,7 +255,7 @@ distribuição de código fonte e não prova nada sobre a placa, já que a compi
 Jetson. Medido: `nvidia-pyindex==1.0.9`, que não publica roda nenhuma, resolve normalmente sem a
 flag e é recusado com `has no usable wheels` quando ela está lá.
 
-**O wheel declara os cinco pacotes um a um, e nada resolve caminho a partir de `__file__`.**
+**O wheel declara os seis pacotes um a um, e nada resolve caminho a partir de `__file__`.**
 Alternativa descartada: descoberta automática de pacotes, que arrastaria `src/tests` para dentro
 da distribuição. A consequência menos óbvia está na outra ponta: o wheel não carrega `config/`,
 então `Path(__file__).parents[2] / "config"` resolve para dentro de `site-packages`, onde a pasta

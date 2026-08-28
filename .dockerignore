@@ -5,6 +5,15 @@ var/
 .git/
 src/tests/
 src/interface/
+src/.venv/
+src/.pytest_cache/
+src/.ruff_cache/
+src/.coverage
+src/coverage.xml
+src/htmlcov/
+src/dist/
+src/*.egg-info/
+src/**/__pycache__/
 .venv/
 docs/
 node_modules/

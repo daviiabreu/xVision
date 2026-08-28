@@ -1,15 +1,12 @@
 FROM ghcr.io/astral-sh/uv:python3.10-bookworm-slim@sha256:a041b350d5d9483b538d5af07e9553ee8cbc7fc7fa90c2f7d20d93f18ce9bbd1
 
 RUN useradd --create-home --uid 10001 xvision \
- && mkdir -p /app /var/xvision \
- && chown xvision:xvision /app /var/xvision
+ && mkdir -p /app/src /var/xvision \
+ && chown -R xvision:xvision /app /var/xvision
 USER xvision
 
-WORKDIR /app
-COPY --chown=xvision:xvision pyproject.toml uv.lock README.md ./
-COPY --chown=xvision:xvision src ./src
-COPY --chown=xvision:xvision config ./config
-COPY --chown=xvision:xvision models ./models
+WORKDIR /app/src
+COPY --chown=xvision:xvision src ./
 
 ARG EXTRA=""
 ENV UV_NO_CACHE=1

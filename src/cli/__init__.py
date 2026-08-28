@@ -68,10 +68,12 @@ from mlops.run import (
 from mlops.sheets import coarse_indices, contact_sheet, fine_indices
 from mlops.split import SplitError, read_split, split_config
 
-CLIP_OUT = typer.Option(None, help="Onde escrever o clipe.", show_default="var/out/synthetic.mp4")
+CLIP_OUT = typer.Option(
+    None, help="Onde escrever o clipe.", show_default="../var/out/synthetic.mp4"
+)
 CLIP_SEED = typer.Option(0, help="Muda o tom do gramado, nao a geometria.")
 CACHE_ROOT_OPTION = typer.Option(
-    None, help="Raiz do cache de percepcao.", show_default="var/cache/perception"
+    None, help="Raiz do cache de percepcao.", show_default="../var/cache/perception"
 )
 
 app = typer.Typer(help="Extrai features de finalizacao a partir de video, na borda.")
@@ -98,7 +100,7 @@ RUN_GABARITO = typer.Option(
     False, "--gabarito", help="So os clipes com instante anotado a mao, para o experimento."
 )
 RUN_LIMIT = typer.Option(0, help="Para depois de N clipes. Zero e sem limite.")
-RUN_OUT = typer.Option(None, help="Onde gravar a execucao.", show_default="var/runs")
+RUN_OUT = typer.Option(None, help="Onde gravar a execucao.", show_default="../var/runs")
 
 
 # Toda excecao que significa "a entrada ou a configuracao esta errada", e nao "o programa tem um
@@ -464,8 +466,8 @@ ART_KIND = typer.Option(..., help="Especie do modulo que usa o peso.")
 ART_NAME = typer.Option(..., help="Nome do modelo.")
 ART_VERSION = typer.Option(..., help="Versao do modelo.")
 ART_ENTRY = typer.Option(..., help="Arquivo que o `load` do dono abre.")
-ART_OUT = typer.Option(Path("models"), help="Onde escrever o manifesto.")
-ART_ROOT = typer.Option(None, help="Onde os pesos ficam.", show_default="var/models")
+ART_OUT = typer.Option(Path("models/manifests"), help="Onde escrever o manifesto.")
+ART_ROOT = typer.Option(None, help="Onde os pesos ficam.", show_default="../var/models")
 
 
 @artifact_app.command("add")

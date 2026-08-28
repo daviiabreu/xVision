@@ -9,10 +9,11 @@
   cache:
     key:
       files:
-        - uv.lock
+        - src/uv.lock
     paths:
       - .uv-cache/
   before_script:
+    - cd src
     - uv sync --frozen --all-extras
   after_script:
     - uv cache prune --ci
@@ -22,7 +23,7 @@ python:lint:
   cache:
     key:
       files:
-        - uv.lock
+        - src/uv.lock
     paths:
       - .uv-cache/
     policy: pull
@@ -35,12 +36,13 @@ python:types:
   cache:
     key:
       files:
-        - uv.lock
+        - src/uv.lock
     paths:
       - .uv-cache/
     policy: pull
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends libatomic1
+    - cd src
     - uv sync --frozen --all-extras
   script:
     - uv run pyright
@@ -49,6 +51,7 @@ python:test:
   extends: .python
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - cd src
     - uv sync --frozen --all-extras
     - uv build --out-dir "$CI_PROJECT_DIR/.uv-warmup"
   script:
@@ -59,20 +62,21 @@ python:test:
     reports:
       coverage_report:
         coverage_format: cobertura
-        path: coverage.xml
+        path: src/coverage.xml
 
 python:arm64:
   extends: .python
   cache:
     key:
       files:
-        - uv.lock
+        - src/uv.lock
     paths:
       - .uv-cache/
     policy: pull
   before_script: []
   after_script: []
   script:
+    - cd src
     - uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes -o /tmp/edge.txt
     - >
       uv pip compile --only-binary :all:

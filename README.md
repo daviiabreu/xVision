@@ -98,29 +98,31 @@
 ```text
 .
 ├── .gitlab/            # templates de issue/MR e componentes de CI
-├── config/             # pipeline.toml, labels.toml e split.toml, lidos em tempo de execução
 ├── data/               # dado de entrada; não é versionado, e o README de dentro diz o que vai ali
 ├── docs/               # site de documentação (Fumadocs/Next.js), publicado no GitLab Pages
 │   ├── content/docs/   # conteúdo em MDX, uma pasta por sprint
 │   └── public/         # imagens referenciadas na documentação
 ├── infra/              # Terraform da infraestrutura
-├── models/             # manifesto de cada peso, uma pasta por espécie: o registro do artefato
 ├── releases/           # notas de release; um arquivo novo aqui gera tag + release no GitLab
-└── src/                # todo o código, e nada além de código
+└── src/                # raiz dos projetos Python e frontend
+    ├── .python-version # versão do Python usada pelo uv
     ├── api/            # serviço HTTP que a interface consome
     ├── cli/            # o comando `xvision`
+    ├── config/         # pipeline.toml, labels.toml e split.toml
     ├── contracts/      # o esquema do evento que a borda produz
     ├── edge/           # o pipeline de percepção que roda na borda
     ├── interface/      # a interface em React
     ├── mlops/          # avaliação e divisão de dataset
-    ├── models/         # o código que treina e avalia cada modelo, uma pasta por modelo
+    ├── models/         # scripts de treino e manifestos versionados dos pesos
+    ├── pyproject.toml  # pacote, dependências e ferramentas Python
     ├── tests/          # a suíte de testes
+    ├── uv.lock         # resolução reproduzível das dependências
     └── xvision_players_yolo/   # detecção e tracking de jogadores
 ```
 
-Na raiz ficam só metadados e configuração. `pyproject.toml`, `uv.lock` e `.python-version` moram
-ali porque é o que define a raiz do projeto para o uv: o `.python-version` é o que prende o
-interpretador ao piso de 3.10, e sem ele o uv escolheria a versão mais nova instalada na máquina.
+`src/` é a raiz Python. `pyproject.toml`, `uv.lock`, `.python-version`, os pacotes, os testes, as
+configurações e os manifestos ficam juntos ali. `src/interface/` continua sendo um projeto
+independente, com seu próprio `package.json`.
 
 ## Execução do Projeto
 
@@ -143,12 +145,13 @@ npm run dev
 O pipeline roda pela CLI `xvision`, instalada junto com o projeto:
 
 ```bash
+cd src
 uv sync --all-extras
 uv run --frozen --all-extras xvision --help
 ```
 
 O vídeo do parceiro não vem no repositório e os pesos de modelo também não. Os clipes ficam em
-`data/footstats/`, os pesos em `var/models/` endereçados pelo conteúdo, e os dois caminhos são
+`../data/footstats/`, os pesos em `../var/models/` endereçados pelo conteúdo, e os dois caminhos são
 ignorados pelo git. `xvision data status` e `xvision artifact status` dizem o que falta e onde.
 
 Para processar um clipe, ou o catálogo inteiro:
@@ -158,7 +161,7 @@ uv run --frozen --all-extras xvision run --clip <arquivo.mp4>
 uv run --frozen --all-extras xvision run --all --config config/pipeline.models.toml
 ```
 
-Cada execução grava um diretório em `var/runs/` com os eventos em JSONL, o relatório e a procedência
+Cada execução grava um diretório em `../var/runs/` com os eventos em JSONL, o relatório e a procedência
 (commit, configuração, host, versões dos módulos).
 
 ### Medição
