@@ -417,21 +417,21 @@ declaram e que o cliente pode encontrar, e não só os quatro da primeira versã
 numa frase que culpa o servidor por um problema do que a pessoa mandou. O `status` continua
 público porque a tela precisa distinguir 409 de 404, e é exatamente isso que `Results` faz.
 
-**O envio é o binário cru por `PUT` num endereço reservado, e não base64.** O serviço aceita os
-dois caminhos, e a interface usava o de base64 até o commit `726c93e`. _Alternativa descartada:_
-continuar com `POST /v1/videos/processamento`, cujo teto de corpo é 32 MB contra 128 MB do `PUT`.
-A codificação produz 4 bytes para cada 3 de entrada, então aquele teto de corpo correspondia a
-cerca de 24 MB de vídeo, enquanto a tela prometia 128 MB: um arquivo de 40 MB passava na validação
-local e voltava 413 com a mensagem genérica de falha. Com `body: arquivo`, quem carrega o arquivo
-é o navegador, e os dois números passam a bater. A expansão está na
-[RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648) e os dois tetos, medidos, estão em
-[o serviço HTTP](/docs/sprint-2/backend/servico-http).
+**O envio é o binário cru por `PUT` num endereço reservado, e não base64.** A interface usava o
+caminho de base64 até o commit `726c93e`. _Alternativa descartada:_ continuar com
+`POST /v1/videos/processamento`, cujo teto de corpo era 32 MB contra 128 MB do `PUT`; essa rota
+ficou sem cliente depois da troca e acabou saindo do serviço. A codificação produz 4 bytes para cada
+3 de entrada, então aquele teto de corpo correspondia a cerca de 24 MB de vídeo, enquanto a tela
+prometia 128 MB: um arquivo de 40 MB passava na validação local e voltava 413 com a mensagem
+genérica de falha. Com `body: arquivo`, quem carrega o arquivo é o navegador, e os dois números
+passam a bater. A expansão está na [RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648) e os
+dois tetos, medidos, estão em [o serviço HTTP](/docs/sprint-2/backend/servico-http).
 
 **O índice de vídeos vive em `localStorage`, com a conta dentro da chave.** A chave é
 `videos:{conta}`, e cada entrada guarda só `{ id, name }`. _Alternativa descartada:_ pedir a lista
-ao serviço, que é o desenho certo e não existe: as nove rotas publicadas sob `/v1` cobrem
-registro, login, `eu`, reserva de envio, envio binário, envio base64, status, resultado e vídeo
-anotado, e nenhuma delas devolve a lista de vídeos de uma conta. _Alternativa descartada:_ uma
+ao serviço, que é o desenho certo e não existe: as oito rotas publicadas sob `/v1` cobrem
+registro, login, `eu`, reserva de envio, envio binário, status, resultado e vídeo anotado, e
+nenhuma delas devolve a lista de vídeos de uma conta. _Alternativa descartada:_ uma
 chave única sem a conta, que numa máquina compartilhada faria quem entra depois ver o nome do
 arquivo de quem entrou antes. Sem conta conhecida o índice não é lido nem escrito, em vez de cair
 numa chave genérica, justamente para essa alternativa não voltar por acidente. A conta na chave é

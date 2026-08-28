@@ -11,7 +11,6 @@ gerado a partir do `openapi.json` so trata o que esta la.
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -24,7 +23,6 @@ from edge.testing.make_clip import make_synthetic_clip
 from .apoio import cliente_autenticado
 
 MP4 = "video/mp4"
-NAO_VIDEO = base64.b64encode(b"isto nao e video" * 50).decode()
 
 
 @pytest.fixture
@@ -57,7 +55,6 @@ def _provocacoes(cliente: TestClient, tmp_path: Path) -> list[tuple[str, str, in
     nao_video, _ = _endereco(cliente)
     bytes_do_video = make_synthetic_clip(tmp_path / "s.mp4").read_bytes()
     upload = PREFIXO + "/videos/upload/{token}"
-    base64_rota = f"{PREFIXO}/videos/processamento"
     reserva = f"{PREFIXO}/videos/upload-url"
 
     return [
@@ -81,27 +78,6 @@ def _provocacoes(cliente: TestClient, tmp_path: Path) -> list[tuple[str, str, in
         (upload, "put", cliente.put(nao_video, content=b"nao sou video").status_code),
         (upload, "put", cliente.put(feliz, content=bytes_do_video).status_code),
         (upload, "put", cliente.put(feliz, content=bytes_do_video).status_code),
-        (
-            base64_rota,
-            "post",
-            cliente.post(base64_rota, json={"file": "!!!", "type": MP4}).status_code,
-        ),
-        (
-            base64_rota,
-            "post",
-            cliente.post(base64_rota, json={"file": "", "type": MP4}).status_code,
-        ),
-        (
-            base64_rota,
-            "post",
-            cliente.post(base64_rota, json={"file": NAO_VIDEO, "type": MP4}).status_code,
-        ),
-        (
-            base64_rota,
-            "post",
-            cliente.post(base64_rota, json={"file": "", "type": "image/png"}).status_code,
-        ),
-        (base64_rota, "post", cliente.post(base64_rota, json={"type": MP4}).status_code),
         (
             PREFIXO + "/videos/status/{video_id}",
             "get",

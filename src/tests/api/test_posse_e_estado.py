@@ -10,7 +10,6 @@ enviou.
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -147,31 +146,10 @@ def test_an_address_that_was_never_used_is_not_treated_as_a_crash() -> None:
     assert emitido.id in {v.id for v in store.recuperaveis()}
 
 
-def test_the_base64_route_creates_a_video_that_a_crash_can_recover(video: bytes) -> None:
-    """O caminho base64 nao emite endereco, entao nao havia nada a reivindicar depois.
-
-    Sem marcar a posse na criacao, ele ficava de fora de `recuperaveis`: uma queda no meio do
-    processamento deixava o video em `Pendente` para sempre, com o arquivo parado no disco. A
-    correcao anterior cobriu so o caminho do `PUT`, e os dois caminhos de ingestao precisam do
-    mesmo tratamento.
-    """
-    enviado = base64.b64encode(video).decode()
-    with cliente_autenticado(create_app()) as cliente:
-        identificador = cliente.post(
-            f"{PREFIXO}/videos/processamento", json={"file": enviado, "type": MP4}
-        ).json()["id"]
-
-    with store.conexao() as conn:
-        posse = conn.execute(
-            "SELECT reivindicado_em FROM videos WHERE id = ?", (identificador,)
-        ).fetchone()["reivindicado_em"]
-
-    assert posse is not None, "o video criado por base64 nasceu sem posse do trabalho"
-
-
-def test_a_base64_video_interrupted_mid_flight_is_recovered(tmp_path: Path, video: bytes) -> None:
+def test_a_video_interrupted_mid_processing_is_recovered(tmp_path: Path, video: bytes) -> None:
     """A queda de verdade: o registro fica em `Em processamento` e o arquivo sobrevive."""
-    criado = store.criar("c.mp4", MP4, reivindicado=True)
+    criado = store.criar("c.mp4", MP4)
+    store.reivindicar(criado.token)
     store.marcar(criado.id, store.PROCESSANDO)
     enviados = tmp_path / "var" / "uploads"
     enviados.mkdir(parents=True, exist_ok=True)
@@ -184,4 +162,4 @@ def test_a_base64_video_interrupted_mid_flight_is_recovered(tmp_path: Path, vide
 
     lido = store.ler(criado.id)
     assert lido is not None
-    assert lido.estado in store.TERMINAIS, "a queda do caminho base64 nao foi recuperada"
+    assert lido.estado in store.TERMINAIS, "a queda no meio do processamento nao foi recuperada"

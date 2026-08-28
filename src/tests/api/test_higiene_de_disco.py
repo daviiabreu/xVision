@@ -1,14 +1,13 @@
 """Nenhum caminho de recusa pode deixar arquivo no disco, e nenhuma mensagem pode vazar caminho.
 
 Nove mutacoes passaram na suite da API com 99,4% de cobertura de linha. Estas sao as que doem em
-producao: envio recusado que deixa ate 128 MB no disco sem nenhum registro apontando para ele,
-base64 corrompido aceito em silencio, e o caminho absoluto do servidor voltando ao cliente dentro
-do motivo da falha. Cobertura de linha nao viu nenhuma delas, porque as linhas rodavam.
+producao: envio recusado que deixa ate 128 MB no disco sem nenhum registro apontando para ele e
+o caminho absoluto do servidor voltando ao cliente dentro do motivo da falha. Cobertura de linha
+nao viu nenhuma delas, porque as linhas rodavam.
 """
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -94,26 +93,6 @@ def test_the_upload_really_lands_on_disk_before_it_is_cleaned(
     assert _restos(uploads) == []
 
 
-def test_base64_with_invalid_characters_is_refused_and_not_silently_trimmed(
-    cliente: TestClient,
-) -> None:
-    """Com `validate=False` o decodificador descarta o lixo e devolve bytes truncados.
-
-    O video corrompido entraria na fila e falharia depois, sem ninguem saber que a corrupcao
-    aconteceu no transporte. O teste que existia usava entrada que falha por preenchimento, e
-    essa levanta nos dois modos.
-    """
-    valido = base64.b64encode(b"conteudo qualquer para completar o bloco").decode()
-    envenenado = valido[:8] + "*!@#" + valido[8:]
-
-    resposta = cliente.post(
-        f"{PREFIXO}/videos/processamento", json={"file": envenenado, "type": MP4}
-    )
-
-    assert resposta.status_code == 400
-    assert "base64" in resposta.json()["detail"]
-
-
 def test_the_worker_never_writes_the_server_path_into_the_reason(
     cliente: TestClient, tmp_path: Path
 ) -> None:
@@ -145,35 +124,18 @@ def test_an_oversized_body_is_refused_by_the_header_and_never_parsed(
     Medido no servico anterior: um POST de 300 MB devolvia 413 e levava o processo de 65 MB para
     1176 MB de RSS. A recusa correta chegava, e ela nao ajudava em nada.
 
-    O corpo aqui e JSON invalido de proposito: se o middleware deixasse passar, o pydantic
-    responderia 422, e nao 413. O codigo distingue quem recusou.
+    O endereco de envio aqui nao existe de proposito: se o middleware deixasse o corpo chegar a
+    rota, a resposta seria 404, e nao 413. O codigo distingue quem recusou.
     """
-    monkeypatch.setenv("XVISION_API_MAX_JSON_MB", "1")
-    corpo = b"{isto nem e json valido" + b"A" * (2 * 1024 * 1024)
+    monkeypatch.setenv("XVISION_API_MAX_UPLOAD_MB", "1")
 
-    resposta = cliente.post(
-        f"{PREFIXO}/videos/processamento",
-        content=corpo,
-        headers={"Content-Type": "application/json"},
-    )
+    resposta = cliente.put(f"{PREFIXO}/videos/upload/nao-existe", content=b"x" * (2 * 1024 * 1024))
 
     assert resposta.status_code == 413, "o corpo foi lido antes de ser recusado"
-    assert "upload-url" in resposta.json()["detail"], (
-        "a recusa nao diz por onde mandar arquivo grande"
+    assert "passa do teto de 1 MB" in resposta.json()["detail"], (
+        "a recusa nao diz de que teto o corpo passou"
     )
     assert len(resposta.content) < 1000, "a resposta cresceu junto com o pedido"
-
-
-def test_the_upload_route_has_its_own_larger_ceiling(
-    cliente: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Os dois caminhos tem tetos diferentes, e o middleware precisa saber qual deles usar."""
-    monkeypatch.setenv("XVISION_API_MAX_JSON_MB", "1")
-    monkeypatch.setenv("XVISION_API_MAX_UPLOAD_MB", "8")
-
-    resposta = cliente.put(_endereco(cliente), content=b"x" * (2 * 1024 * 1024))
-
-    assert resposta.status_code != 413, "o PUT foi cortado pelo teto do caminho base64"
 
 
 def test_the_service_refuses_work_it_cannot_do_instead_of_queueing_forever(

@@ -182,14 +182,11 @@ def criar(
     caminho: Path | None = None,
     *,
     principal_id: int | None = None,
-    reivindicado: bool = False,
 ) -> Video:
-    """`reivindicado` marca o video que ja nasce com dono do trabalho, e nao so com dono da conta.
+    """O video nasce sem posse do trabalho: quem grava os bytes a reivindica depois, no `PUT`.
 
-    O caminho base64 nao emite endereco de envio: os bytes chegam na mesma requisicao que cria o
-    registro, entao nao ha nada a reivindicar depois. Sem marcar aqui, ele ficava de fora de
-    `recuperaveis` e uma queda no meio do processamento deixava o video em `Pendente` para sempre,
-    com o arquivo parado em disco. A correcao anterior cobriu so o caminho do `PUT`.
+    E o que mantem fora de `recuperaveis` o endereco de envio que o cliente pediu e ainda nao
+    usou, porque o que separa trabalho interrompido de espera legitima e a posse, nao o estado.
     """
     agora = _agora()
     token = secrets.token_urlsafe(32)
@@ -205,7 +202,7 @@ def criar(
                 agora,
                 agora,
                 principal_id,
-                agora if reivindicado else None,
+                None,
             ),
         )
         identificador = cursor.lastrowid

@@ -28,7 +28,6 @@ e mandaria o frontend consultar para sempre um estado que nunca muda.
 | --- | --- |
 | `POST /v1/videos/upload-url` | reserva o identificador e devolve o endereço de envio |
 | `PUT /v1/videos/upload/{token}` | recebe o binário cru e enfileira o processamento |
-| `POST /v1/videos/processamento` | mesmo efeito, com o vídeo em base64 dentro do JSON |
 | `GET /v1/videos/status/{id}` | responde um dos quatro valores do enum do frontend |
 | `GET /v1/videos/{id}` | devolve uma linha por etapa, ou o motivo, quando terminou |
 | `GET /health` | diz se o serviço subiu |
@@ -102,15 +101,14 @@ Bastava um cliente repetir depois de um timeout de rede, e o segundo envio apaga
 o worker do primeiro estava lendo. Envio interrompido no meio deixa o vídeo em `Falhou`; para
 tentar de novo, peça outro endereço.
 
-O envio tem dois caminhos porque o time do frontend especificou dois. O recomendado é
-o `PUT`, que é o que `src/interface/src/services/videoService.ts` já chama e o que
-transmite o arquivo direto para o disco. O base64 existe para atender o contrato
-escrito e cobra o próprio preço: infla 33%, e o corpo inteiro precisa existir em
-memória antes de virar bytes. Por isso o teto dele é de 32 MB, contra 128 MB do `PUT`,
-que é o mesmo número que `fileValidation.ts` cobra no navegador.
-
-O campo de tipo aceita `type` e `contentType`, os dois nomes que aparecem nas
-especificações que chegaram, para a divergência não virar erro de integração.
+O envio tem um caminho só, o `PUT` do binário cru, que é o que
+`src/interface/src/services/videoService.ts` chama e o que transmite o arquivo direto para o
+disco. Houve um segundo, com o vídeo em base64 dentro do JSON, porque chegaram duas
+especificações do time do frontend e o serviço preferiu atender as duas a escolher uma e
+descobrir a divergência no dia da integração. A interface fechou no `PUT` e o caminho base64
+ficou sem cliente. Ele saiu por três motivos: base64 infla 33%, o corpo inteiro precisa existir
+em memória antes de virar bytes, e superfície que ninguém chama custa teste e leitura em toda
+revisão. O teto do `PUT` é de 128 MB, o mesmo número que `fileValidation.ts` cobra no navegador.
 
 ## Que arquivo é aceito
 
@@ -135,7 +133,6 @@ vídeo corrompido no meio, que é o caso que mais aparece.
 | --- | --- | --- |
 | `XVISION_CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | origens que o navegador pode usar |
 | `XVISION_API_MAX_UPLOAD_MB` | `128` | teto do `PUT` |
-| `XVISION_API_MAX_JSON_MB` | `32` | teto do base64 |
 | `XVISION_API_WORKERS` | `1` | clipes processados ao mesmo tempo |
 | `XVISION_VAR_DIR` | `var` | onde ficam o banco e os arquivos enviados |
 | `XVISION_CONFIG_DIR` | `config` | onde o serviço procura `pipeline.toml` |

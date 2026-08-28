@@ -1,6 +1,6 @@
 ---
 title: O serviço HTTP que serve o frontend
-description: Processamento assíncrono, os dois caminhos de envio, a fila de um worker e o estado que sobrevive a uma queda
+description: Processamento assíncrono, o envio em duas etapas, a fila de um worker e o estado que sobrevive a uma queda
 ---
 
 O serviço HTTP é a ponte entre o navegador e [a borda](/docs/sprint-2/backend/borda), e a área
@@ -155,16 +155,18 @@ por teste contra o código:
 | `GET /v1/auth/me` | 200 | 401 |
 | `POST /v1/videos/upload-url` | 200 | 401, 415, 422 |
 | `PUT /v1/videos/upload/{token}` | 202 | 400, 404, 409, 413, 415, 422, 503 |
-| `POST /v1/videos/processamento` | 202 | 400, 401, 413, 415, 422, 503 |
 | `GET /v1/videos/status/{video_id}` | 200 | 401, 404, 422 |
 | `GET /v1/videos/{video_id}` | 200 | 401, 404, 409, 422 |
 | `GET /v1/videos/{video_id}/render` | 200 | 401, 404, 422 |
 
 O 422 aparece em toda rota que valida corpo ou caminho: é o que o pydantic devolve. O serviço
 registra um tratador próprio para ele porque a resposta padrão embute o corpo recebido dentro do
-erro, e o corpo aqui é um vídeo inteiro. O tratador remove o campo `input` e converte o que não
-serializa, então a recusa de validação sai em dezenas de bytes em vez de devolver o envio de
-volta: medido hoje, um corpo de 7,0 MB sem o campo `contentType` recebe 83 bytes de resposta.
+erro. O tratador remove o campo `input` e converte o que não serializa, então a recusa de
+validação sai em dezenas de bytes em vez de devolver o envio de volta: medido no serviço anterior,
+quando existia a rota que aceitava o vídeo em base64 dentro do JSON, um corpo de 7,0 MB sem o campo
+`contentType` recebeu 83 bytes de resposta. Hoje nenhuma rota carrega o vídeo no corpo que o
+pydantic valida, e o tratador fica porque não custa nada, vale para todo corpo recusado, e a
+próxima rota com corpo grande não vai lembrar de pedi-lo.
 
 Declarar a recusa não é enfeite de documentação: o FastAPI só descreve no contrato o que a rota
 declara, e um cliente gerado a partir do arquivo trata como sucesso qualquer código que não esteja
@@ -209,19 +211,25 @@ projeção: com os módulos de percepção ainda em stub, a fixture sintética a
 leva segundos é o clipe com modelo de verdade sobre vídeo de partida, e esse número ainda não
 existe. A decisão é para o segundo caso, e ela custa pouco no primeiro.
 
-**Existem dois caminhos de envio porque chegaram duas especificações.** A mensagem do contrato
-escrito pede o vídeo em base64 dentro do JSON, e a outra especificação pede uma URL e o binário
-cru por `PUT`, no desenho de uma URL pré-assinada. O frontend implementou a primeira e trocou pela
-segunda no commit `726c93e`, então hoje o cliente do `PUT` é a própria tela e o caminho base64 não
-tem nenhum: ele fica de pé porque é o que o contrato escrito pede, e sair dele é conversa com quem
-o escreveu. O campo de tipo aparece ora como `contentType`, ora como `type`, e o serviço aceita os
-dois nomes. *Alternativa descartada:* escolher uma das
-especificações e descobrir a divergência no dia da integração. Custa um alias e uma rota, e não
-custa uma reunião. O caminho recomendado continua sendo o `PUT`, porque o corpo é transmitido por
-pedaço direto para o disco: medido hoje, um envio de 100 MB por `PUT` manteve o RSS do processo
-entre 66,1 MB e 66,6 MB do começo ao fim da transmissão. O base64 tem teto próprio de 32 MB contra
-128 MB do `PUT`, porque a codificação produz 4 bytes de saída para cada 3 de entrada e o texto
-inteiro precisa existir em memória antes de virar bytes.
+**O envio é um caminho só: reserva o endereço e manda o binário cru por `PUT`.** Por uma sprint
+foram dois, porque chegaram duas especificações do time do frontend e elas não coincidiam nem no
+caminho nem no nome do campo de tipo: a do contrato escrito pedia o vídeo em base64 dentro do JSON,
+e a outra pedia uma URL e o binário cru, no desenho de uma URL pré-assinada. O serviço atendeu as
+duas em vez de escolher uma, o frontend implementou a primeira e trocou pela segunda no commit
+`726c93e`, e a partir daí o caminho base64 ficou sem nenhum cliente. Ele saiu no commit `bbd8a42`,
+junto com o alias que aceitava `contentType` e `type` no mesmo campo. O motivo tem três partes:
+base64 infla 33%, porque a codificação produz 4 bytes de saída para cada 3 de entrada
+([RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648)); o texto inteiro precisa existir em
+memória antes de virar bytes, e era por isso que aquele caminho tinha teto próprio de 32 MB contra
+os 128 MB do `PUT`; e superfície que ninguém chama custa teste e leitura em toda revisão.
+*Alternativa descartada:* escolher uma das especificações no começo e descobrir a divergência no
+dia da integração, que custaria retrabalho nos dois lados perto da entrega. Atender as duas custou
+uma rota e um alias por uma sprint, e desfazer custou um commit.
+*Alternativa descartada:* manter o caminho base64 de pé por ser o que o contrato escrito pedia, que
+é pagar manutenção por um cliente hipotético depois de o cliente real já ter escolhido.
+O `PUT` é o caminho que fica porque o corpo é transmitido por pedaço direto para o disco: medido
+hoje, um envio de 100 MB por `PUT` manteve o RSS do processo entre 66,1 MB e 66,6 MB do começo ao
+fim da transmissão.
 
 **O endereço de envio aponta para o próprio serviço, no formato de uma URL pré-assinada.** Ele é
 um token opaco de 32 bytes sorteados, vale uma vez só e está preso a um vídeo. *Alternativa
@@ -241,14 +249,21 @@ o cabeçalho o navegador recebia o nome interno do serviço, e com TLS terminado
 Quem chama já sabe a base, porque precisou dela para chegar aqui, e `src/tests/api/test_enderecos.py`
 manda um `Host` forjado e cobra que ele não apareça na resposta.
 
-**Um middleware recusa corpo grande pelo cabeçalho, antes de ele existir em memória.** Medido
-hoje: um `POST` no caminho base64 declarando `Content-Length` de 300 MB foi recusado com 413 em
-0,8 ms, sem que o cliente chegasse a transmitir um byte de corpo, e o RSS do processo não se mexeu
-do começo ao fim, 29,0 MB nos dois lados. *Alternativa descartada:* conferir o tamanho depois que
-o pydantic materializa a string, que protege a metade menor do problema: medido no serviço
-anterior e registrado no teste que hoje guarda o middleware, um `POST` de 300 MB devolvia o 413
-correto e levava o processo de 65 MB para 1176 MB de RSS. Numa borda de 2 GB isso é falta de
-memória com dois clientes, e a resposta certa não ajuda em nada.
+**Um middleware recusa corpo grande pelo cabeçalho, antes de ele existir em memória.** Ele roda
+antes de qualquer rota, então vale para todo corpo que chega, e não só para o do `PUT`. A tabela
+de rotas acima declara 413 apenas no `PUT`, e a diferença é lacuna do contrato e não do código:
+com o teto baixado, um `POST /v1/auth/login` grande também recebe 413, e quem gera cliente a partir
+do `openapi.json` não tem esse ramo. Declarar 413 nas outras rotas muda o contrato delas, então
+fica para quem for mexer nelas, e está na lista do que ainda não foi feito. Medido no
+serviço anterior, no caminho base64 enquanto ele existia: um `POST` declarando `Content-Length` de
+300 MB foi recusado com 413 em 0,8 ms, sem que o cliente chegasse a transmitir um byte de corpo, e
+o RSS do processo não se mexeu do começo ao fim, 29,0 MB nos dois lados. A medição equivalente no
+caminho que ficou está na decisão seguinte. *Alternativa descartada:* conferir o tamanho depois que
+o pydantic materializa o corpo, que só era possível enquanto o vídeo vinha como string dentro do
+JSON e protegia a metade menor do problema: medido no serviço anterior e registrado no teste que
+hoje guarda o middleware, um `POST` de 300 MB devolvia o 413 correto e levava o processo de 65 MB
+para 1176 MB de RSS. Numa borda de 2 GB isso é falta de memória com dois clientes, e a resposta
+certa não ajuda em nada.
 
 **O teto por pedaço é a segunda linha, para o caso em que não há cabeçalho.** Envio fragmentado
 não declara `Content-Length`, e aí não há o que conferir antes. Medido hoje: um `PUT` de 200 MB
@@ -356,9 +371,11 @@ do serviço em `uvicorn`, nesta máquina, com `curl` e amostragem de RSS por `ps
 reproduzíveis e valem para este hardware, não para a Jetson. Os números marcados como medidos no
 serviço anterior vêm das docstrings e dos testes que guardam cada correção, e descrevem um código
 que não existe mais: eles justificam a decisão, e não descrevem o comportamento atual. O que não
-tem medição está escrito como projeção. A suíte da API tem 203 testes e cobre 96,51% das linhas
+tem medição está escrito como projeção. A suíte da API tem 194 testes e cobre 96,48% das linhas
 de `src/api`, medidos em 28/08/2026 com `uv run pytest src/tests/api --cov=src/api`; a mesma
-execução sem a medição de cobertura leva 3,5 s nesta máquina.
+execução sem a medição de cobertura leva 4,3 s nesta máquina. O número caiu de 203 para 194 quando
+a rota de envio em base64 saiu: dez testes eram sobre a codificação e morreram com ela, e três
+entraram no lugar cobrindo o mesmo risco pelo caminho do `PUT`.
 
 ## Trade-offs
 
@@ -376,10 +393,11 @@ com várias pessoas ao mesmo tempo.
 rodar em mais de uma instância, isto vira PostgreSQL. A troca fica contida porque nenhum chamador
 conhece SQL, só as funções de `store.py`, mas ela vai acontecer, e o gatilho é a segunda instância.
 
-**A desvantagem dos dois caminhos de envio é manter e testar duas superfícies.** A condição que
-justificava o custo já venceu: o frontend fechou no `PUT`, e o caminho base64 segue mantido e
-testado sem nenhum cliente. Ele fica porque é o que o contrato escrito pede, e tirá-lo é decisão
-de quem escreveu o contrato, não do serviço.
+**A desvantagem do caminho único é que enviar custa duas requisições, e a primeira já grava
+estado.** Quem reserva um endereço e desiste antes do `PUT` deixa uma linha em `Pendente` que nada
+limpa: o token não expira, e para quem consulta esse vídeo tem a mesma cara de um que já entregou
+os bytes e espera a vez na fila. O caminho de uma requisição só existiu, em base64, e custava o
+dobro: o corpo inteiro em memória e 33% a mais de bytes na rede.
 
 **A desvantagem do 413 pelo cabeçalho é que `Content-Length` é afirmação do cliente.** Ele some em
 envio fragmentado, e aí quem segura é o teto por pedaço, que só corta depois de ter recebido os
@@ -411,7 +429,7 @@ vezes.
 
 **As rotas de vídeo não têm limite de taxa por chamador.** O teto existe em `/v1/auth/login` e em
 `/v1/auth/register`, descrito em
-[autenticação e posse do vídeo](/docs/sprint-2/backend/autenticacao), e não nas seis rotas de
+[autenticação e posse do vídeo](/docs/sprint-2/backend/autenticacao), e não nas cinco rotas de
 vídeo: nelas o teto de corpo e o teto de fila seguram volume, não frequência. Um cliente em laço
 não derruba o serviço, mas ocupa a fila inteira e empurra todos os outros para o 503.
 
@@ -435,6 +453,7 @@ a imagem do frontend e o serviço em pé, feita à mão.
 
 | O que falta | Como a hipótese será testada na próxima sprint |
 | --- | --- |
+| O 413 do middleware declarado nas rotas que não são o `PUT` | O middleware é global e o contrato declara 413 só no `PUT`. O teste é baixar `XVISION_API_MAX_UPLOAD_MB`, provocar 413 em `login`, `register` e `upload-url`, e exigir que `test_contrato_real.py` reprove enquanto o `openapi.json` não declarar o código nessas rotas |
 | `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir, na tela, que a unidade que chega é a mesma que a `FeatureSpec` declara, e que uma feature sem leitura aparece com `status` diferente de `ok` |
 | `frame` de demonstração | Desenhar a caixa do atirador no quadro do contato e comparar com o gabarito da fixture sintética, que é conhecido pixel a pixel |
 | O tempo real de um clipe | Medir o pipeline com o primeiro modelo de verdade sobre um clipe da Footstats, e só então fixar o teto da fila e o `Retry-After` com base no número |
@@ -453,7 +472,7 @@ a imagem do frontend e o serviço em pé, feita à mão.
 - [SQLite, appropriate uses](https://www.sqlite.org/whentouse.html), que é o critério usado para escolher SQLite agora e o gatilho declarado para trocar por um banco cliente-servidor depois.
 - [SQLite, PRAGMA user_version](https://www.sqlite.org/pragma.html#pragma_user_version), o inteiro guardado dentro do arquivo que aqui conta quantas migrações já rodaram.
 - [SQLite, Write-Ahead Logging](https://www.sqlite.org/wal.html), que sustenta o `journal_mode=WAL` e a leitura concorrente com a escrita do worker.
-- [RFC 4648, The Base16, Base32, and Base64 Data Encodings](https://datatracker.ietf.org/doc/html/rfc4648), que descreve a expansão de 3 bytes de entrada para 4 de saída, razão do teto menor no caminho base64.
+- [RFC 4648, The Base16, Base32, and Base64 Data Encodings](https://datatracker.ietf.org/doc/html/rfc4648), que descreve a expansão de 3 bytes de entrada para 4 de saída, os 33% que justificam a retirada do caminho base64 e o teto menor que ele teve enquanto existiu.
 - [Amazon S3, presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html), o desenho que o endereço de envio imita para que trocar por armazenamento de objetos não mexa no frontend.
 - [Documentação de `concurrent.futures`](https://docs.python.org/3/library/concurrent.futures.html), base do pool de um worker e do desligamento que cancela o que ainda não começou.
 - [Documentação de `secrets`](https://docs.python.org/3/library/secrets.html), gerador do token de 32 bytes que autoriza gravar os bytes do vídeo uma única vez.

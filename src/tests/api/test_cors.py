@@ -3,8 +3,9 @@
 O middleware de tamanho recusa antes de a rota existir, e `add_middleware` empilha ao contrario:
 quem se registra por ultimo fica por fora. Com o CORS por dentro, a resposta de 413 saia sem
 `access-control-allow-origin`, o `fetch` do frontend rejeitava sem status e a tela dizia falha de
-conexao para um arquivo grande demais. O caso so aparece quando os dois tetos divergem, que e o
-que a variavel de ambiente permite.
+conexao para um arquivo grande demais. A fixture baixa `XVISION_API_MAX_UPLOAD_MB` para 1 MB
+porque o 413 precisa acontecer de verdade, e com o teto padrao a suite teria de transmitir mais
+de 128 MB a cada rodada so para chegar na recusa.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ ORIGEM = "http://localhost:3000"
 @pytest.fixture
 def cliente(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("XVISION_API_MAX_UPLOAD_MB", "1")
-    monkeypatch.setenv("XVISION_API_MAX_JSON_MB", "1")
     with cliente_autenticado(create_app()) as aberto:
         yield aberto
 

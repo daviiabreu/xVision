@@ -1,10 +1,9 @@
 """O contrato HTTP que o frontend consome, e a traducao dele para os tipos da borda.
 
-Tres especificacoes chegaram do time do frontend e nao coincidem: o codigo em `src/interface`
-pede URL de envio e manda o binario cru por `PUT`, a mensagem do contrato pede base64 dentro de
-JSON, e o nome do campo de tipo aparece ora `contentType`, ora `type`. Em vez de escolher uma e
-descobrir a divergencia no dia da integracao, o campo aceita os dois nomes e o servico aceita os
-dois caminhos de envio. Custa um alias e uma rota, e nao custa uma reuniao.
+Tres especificacoes chegaram do time do frontend e nao coincidiam, entao por uma sprint o servico
+atendeu as tres: dois caminhos de envio e um alias no nome do campo de tipo. A interface fechou no
+`PUT` do binario cru, o caminho base64 e o alias ficaram sem cliente, e os dois sairam. O que
+sobra e o que alguem chama.
 
 Dois campos que o frontend pede e o evento nao carrega, cada um resolvido onde tem resposta.
 `unidade_de_medida` vem da `FeatureSpec`, porque quem sabe a unidade e a feature, e nao a
@@ -22,7 +21,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 TipoDeMetrica = Literal["boolean", "float", "text"]
 
@@ -48,28 +47,6 @@ class UploadUrlResponse(BaseModel):
     id: int = Field(description="Identificador do video, usado para consultar o andamento.")
     uploadUrl: str = Field(
         description="Caminho para onde mandar o binario por PUT, relativo a raiz do servico."
-    )
-
-
-class ProcessamentoRequest(BaseModel):
-    """O caminho base64, que existe para atender o contrato escrito.
-
-    Ele carrega o video inteiro dentro de um campo de texto, e base64 infla 33%: um clipe de
-    16 MB vira 22 MB de JSON que o servidor precisa manter em memoria antes de decodificar. Por
-    isso ele tem teto proprio e o caminho recomendado e o `PUT` da URL de envio, que transmite o
-    binario direto para o disco.
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    file: str = Field(description="O video inteiro, em base64.")
-    contentType: str = Field(
-        validation_alias=AliasChoices("contentType", "type"),
-        max_length=255,
-        description="Tipo do arquivo enviado. Aceita os nomes contentType e type.",
-    )
-    fileName: str = Field(
-        default="upload.mp4", max_length=255, description="Nome original, so para registro."
     )
 
 

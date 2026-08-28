@@ -43,8 +43,7 @@ recusa que é sempre a mesma.
                                                  ▼                       ▼
                                         rota de negócio      seguranca.conferir_posse
                                         eu, upload-url,      video.principal_id == id?
-                                        processamento,       não ──► 404, e não 403
-                                        status, resultado
+                                        status, resultado    não ──► 404, e não 403
 ```
 
 O `PUT` do envio não aparece aqui, e a ausência é o assunto de uma das decisões abaixo: ele é
@@ -145,7 +144,6 @@ As rotas de autenticação e as que dependem dela, com os códigos que o contrat
 | `GET /v1/auth/me` | 200 | 401 ausente, malformada, expirada ou revogada |
 | `POST /v1/videos/upload-url` | 200 | 401, 415, 422 |
 | `PUT /v1/videos/upload/{token}` | 202 | 400, 404, 409, 413, 415, 422, 503, e nenhum 401 |
-| `POST /v1/videos/processamento` | 202 | 400, 401, 413, 415, 422, 503 |
 | `GET /v1/videos/status/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 422 |
 | `GET /v1/videos/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 409, 422 |
 

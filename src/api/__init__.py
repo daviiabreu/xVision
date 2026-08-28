@@ -3,11 +3,13 @@
 Na arquitetura de destino a borda processa perto de onde o video chega e um servico central
 recebe o evento pronto. Este e a ponte da sprint 2, em que as duas pontas rodam na mesma maquina.
 
-O envio tem dois caminhos porque o time do frontend especificou dois. O recomendado e pedir uma
-URL em `POST /videos/upload-url` e mandar o binario cru nela por `PUT`, que e o que o codigo em
-`src/interface` ja faz e o que transmite o arquivo direto para o disco. O outro aceita o video em
-base64 dentro do JSON, como o contrato escrito pede, e por isso tem teto proprio: base64 infla
-33% e o corpo inteiro precisa existir em memoria antes de virar bytes.
+O envio e um caminho so: pedir uma URL em `POST /videos/upload-url` e mandar o binario cru nela
+por `PUT`, que transmite o arquivo direto para o disco. Houve um segundo, que aceitava o video em
+base64 dentro de um campo JSON, porque duas especificacoes chegaram do time do frontend e o
+servico preferiu atender as duas a escolher uma e descobrir a divergencia no dia da integracao. A
+interface fechou no `PUT`, o caminho base64 ficou sem nenhum cliente, e ele saiu: base64 infla
+33%, o corpo inteiro precisa existir em memoria antes de virar bytes, e manter uma superficie que
+ninguem chama custa teste e leitura em toda revisao.
 
 O endereco de envio aponta para o proprio servico e sai como caminho relativo a raiz dele. Ele ja
 saiu absoluto, montado com o `Host` que o cliente mandou, e isso escrevia no corpo da resposta um
@@ -23,8 +25,6 @@ rotas uma a uma.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import logging
 import os
 import secrets
@@ -47,7 +47,6 @@ from api.schemas import (
     Erro,
     LoginRequest,
     PrincipalResponse,
-    ProcessamentoRequest,
     RegistroRequest,
     ResultadoResponse,
     SessaoResponse,
@@ -71,9 +70,7 @@ MP4 = "video/mp4"
 ORIGENS_ENV = "XVISION_CORS_ORIGINS"
 ORIGENS_PADRAO = "http://localhost:5173,http://localhost:3000"
 UPLOAD_MB_ENV = "XVISION_API_MAX_UPLOAD_MB"
-JSON_MB_ENV = "XVISION_API_MAX_JSON_MB"
 UPLOAD_MB_PADRAO = 128
-JSON_MB_PADRAO = 32
 MB = 1024 * 1024
 
 logger = logging.getLogger("xvision.api")
@@ -85,7 +82,7 @@ SENHA_FALSA = auth.hash_de_senha(secrets.token_urlsafe(32))
 CONFIG_ATUAL: list[Path | None] = [None]
 
 RECUSAS = {
-    400: "O corpo chegou vazio, ou o campo file nao e base64 valido.",
+    400: "O corpo da requisicao chegou vazio.",
     404: "Nao existe video com esse identificador, ou o endereco de envio e desconhecido.",
     413: "O arquivo passa do teto aceito.",
     401: "Credencial ausente, invalida, expirada ou revogada.",
@@ -288,44 +285,6 @@ async def _gravar(request: Request, destino: Path) -> None:
         raise HTTPException(status_code=400, detail="o corpo da requisicao veio vazio")
 
 
-def _handler_base64(config: Path) -> Callable[..., Aceito]:
-    def processar(pedido: ProcessamentoRequest, principal: seguranca.Autenticado) -> Aceito:
-        """Aceita o video em base64 e enfileira o processamento."""
-        _conferir_tipo(pedido.contentType)
-        teto = _teto(JSON_MB_ENV, JSON_MB_PADRAO)
-        if len(pedido.file) > teto:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"o campo file passa do teto de {teto // MB} MB em base64: "
-                    "use POST /videos/upload-url para arquivos maiores"
-                ),
-            )
-        try:
-            bytes_do_video = base64.b64decode(pedido.file, validate=True)
-        except (binascii.Error, ValueError) as erro:
-            raise HTTPException(
-                status_code=400, detail=f"o campo file nao e base64 valido: {erro}"
-            ) from erro
-        if not bytes_do_video:
-            raise HTTPException(status_code=400, detail="o campo file decodificou para nada")
-        video = store.criar(
-            pedido.fileName,
-            pedido.contentType,
-            principal_id=principal.id,
-            reivindicado=True,
-        )
-        destino = uploads_dir()
-        destino.mkdir(parents=True, exist_ok=True)
-        arquivo = destino / f"{video.id}.mp4"
-        arquivo.write_bytes(bytes_do_video)
-        _conferir_decodavel(arquivo, video.id)
-        _enfileirar(video.id, arquivo, config)
-        return Aceito(status=202, id=video.id)
-
-    return processar
-
-
 def _rota_registro(pedido: RegistroRequest, request: Request) -> PrincipalResponse:
     """Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.
 
@@ -504,14 +463,6 @@ def _buscar(video_id: int) -> store.Video:
     return video
 
 
-def _teto_da_rota(caminho: str) -> tuple[int, str]:
-    """O teto e a orientacao de saida, que e o que evita o cliente so repetir o mesmo envio."""
-    if caminho.endswith("/videos/processamento"):
-        teto = _teto(JSON_MB_ENV, JSON_MB_PADRAO)
-        return teto, " em base64: use POST /videos/upload-url para arquivos maiores"
-    return _teto(UPLOAD_MB_ENV, UPLOAD_MB_PADRAO), ""
-
-
 async def _recusar_corpo_grande(
     request: Request, seguir: Callable[[Request], Awaitable[Response]]
 ) -> Response:
@@ -523,26 +474,26 @@ async def _recusar_corpo_grande(
     borda de 2 GB isso e OOM com dois clientes, e a resposta correta nao ajudava em nada.
 
     Sem `Content-Length`, o que acontece em envio fragmentado, nao ha o que conferir aqui e quem
-    segura e o teto por pedaco do `_gravar`. O caminho base64 nao tem essa protecao, e por isso
-    ele e o alternativo e nao o recomendado.
+    segura e o teto por pedaco do `_gravar`.
     """
     declarado = request.headers.get("content-length")
     if declarado is not None and declarado.isdigit():
-        teto, saida = _teto_da_rota(request.url.path)
+        teto = _teto(UPLOAD_MB_ENV, UPLOAD_MB_PADRAO)
         if int(declarado) > teto:
             return JSONResponse(
                 status_code=413,
-                content={"detail": f"o corpo passa do teto de {teto // MB} MB{saida}"},
+                content={"detail": f"o corpo passa do teto de {teto // MB} MB"},
             )
     return await seguir(request)
 
 
 async def _validacao(_: Request, erro: Exception) -> JSONResponse:
-    """O pydantic devolve o corpo recebido dentro do erro, e o corpo aqui e um video inteiro.
+    """O pydantic devolve o corpo recebido dentro do erro, e nada garante que ele seja pequeno.
 
-    Medido no servico anterior: um envio de 10 MB sem `contentType` voltava com 10 MB de resposta,
-    o base64 inteiro ecoado no campo `input`. Com 500 MB de envio seriam 500 MB de volta, para o
-    cliente e para qualquer proxy que registre corpo.
+    Medido no servico anterior, quando existia a rota que aceitava o video em base64 dentro do
+    JSON: um envio de 10 MB sem `contentType` voltava com 10 MB de resposta, o corpo inteiro
+    ecoado no campo `input`. Aquela rota saiu, e o handler fica: ele custa nada, vale para todo
+    corpo que o pydantic recusar, e a proxima rota com corpo grande nao vai lembrar de pedi-lo.
     """
     if not isinstance(erro, RequestValidationError):  # pragma: no cover - o FastAPI so
         raise erro  # pragma: no cover - registra este handler para esta excecao
@@ -617,7 +568,7 @@ def _conferir_ambiente(config: Path) -> None:
             f"{config.resolve()} nao existe, e o servico nao processa video sem ela. "
             "Suba a partir da raiz do repositorio, ou monte a configuracao no lugar esperado"
         )
-    for variavel, padrao in ((UPLOAD_MB_ENV, UPLOAD_MB_PADRAO), (JSON_MB_ENV, JSON_MB_PADRAO)):
+    for variavel, padrao in ((UPLOAD_MB_ENV, UPLOAD_MB_PADRAO),):
         try:
             _teto(variavel, padrao)
         except ValueError as erro:
@@ -801,15 +752,6 @@ def _registrar(app: FastAPI, config: Path) -> None:
             "Recebe o binario do video e enfileira o processamento.",
             Aceito,
             _erros(400, 404, 409, 413, 415, 503),
-            202,
-        ),
-        Rota(
-            "/videos/processamento",
-            _handler_base64(config),
-            "POST",
-            "Aceita o video em base64 e enfileira o processamento.",
-            Aceito,
-            _erros(400, 401, 413, 415, 503),
             202,
         ),
         Rota(

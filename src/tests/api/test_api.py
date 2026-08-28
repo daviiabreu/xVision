@@ -1,13 +1,14 @@
 """O contrato que o frontend consome, verificado contra o que o codigo gera.
 
-O envio tem dois caminhos porque o time do frontend especificou dois, e os dois sao exercidos
-aqui: o `PUT` do binario, que e o que `src/interface/src/services/videoService.ts` chama, e o
-base64 dentro do JSON, que e o que o contrato escrito pede.
+O envio e um caminho so: `POST /videos/upload-url` reserva o endereco e o `PUT` manda o binario
+cru nele, que e o que `src/interface/src/services/videoService.ts` chama. Houve um segundo, que
+recebia o video em base64 dentro do JSON, e saiu quando a interface fechou no `PUT` e ele ficou
+sem cliente. Os testes que existiam por causa dele sairam junto; os que so precisavam de uma
+chamada so passaram a usar `apoio.enviar`, que faz as duas numa linha.
 """
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,8 @@ from fastapi.testclient import TestClient
 from api import PREFIXO, create_app, execution, store
 from edge.testing.make_clip import make_synthetic_clip
 
-from .apoio import cliente_autenticado
+from .apoio import cliente_autenticado, enviar
 
-BASE64 = f"{PREFIXO}/videos/processamento"
 OPENAPI = Path(__file__).resolve().parents[2] / "api" / "docs" / "openapi.json"
 MP4 = "video/mp4"
 
@@ -41,11 +41,6 @@ def cliente() -> TestClient:
 @pytest.fixture
 def bytes_do_video(tmp_path: Path) -> bytes:
     return make_synthetic_clip(tmp_path / "s.mp4").read_bytes()
-
-
-@pytest.fixture
-def video(bytes_do_video: bytes) -> str:
-    return base64.b64encode(bytes_do_video).decode()
 
 
 def _terminar(cliente: TestClient, identificador: int) -> dict[str, Any]:
@@ -93,29 +88,10 @@ def test_the_binary_upload_runs_the_pipeline_and_finishes(
     assert {"players", "ball", "field", "shot", "tracking"} <= nomes
 
 
-def test_the_base64_path_answers_the_written_contract(cliente: TestClient, video: str) -> None:
-    resposta = cliente.post(BASE64, json={"file": video, "type": MP4})
-
-    assert resposta.status_code == 202, resposta.text
-    assert resposta.json()["status"] == 202, "o corpo repete o codigo, e os dois tem de bater"
-    assert _terminar(cliente, resposta.json()["id"])["video_status"] == store.FINALIZADO
-
-
-def test_the_type_field_answers_to_both_names_the_frontend_uses(
-    cliente: TestClient, video: str
-) -> None:
-    """A mensagem do contrato diz `type` e o codigo do frontend diz `contentType`."""
-    por_type = cliente.post(BASE64, json={"file": video, "type": MP4})
-    por_content_type = cliente.post(BASE64, json={"file": video, "contentType": MP4})
-
-    assert por_type.status_code == 202, por_type.text
-    assert por_content_type.status_code == 202, por_content_type.text
-
-
 def test_the_status_route_walks_the_four_states_the_frontend_declares(
-    cliente: TestClient, video: str
+    cliente: TestClient, bytes_do_video: bytes
 ) -> None:
-    identificador = cliente.post(BASE64, json={"file": video, "type": MP4}).json()["id"]
+    identificador = enviar(cliente, bytes_do_video).json()["id"]
     execution.aguardar()
 
     resposta = cliente.get(f"{PREFIXO}/videos/status/{identificador}")
@@ -162,15 +138,13 @@ def test_the_same_upload_url_cannot_be_used_twice(
 
 
 def test_what_is_not_even_a_video_is_refused_at_the_door(cliente: TestClient) -> None:
-    """A triagem barata recusa o que nem video diz ser, sem gastar upload."""
+    """A triagem barata recusa na reserva o que nem video diz ser, antes de gastar upload."""
     for tipo in ("application/pdf", "text/plain", "image/png"):
-        assert cliente.post(BASE64, json={"file": "", "type": tipo}).status_code == 415
-        assert (
-            cliente.post(
-                f"{PREFIXO}/videos/upload-url", json={"fileName": "x", "contentType": tipo}
-            ).status_code
-            == 415
+        resposta = cliente.post(
+            f"{PREFIXO}/videos/upload-url", json={"fileName": "x", "contentType": tipo}
         )
+
+        assert resposta.status_code == 415, f"{tipo} passou pela triagem: {resposta.text}"
 
 
 def test_a_container_other_than_mp4_is_not_refused_by_the_type_alone(cliente: TestClient) -> None:
@@ -191,40 +165,15 @@ def test_a_renamed_file_claiming_to_be_a_video_is_caught_by_the_decoder(
     cliente: TestClient,
 ) -> None:
     """`contentType` e afirmacao do cliente: um `.txt` renomeado chega declarando `video/mp4`."""
-    disfarcado = base64.b64encode(b"isto e texto, nao video" * 100).decode()
-
-    resposta = cliente.post(BASE64, json={"file": disfarcado, "type": MP4})
+    resposta = enviar(cliente, b"isto e texto, nao video" * 100)
 
     assert resposta.status_code == 415
     assert "nao abriu como video" in resposta.json()["detail"]
 
 
-def test_a_body_that_is_not_base64_is_refused_with_the_reason(cliente: TestClient) -> None:
-    resposta = cliente.post(BASE64, json={"file": "nao!!!e!!!base64", "type": MP4})
-
-    assert resposta.status_code == 400
-    assert "base64" in resposta.json()["detail"]
-
-
-def test_an_empty_body_is_refused_on_both_paths(cliente: TestClient) -> None:
-    reserva = cliente.post(
-        f"{PREFIXO}/videos/upload-url", json={"fileName": "c.mp4", "contentType": MP4}
-    ).json()
-
-    assert cliente.post(BASE64, json={"file": "", "type": MP4}).status_code == 400
-    assert cliente.put(reserva["uploadUrl"], content=b"").status_code == 400
-
-
-def test_base64_over_the_ceiling_is_refused_before_being_decoded(
-    cliente: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Decodificar para depois recusar e o que fazia o processo triplicar de memoria."""
-    monkeypatch.setenv("XVISION_API_MAX_JSON_MB", "1")
-
-    resposta = cliente.post(BASE64, json={"file": "A" * (2 * 1024 * 1024), "type": MP4})
-
-    assert resposta.status_code == 413
-    assert "upload-url" in resposta.json()["detail"]
+def test_an_empty_body_is_refused(cliente: TestClient) -> None:
+    """Endereco reservado e `PUT` sem bytes e envio interrompido, e nao arquivo vazio aceito."""
+    assert enviar(cliente, b"").status_code == 400
 
 
 def test_a_binary_over_the_ceiling_is_cut_mid_stream(
@@ -240,12 +189,22 @@ def test_a_binary_over_the_ceiling_is_cut_mid_stream(
     assert resposta.status_code == 413
 
 
-def test_a_validation_error_never_echoes_the_body_back(cliente: TestClient, video: str) -> None:
-    """O pydantic devolve o corpo recebido no campo `input`, e o corpo aqui e um video."""
-    resposta = cliente.post(BASE64, json={"file": video})
+def test_a_validation_error_never_echoes_the_body_back(cliente: TestClient) -> None:
+    """O pydantic devolve no campo `input` o corpo que recusou, e nada garante que ele seja curto.
+
+    O caso medido, um envio de 10 MB voltando inteiro, morreu com a rota que carregava o video
+    dentro do JSON. O que sobra continua ecoando: `fileName` tem teto de 255 caracteres e nada
+    impede um cliente de mandar 5 MB de nome, que sem o handler voltariam na recusa.
+    """
+    nome = "n" * (5 * 1024 * 1024)
+
+    resposta = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": nome, "contentType": MP4}
+    )
 
     assert resposta.status_code == 422
-    assert video not in resposta.text
+    assert nome not in resposta.text
+    assert len(resposta.content) < 1000, "a resposta cresceu junto com o pedido"
     assert all("input" not in item for item in resposta.json()["detail"])
 
 
@@ -253,9 +212,7 @@ def test_a_file_that_is_not_a_video_is_refused_without_leaking_the_server_path(
     cliente: TestClient,
 ) -> None:
     """A mensagem da borda cita o caminho absoluto, e ele nao pode chegar ao cliente."""
-    resposta = cliente.post(
-        BASE64, json={"file": base64.b64encode(b"nao sou um video").decode(), "type": MP4}
-    )
+    resposta = enviar(cliente, b"nao sou um video")
 
     assert resposta.status_code == 415
     detalhe = resposta.json()["detail"]
@@ -280,10 +237,10 @@ def test_an_undecodable_upload_does_not_leave_a_job_waiting_forever(cliente: Tes
 
 
 def test_the_uploaded_file_is_removed_after_the_pipeline_runs(
-    cliente: TestClient, video: str, tmp_path: Path
+    cliente: TestClient, bytes_do_video: bytes, tmp_path: Path
 ) -> None:
-    """Sem isso, cada requisicao anonima deixa um video no disco para sempre."""
-    cliente.post(BASE64, json={"file": video, "type": MP4})
+    """Sem isso, cada video enviado fica no disco da borda para sempre."""
+    assert enviar(cliente, bytes_do_video).status_code == 202, "o envio nem chegou a acontecer"
     execution.aguardar()
 
     assert list((tmp_path / "var" / "uploads").glob("*.mp4")) == []
@@ -292,7 +249,7 @@ def test_the_uploaded_file_is_removed_after_the_pipeline_runs(
 def test_the_browser_is_allowed_to_call_from_the_frontend_origin(cliente: TestClient) -> None:
     """Sem CORS o navegador bloqueia a chamada e ninguem descobre ate integrar."""
     resposta = cliente.options(
-        BASE64,
+        f"{PREFIXO}/videos/upload-url",
         headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "POST",
@@ -305,7 +262,7 @@ def test_the_browser_is_allowed_to_call_from_the_frontend_origin(cliente: TestCl
 
 def test_an_unknown_origin_is_not_allowed(cliente: TestClient) -> None:
     resposta = cliente.options(
-        BASE64,
+        f"{PREFIXO}/videos/upload-url",
         headers={"Origin": "http://exemplo.invalido", "Access-Control-Request-Method": "POST"},
     )
 
@@ -364,12 +321,15 @@ def test_the_versioned_openapi_matches_what_the_code_generates() -> None:
 def test_every_documented_refusal_carries_the_same_shape(cliente: TestClient) -> None:
     """Recusa com forma diferente por rota faz o frontend precisar de um parser por endpoint."""
     recusas = [
-        cliente.post(BASE64, json={"file": "", "type": "video/avi"}),
-        cliente.post(BASE64, json={"file": "nao!!!base64", "type": MP4}),
+        cliente.post(
+            f"{PREFIXO}/videos/upload-url", json={"fileName": "c", "contentType": "text/plain"}
+        ),
+        enviar(cliente, b""),
         cliente.get(f"{PREFIXO}/videos/9999"),
         cliente.put(f"{PREFIXO}/videos/upload/inexistente", content=b"x"),
     ]
 
     for resposta in recusas:
+        assert resposta.status_code >= 400, f"isto nao e recusa: {resposta.status_code}"
         assert set(resposta.json()) == {"detail"}
         assert isinstance(resposta.json()["detail"], str)

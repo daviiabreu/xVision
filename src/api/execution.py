@@ -47,8 +47,9 @@ class FilaCheia(RuntimeError): ...
 
 
 # O teto so e teto se conferir e enfileirar acontecerem juntos. Medido sem o cadeado: com teto
-# de 4 e 16 clientes numa barreira, os 16 foram aceitos e nenhum recusado, porque o handler
-# base64 e sincrono e roda no pool de threads do Starlette.
+# de 4 e 16 clientes numa barreira, os 16 foram aceitos e nenhum recusado, porque `submeter` e
+# sincrono e `_pendentes` muda em mais de uma thread: quem enfileira (o handler `receber` do PUT,
+# a recuperacao de orfaos) le o tamanho antes de inserir, e o `add_done_callback` remove no pool.
 _porta = threading.Lock()
 _executor: ThreadPoolExecutor | None = None
 _pendentes: set[Future[None]] = set()

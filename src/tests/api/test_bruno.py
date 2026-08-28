@@ -23,7 +23,6 @@ REQUISICAO = {
     (f"{PREFIXO}/auth/me", "get"): "auth-me.bru",
     (f"{PREFIXO}/videos/upload-url", "post"): "pedir-url-de-envio.bru",
     (PREFIXO + "/videos/upload/{token}", "put"): "enviar-video.bru",
-    (f"{PREFIXO}/videos/processamento", "post"): "processar-video.bru",
     (PREFIXO + "/videos/status/{video_id}", "get"): "consultar-status.bru",
     (PREFIXO + "/videos/{video_id}", "get"): "buscar-resultado.bru",
     (PREFIXO + "/videos/{video_id}/render", "get"): "buscar-render.bru",
