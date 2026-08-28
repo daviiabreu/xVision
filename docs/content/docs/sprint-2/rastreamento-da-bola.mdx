@@ -1,0 +1,118 @@
+---
+title: Rastreamento da bola
+description: Detecção e rastreamento da bola na borda, ajuste fino do YOLOv8n no SoccerNet e resultados no alvo da Footstats
+---
+
+O rastreamento da bola detecta a bola em cada quadro e liga essas detecções ao longo do tempo, formando
+a trajetória. O YOLO faz a detecção e a `BallTracker` cuida do tempo. A velocidade da bola depende da
+homografia e fica em outra frente.
+
+## Como funciona
+
+O vídeo é decodificado, o YOLO detecta a bola em cada quadro, um filtro de forma e tamanho descarta os
+candidatos que não parecem bola, e a `BallTracker` escolhe qual é a bola e monta a trajetória em pixels.
+
+Detecção. O YOLO devolve os candidatos a bola por quadro. Cada caixa passa por um filtro: precisa ser
+quase quadrada e ter tamanho compatível com uma bola (medido como fração da altura do quadro, para
+tolerar zoom). Isso descarta artefatos como a marca do pênalti e o círculo central.
+
+Rastreamento. A `BallTracker` decide qual candidato é a bola usando continuidade de movimento. Ela prevê
+onde a bola deveria estar, pela velocidade dos dois últimos pontos, e escolhe o candidato mais próximo
+dessa previsão; a confiança serve só de desempate. Um candidato longe demais para o tempo decorrido é
+rejeitado. Quando a bola some por poucos quadros, a posição é interpolada; quando some por muitos, o
+trecho vira perda e o rastreador recomeça na detecção seguinte. Cada quadro recebe um estado:
+`detected`, `interpolated` ou `missing`.
+
+Essa escolha por movimento é o que impede a marca do pênalti, parada e fora da trajetória, de roubar o
+rastreamento, mesmo quando tem confiança maior que a bola.
+
+## Pré-processamento
+
+Hoje o pré-processamento é só o que o YOLO faz internamente: letterbox para o `imgsz`, BGR para RGB,
+normalização e formato de tensor. Não há pré-processamento próprio da bola ainda; ele está planejado
+(recorte de região de interesse e realce de objeto pequeno). A única alavanca em uso é a resolução de
+entrada (`imgsz`), que importa porque a bola ocupa poucos pixels.
+
+## Ajuste fino do detector
+
+O YOLOv8n do COCO detecta a bola de forma intermitente em vídeo de transmissão e gera falsos positivos
+(objetos redondos viram bola). Para melhorar recall e precisão, ajustamos o detector em dados de futebol.
+
+Os dados vêm do SoccerNet Tracking: câmera principal de transmissão, 1080p a 25 fps, com caixa da bola
+por quadro. O download da tarefa de tracking não exige senha. O formato é MOTChallenge, então há uma
+conversão para YOLO: o `gt.txt` traz as caixas mas não a classe; o papel de cada objeto (jogador,
+goleiro, árbitro, bola) fica no `gameinfo.ini`, com o id no sufixo da chave e o papel no valor. O
+conversor descobre os ids da bola, lê o tamanho do quadro no `seqinfo.ini` e reescreve as caixas da bola
+no formato YOLO.
+
+A conversão gerou 40.234 quadros de treino (40.931 caixas) e 33.804 de validação (34.129 caixas), com
+uma classe (`ball`).
+
+O treino parte do YOLOv8n do COCO e treina uma classe em `imgsz` 1280. Precisa de GPU. Foi treinado numa
+RTX A6000; em máquina compartilhada o gargalo é a RAM do sistema, não a VRAM (batch 48 com 4 workers
+rodou estável). No SoccerNet, o mAP50 chegou a cerca de 0,47 e estabilizou por volta da época 10. Esse
+número é proxy; o que decide é o alvo real.
+
+## Resultados no alvo real (Footstats)
+
+Rodamos o modelo ajustado e o YOLO do COCO no mesmo corte da Footstats (15 s, 480 quadros), com o mesmo
+rastreador e filtro, mudando só os pesos.
+
+| Modelo | Detectado | Cobertura | Falsos positivos descartados por forma |
+|---|---|---|---|
+| Ajustado (SoccerNet) | 73% | 78% | 0 |
+| COCO (sem ajuste) | 71% | 79% | 63 |
+
+Recall e cobertura empatam. A diferença está na última coluna: o COCO gerou 63 detecções que o filtro de
+forma teve que descartar, e o modelo ajustado gerou zero. Mesmo recall, muito mais precisão. Os falsos
+positivos aqui são caixas que o filtro reprova por não parecerem bola; é um indicador, não anotação
+manual.
+
+Como o modelo ajustado quase não gera falso positivo, dá para baixar a confiança e recuperar mais bola
+sem poluir:
+
+| conf | Detectado | Cobertura | Falsos positivos |
+|---|---|---|---|
+| 0,15 | 73% | 78% | 0 |
+| 0,05 | 77% | 81% | 0 |
+
+Em `conf 0,05` a cobertura sobe para 81% com zero falsos positivos. É o ponto de operação recomendado.
+
+## Como rodar
+
+Treino (precisa de GPU):
+
+```bash
+uv sync --extra training
+uv run python training/run.py --stages download,convert
+uv run python training/run.py --stages train --device 0 --batch 48 --workers 4
+```
+
+Avaliação num corte, comparando o modelo ajustado com o COCO:
+
+```bash
+uv run python scripts/track_ball_clip.py corte.mp4 saida_ft.mp4 \
+  --weights weights/ball_yolov8n.pt --ball-class 0 --imgsz 1280
+uv run python scripts/track_ball_clip.py corte.mp4 saida_coco.mp4 \
+  --weights yolov8n.pt --ball-class 32 --imgsz 1280
+```
+
+Use `--ball-class 0` com o modelo ajustado (uma classe) e `--ball-class 32` com o COCO. O modelo treinado
+está em `weights/ball_yolov8n.pt`. A lógica de conversão do dataset está em `edge.ball.dataset`, com
+testes em `src/tests/edge/`.
+
+Os cortes da Footstats e os vídeos anotados são material restrito do parceiro e não entram no
+repositório. Esta página descreve só métricas agregadas.
+
+## Próximos passos
+
+- Validar em mais cortes reais, principalmente replay, close e gráficos, onde os dois modelos caem.
+- Testar o `yolov8s` se o recall precisar de mais um degrau.
+- Ajuste fino no domínio da Footstats quando houver cortes anotados.
+- Velocidade da bola, quando a homografia estiver pronta.
+- Exportar para ONNX ou TensorRT e medir latência no dispositivo (Sprint 3).
+
+## Referências
+
+1. CIOPPA, Anthony et al. SoccerNet-Tracking: Multiple Object Tracking Dataset and Benchmark in Soccer Videos. CVPR Workshops, 2022. [arXiv:2204.06918](https://arxiv.org/abs/2204.06918)
+2. Ultralytics YOLO. [Documentação oficial](https://docs.ultralytics.com).
