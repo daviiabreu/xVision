@@ -1,0 +1,162 @@
+---
+title: Visão superior do campo
+description: Como jogadores rastreados são projetados do vídeo para um mapa do campo
+---
+
+## Objetivo
+
+A visão superior transforma a posição aparente dos jogadores no vídeo em posições sobre um desenho
+fixo de campo. Ela não cria uma nova câmera nem reconstrói um modelo 3D do estádio: estima uma
+transformação entre o plano do gramado visto pela câmera e o plano de um campo virtual. O resultado
+é um vídeo composto: à esquerda, o frame original com rastreamento; à direita, as mesmas pessoas
+posicionadas em um mapa visto de cima.
+
+Esse recurso é uma visualização de diagnóstico e uma base para métricas futuras. Ele ajuda a
+verificar se a detecção de linhas, o rastreamento e a classificação de equipes estão coerentes antes
+de calcular distância, velocidade ou ocupação de espaço.
+
+## O mapa já existe
+
+O mapa à direita não é inferido do vídeo. O arquivo
+[`homography_view.py`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/models/top_view/homography_view.py)
+descreve um campo virtual de `12.000 × 7.000` unidades, mantendo a proporção de um campo de
+`120 × 70` metros. Nele já estão definidos:
+
+- quatro limites externos;
+- linha e círculo centrais;
+- áreas e pequenas áreas;
+- pontos de referência usados pelo modelo de homografia.
+
+Portanto, o problema não é descobrir o formato do campo. O problema é descobrir como a imagem
+inclinada da transmissão corresponde a esse formato conhecido.
+
+## Keypoints: como o vídeo sabe qual ponto é qual
+
+O modelo de homografia é um YOLO Pose treinado para pontos do campo. Ele retorna uma sequência fixa
+de 29 *keypoints*. Cada item tem três informações: coordenada `x`, coordenada `y` no frame e
+confiança. A posição do item na sequência define sua identidade; por exemplo, um índice sempre
+representa a mesma interseção de linhas no campo virtual.
+
+`KEYPOINT_TO_PITCH` faz a ligação entre o índice retornado pelo modelo e a coordenada conhecida em
+`PITCH_VERTICES`. Essa correspondência elimina a necessidade de adivinhar se uma linha na imagem é
+a área esquerda, direita ou a linha central.
+
+| Saída do modelo | Uso na implementação |
+| --- | --- |
+| índice do keypoint | seleciona o ponto equivalente no campo virtual |
+| `(x, y)` em pixels | localiza a referência no frame atual |
+| confiança | descarta previsões abaixo de `0,25` |
+
+Os pontos válidos aparecem sobre o vídeo: verde quando usados pela transformação e laranja quando
+não puderam ser usados. Essa sobreposição existe para separar dois tipos de problema: um keypoint
+mal posicionado indica limitação do modelo; linhas amarelas mal alinhadas, com keypoints corretos,
+indicam limitação da transformação ou do desenho de referência.
+
+## Transformação para a visão superior
+
+A homografia é a transformação que liga o frame do vídeo ao campo virtual. O código compara cada
+ponto confiável detectado no gramado com sua posição equivalente no mapa e calcula como converter
+uma posição de um plano para o outro.
+
+Na prática, quanto mais referências corretas o modelo encontra, mais estável tende a ser o mapa. A
+pipeline espera uma quantidade suficiente de pontos antes de iniciar a projeção e mantém a última
+transformação válida em oclusões curtas. Isso evita que a visão superior desapareça a cada frame em
+que uma linha do campo deixa de aparecer.
+
+Para tornar a estimativa visível, o inverso de `H` projeta o desenho virtual de volta ao vídeo. As
+linhas amarelas sobre o gramado não são linhas detectadas: são o campo virtual reprojetado. Quanto
+melhor coincidirem com as marcações reais, mais confiável é a posição no mapa.
+
+## Do rastreamento ao ponto no campo
+
+O rastreador entrega uma caixa por jogador e um `track_id` temporal. A projeção usa o centro da base
+da caixa, próximo aos pés, em vez do centro do corpo. Esse ponto é uma aproximação do contato com o
+gramado. Depois da transformação, ele é
+desenhado no campo virtual. A posição projetada recebe uma suavização exponencial por `track_id`,
+reduzindo pequenos saltos causados por variações nas caixas ou nos keypoints.
+
+O mapa mostra apenas uma metade por vez. A escolha usa a mediana das posições projetadas e possui
+uma margem de troca, evitando inverter o lado exibido por uma oscilação pequena entre frames.
+
+## Equipes e cores
+
+Antes de gerar a visão superior, a pipeline de jogadores grava `detections.json`. A identificação
+de equipes relê esse artefato, coleta amostras da cor das camisas em vários frames e agrupa as
+trajetórias em `team_a` e `team_b`. O resultado é salvo em `identities.json`.
+
+A visão superior usa o mesmo `track_id` e o mesmo mapa de equipes:
+
+- `team_a`: azul;
+- `team_b`: amarelo;
+- sem equipe disponível: cor temporária baseada no identificador de rastreamento.
+
+No frame original, a anotação é a mesma usada pelo pacote de tracking: elipse no ponto dos pés,
+trajetória, papel e identificação. No mapa, a bolinha recebe a mesma cor. Assim, a cor de um
+jogador não muda entre a imagem e o campo virtual.
+
+![Vídeo final com rastreamento, equipes e visão superior](/sprint2/top-view/visao-superior-times.png)
+
+*Figura 2. Resultado da pipeline: o vídeo original fica à esquerda e o mapa superior à direita.
+Azul e amarelo representam as equipes; as linhas amarelas são o campo virtual reprojetado.*
+
+Os pontos verdes sobre o gramado são os keypoints de homografia aceitos para aquele frame. Cada um
+representa uma referência conhecida, como um encontro entre linhas ou um canto de área. Eles ajudam
+a diagnosticar a projeção: se os pontos verdes estiverem nas marcações reais do campo, mas as linhas
+amarelas estiverem desalinhadas, o problema está na transformação; se os pontos verdes já estiverem
+fora das marcações, a limitação está na detecção dos keypoints.
+
+<video controls width="100%">
+  <source src="/sprint2/top-view/visao-superior-times.mp4" type="video/mp4" />
+  Seu navegador não suporta vídeo HTML5.
+</video>
+
+*Vídeo 1. Execução completa da visão superior com rastreamento e cores das equipes.*
+
+## Arquivos e responsabilidades
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `src/models/top_view/create_top_view.py` | coordena tracking, identificação de equipes, homografia e gravação do vídeo final |
+| `src/models/top_view/homography_view.py` | contém o campo virtual, a tabela de keypoints, a matriz de homografia e o desenho do mapa |
+| `src/models/top_view/top_view_config.py` | encontra o peso local do modelo de homografia |
+| `packages/xvision-players-yolo` | fornece tracking, `detections.json` e identificação de equipes |
+
+## Como executar
+
+Na raiz do projeto, instale o projeto e o pacote de jogadores no ambiente virtual. Isso é necessário
+porque o pacote de tracking é uma dependência local da visão superior.
+
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -e . --no-deps
+pip install -e packages/xvision-players-yolo --no-deps
+```
+
+Em seguida, execute sobre um vídeo ou uma pasta de vídeos:
+
+```bash
+python src/models/top_view/create_top_view.py video.mp4
+```
+
+O script procura o peso dos jogadores em `players_yolov8s/weights/best.pt` e o modelo de
+homografia em `homografia/best.pt`, ambos na raiz do projeto. O vídeo final fica em:
+
+```text
+src/models/top_view/video_tracking/<nome>_tracking_visao_superior.mp4
+```
+
+Os JSONs de tracking e identificação são usados como artefatos internos. Os vídeos intermediários
+de tracking e identificação são removidos automaticamente; o vídeo de visão superior é o único
+vídeo final preservado.
+
+## Limites atuais
+
+- A transformação presume que os jogadores estão sobre o plano do gramado. Saltos, carrinhos e
+  oclusões reduzem a precisão do ponto dos pés.
+- A câmera de transmissão se move, muda de zoom e pode mostrar poucas linhas. Por isso a
+  homografia é uma estimativa por frame, não uma calibração perfeita e permanente.
+- O agrupamento separa duas equipes quando encontra contraste de cor suficiente. Árbitros,
+  goleiros e uniformes visualmente parecidos podem ficar sem equipe.
+- A posição no mapa serve para análise visual nesta etapa. Converter as unidades do campo em metros
+  e calcular velocidade requer uma validação geométrica adicional.
