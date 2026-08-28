@@ -1,0 +1,198 @@
+---
+title: Planejamento da Sprint 2
+description: Frentes, responsáveis, dependências e critérios de conclusão da primeira versão funcional
+---
+
+A Sprint 2 terá como objetivo transformar as decisões técnicas da Sprint 1 em uma primeira versão
+funcional do pipeline. O trabalho será organizado para que os componentes de percepção sejam
+entregues antes das métricas que dependem deles, enquanto backend e frontend avançam em paralelo.
+
+<Callout type="idea" title="Resultado esperado">
+
+Ao final da sprint, um clipe curto que contenha uma finalização deverá percorrer o fluxo de
+processamento, produzir percepções intermediárias verificáveis e disponibilizar pelo backend as
+métricas que alcançarem a etapa de integração. Resultados ainda não confiáveis deverão ser marcados
+como indisponíveis, com o motivo registrado.
+
+</Callout>
+
+## Estratégia de execução
+
+A sprint será dividida em duas etapas. Na primeira semana, o grupo priorizará os componentes que
+desbloqueiam as métricas. Na segunda, esses resultados serão refinados e conectados aos extratores
+de features, ao backend e ao frontend.
+
+| Período | Foco | Resultado planejado |
+| --- | --- | --- |
+| Semana 1, até quinta-feira | Campo e gol, bola, jogadores, tracking e instante da finalização | Saídas intermediárias com contratos estáveis para consumo pelas métricas |
+| Semana 1, em paralelo | Backend e frontend | Fluxo inicial de processamento, contratos do evento e telas capazes de acompanhar o processamento |
+| Transição entre as semanas | Integração dos componentes prioritários | Validação dos formatos, índices de frame, timestamps, resolução e tratamento de ausências |
+| Semana 2 | Métricas da finalização | Extratores conectados às percepções necessárias, com valor, confiança e evidências |
+| Encerramento da Semana 2 | Refinamento, integração, testes e documentação | Um fluxo demonstrável, limitações registradas e entregas reunidas na `develop` |
+
+A identificação dos jogadores será iniciada após a estabilização mínima da detecção e do tracking.
+Ela poderá atravessar a transição entre as duas semanas, pois depende da continuidade dos IDs para
+consolidar a cor do uniforme ao longo do tempo.
+
+## Frentes da primeira semana
+
+### Percepção e eventos do vídeo
+
+Os componentes abaixo serão tratados como prioridades porque fornecem os dados necessários para os
+extratores de métricas.
+
+| Componente | Responsável | Saída planejada | Principais consumidores |
+| --- | --- | --- | --- |
+| Linhas do campo e gol | Danilo | Keypoints, geometria do campo e transformação entre imagem e coordenadas do campo | Área ocupada, atacante marcado e posicionamento do goleiro |
+| Bola e velocidade | Gabriel | Posição da bola por frame, continuidade temporal e estimativa de velocidade | Instante da finalização, assistência, direção do lance e métricas temporais |
+| Variantes de detecção de jogadores | Daniel | Caixas, função e confiança para jogadores, goleiros e arbitragem | Tracking, identificação e métricas espaciais |
+| Tracking de jogadores | Yasmim | `track_id` estável associado às detecções ao longo dos frames | Identificação, assistência, atacante marcado e análise temporal |
+| Identificação de jogadores | Daniel | Associação temporal entre cada trajetória e `team_a` ou `team_b` | Assistência, atacante marcado, área ocupada e posicionamento do goleiro |
+| Instante da finalização | Davi | Frame e timestamp de referência do chute | Janela temporal e todas as métricas calculadas em torno da finalização |
+
+Os módulos deverão compartilhar a resolução original do vídeo, `frame_index` e `timestamp_s`. A
+detecção fornecerá caixas em pixels, o tracking acrescentará os identificadores sem substituir as
+caixas originais, e a homografia será responsável por converter pontos da imagem para coordenadas
+do campo quando estiver disponível.
+
+### Backend e frontend
+
+O backend será desenvolvido em paralelo por Davi, Matheus e Roberto. Essa frente deverá preparar a
+orquestração dos módulos, o contrato do evento de finalização, o registro de versões e tempos de
+execução, além da interface usada pelo frontend. Os módulos de percepção poderão ser conectados
+progressivamente, sem exigir que todos estejam prontos para validar o fluxo da aplicação.
+
+O frontend será desenvolvido por Lucas e deverá permitir o envio do clipe, o acompanhamento do
+processamento e a leitura do resultado estruturado. A interface consumirá o contrato publicado pelo
+backend e não dependerá diretamente dos formatos internos de cada modelo.
+
+<Callout type="warning" title="Contrato antes da integração">
+
+As frentes poderão avançar em paralelo, mas não deverão produzir scripts isolados como entrega
+final. Cada módulo terá uma entrada e uma saída explícitas, será registrado na configuração do
+pipeline e deverá fornecer dados compatíveis com o contrato compartilhado.
+
+</Callout>
+
+## Métricas da finalização
+
+Na segunda semana, as percepções produzidas pelos componentes prioritários serão usadas para
+calcular as features associadas à finalização.
+
+| Métrica | Responsável | Dependências previstas | Resultado esperado |
+| --- | --- | --- | --- |
+| Posicionamento do goleiro | Daniel | Campo, gol, finalizador, goleiro e instante do chute | Avaliação da posição do goleiro em relação ao finalizador e ao centro do gol |
+| Área ocupada | Roberto | Campo, jogadores, tracking e instante do chute | Medida da ocupação defensiva na região relevante da jogada |
+| Atacante marcado | Matheus | Identificação das equipes, posições no campo e instante do chute | Indicação de proximidade entre o finalizador e defensores adversários |
+| Olhou para a bola | Davi e Roberto | Jogador finalizador, bola, pose e janela anterior ao chute | Indicação de orientação do jogador em relação à bola antes da finalização |
+| Pé ou cabeça | Gov | Instante do chute, bola e pose do finalizador | Classificação entre cabeça, perna esquerda e perna direita |
+| Assistência | Yasmim e Danilo | Bola, tracking, equipes e janela anterior ao chute | Indicação de participação de outro jogador da equipe na construção imediata do lance |
+| Tipo de jogada | Gov | Bola, jogadores, tracking e contexto temporal | Classificação entre jogada coletiva, individual ou bola parada |
+
+As sete métricas representam o escopo planejado, mas não uma garantia de conclusão integral nesta
+sprint. A prioridade será implementar aquelas cujas dependências estiverem disponíveis e com
+qualidade suficiente. Métricas bloqueadas deverão ter a causa e os próximos passos registrados para
+continuidade na sprint seguinte.
+
+Os nomes e domínios das saídas deverão seguir o contrato de rótulos do projeto. Cada extrator
+deverá retornar valor, confiança, versão e evidências suficientes para auditoria. Quando uma
+dependência estiver ausente ou abaixo da confiança mínima, o resultado será `unavailable`, junto
+com uma justificativa, em vez de assumir `false` ou zero.
+
+## Dependências e ordem de desbloqueio
+
+O fluxo planejado mantém responsabilidades separadas, mas torna explícitas as relações entre os
+componentes:
+
+```text
+linhas, keypoints e gol ──► homografia e coordenadas do campo ──► métricas espaciais
+
+detecção de jogadores ──► tracking ──► identificação por equipe ──► métricas entre jogadores
+
+posição da bola ──► trajetória e velocidade ──► instante da finalização ──► janela das métricas
+
+percepções + métricas ──► evento estruturado ──► backend ──► frontend
+```
+
+Essa ordem permite que linhas e gol, bola e jogadores sejam desenvolvidos em paralelo. Tracking
+depende das detecções por frame, enquanto a identificação por equipe usa a continuidade temporal
+dos IDs para reduzir mudanças causadas por oclusão, enquadramento ou iluminação. As métricas só
+serão consideradas integradas quando consumirem essas saídas pelo pipeline comum.
+
+## Pacotes de trabalho
+
+| Pacote | Entrega planejada | Critério de conclusão |
+| --- | --- | --- |
+| S2-P01 Percepção prioritária | Campo, bola, jogadores, tracking e instante do chute | Cada componente processa um clipe real e exporta o contrato acordado |
+| S2-P02 Identificação | Associação entre trajetórias e equipes | A equipe é consolidada por `track_id`, com estado indisponível quando não houver amostras suficientes |
+| S2-B01 Backend | Orquestração, contratos, serviço HTTP e avaliação | Um clipe pode ser processado e seu evento validado e consultado |
+| S2-F01 Frontend | Envio, progresso e apresentação do resultado | A interface consome o serviço sem conhecer detalhes internos dos modelos |
+| S2-M01 Métricas | Extratores priorizados de features | Cada extrator desenvolvido declara dependências, versão, confiança, evidências e motivo de indisponibilidade |
+| S2-I01 Integração | Pipeline comum com módulos reais e fluxo ponta a ponta | Um clipe percorre as etapas previstas e gera um resultado reproduzível |
+| S2-Q01 Qualidade e documentação | Testes, evidências, limitações e instruções de execução | As decisões podem ser verificadas por outra pessoa do grupo |
+
+## Verificação e evidências
+
+A validação da sprint combinará testes de contrato, inspeção visual e execução ponta a ponta.
+
+- Testes unitários verificarão serialização, filtragem, tratamento de entradas ausentes e regras de
+  cada feature.
+- Clipes reais serão usados para revisar detecções, continuidade dos IDs, equipes, geometria do
+  campo, bola e instante do chute.
+- Vídeos anotados e JSONs intermediários serão mantidos como artefatos locais de depuração, sem
+  serem versionados.
+- As métricas serão comparadas com os rótulos disponibilizados pelo parceiro quando houver
+  correspondência suficiente.
+
+## Riscos e respostas planejadas
+
+| Risco | Impacto | Resposta planejada |
+| --- | --- | --- |
+| Atraso em campo, bola ou jogadores | Bloqueio das métricas dependentes | Priorizar contratos mínimos e permitir `unavailable` até o componente real ser integrado |
+| Fragmentação de IDs em oclusões | Equipe e métricas temporais inconsistentes | Agregar evidências por trajetória, revisar parâmetros do tracker e manter confiança explícita |
+| Homografia ausente ou instável | Coordenadas de campo inválidas | Não projetar coordenadas sem matriz válida e registrar erro de reprojeção |
+| Divergência entre branches | Conflitos e duplicação de pipelines | Fazer merge requests menores, revisar contratos compartilhados e integrar continuamente na `develop` |
+| Rótulos incompletos | Dificuldade para avaliar algumas métricas | Registrar os casos sem referência e validar as regras com o parceiro |
+| Custo elevado por frame | Processamento incompatível com edge computing | Usar amostragem ampla para contexto e uma janela curta em resolução temporal maior ao redor do chute |
+| Integração tardia com backend e frontend | Componentes corretos, mas sem fluxo demonstrável | Reservar a segunda semana para substituição dos stubs, integração e testes ponta a ponta |
+
+## Limites da sprint
+
+Esta sprint buscará uma primeira versão funcional, não a operação final do produto. Permanecerão
+fora deste incremento:
+
+- encontrar automaticamente todas as finalizações em uma transmissão completa;
+- reconhecer individualmente o jogador por nome ou número da camisa;
+- concluir otimizações com ONNX, TensorRT, quantização ou execução definitiva no Jetson;
+- afirmar desempenho em hardware de borda com base em medições realizadas apenas no computador de
+  desenvolvimento;
+- cobrir todos os casos de oclusão, mudança de câmera, iluminação extrema ou jogadores fora de
+  campo;
+- substituir a validação do parceiro por regras heurísticas sem evidência.
+
+Esses limites não impedem experimentos durante a sprint, mas evitam que resultados exploratórios
+sejam apresentados como decisões já validadas.
+
+## Critérios de conclusão
+
+A Sprint 2 será considerada concluída quando:
+
+- [ ] os componentes prioritários produzirem saídas compatíveis com os contratos do pipeline;
+- [ ] detecção, tracking e identificação fornecerem dados consumíveis pelas métricas;
+- [ ] campo, bola e instante do chute estiverem alinhados por frame e timestamp;
+- [ ] cada métrica que alcançar a integração retornar valor ou indisponibilidade justificada;
+- [ ] o backend processar o clipe e disponibilizar o evento validado;
+- [ ] o frontend acompanhar o processamento e apresentar o resultado;
+- [ ] pelo menos um clipe real percorrer o fluxo ponta a ponta;
+- [ ] testes, evidências visuais, riscos, limitações e métricas pendentes estiverem registrados;
+- [ ] as entregas aprovadas estiverem reunidas na `develop` sem dependência de execução manual entre
+  scripts desconectados.
+
+## Relação com a Sprint 1
+
+Este planejamento detalha o incremento funcional antecipado em
+[Planejamento das próximas sprints](/docs/sprint-1/planejamento-proximas-sprints). As decisões sobre
+detecção, tracking, identificação, homografia e pose partem da
+[pesquisa de modelos de visão computacional](/docs/sprint-1/pesquisa/modelos-visao-computacional),
+enquanto a separação entre borda, backend e frontend segue a
+[arquitetura proposta](/docs/sprint-1/arquitetura).
