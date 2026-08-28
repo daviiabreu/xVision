@@ -10,6 +10,9 @@ vira decoracao e ninguem percebe.
 
 from __future__ import annotations
 
+import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -24,6 +27,36 @@ def _fontes_declaradas() -> list[str]:
     return list(configurada or [])
 
 
+def _executa_line_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
+    modulo_falso = types.ModuleType("ultralytics")
+
+    class YOLO:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def train(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        def predict(self, *args: object, **kwargs: object) -> list[object]:
+            return []
+
+    modulo_falso.__dict__["YOLO"] = YOLO
+    monkeypatch.setitem(sys.modules, "ultralytics", modulo_falso)
+
+    for arquivo in (
+        ROOT / "src" / "models" / "line_tracking" / "dataset.py",
+        ROOT / "src" / "models" / "line_tracking" / "train.py",
+        ROOT / "src" / "models" / "line_tracking" / "validate.py",
+    ):
+        nome = f"coverage_probe_{arquivo.stem}"
+        sys.modules.pop(nome, None)
+        spec = importlib.util.spec_from_file_location(nome, arquivo)
+        assert spec is not None and spec.loader is not None
+        modulo = importlib.util.module_from_spec(spec)
+        sys.modules[nome] = modulo
+        spec.loader.exec_module(modulo)
+
+
 AREAS = tuple(sorted((ROOT / fonte).resolve() for fonte in _fontes_declaradas()))
 
 
@@ -36,6 +69,7 @@ def measured_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> set[Path]
     )
     coverage.config.disable_warnings = ["no-data-collected"]
     coverage.start()
+    _executa_line_tracking(monkeypatch)
     coverage.stop()
     coverage.save()
     return {Path(name).resolve() for name in coverage.get_data().measured_files()}

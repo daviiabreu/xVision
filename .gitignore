@@ -181,6 +181,10 @@ pytorch_model.bin
 saved_model.pb
 variables/
 
+src/models/line_tracking/dataset
+src/models/line_tracking/downloads
+src/models/line_tracking/runs/*
+
 # Fixture de teste e esquema de exemplo continuam versionaveis: eles nao sao dado
 # do parceiro, sao o que prova que o carregador entende o formato dele.
 !src/tests/**/*.csv
