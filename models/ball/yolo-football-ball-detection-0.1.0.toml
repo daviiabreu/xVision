@@ -1,0 +1,15 @@
+schema_version = "1.0"
+kind = "ball"
+name = "yolo-football-ball-detection"
+version = "0.1.0"
+entrypoint = "yolo-football-ball-detection.pt"
+
+[source]
+url = "https://huggingface.co/martinjolif/yolo-football-ball-detection"
+license = "AGPL-3.0"
+note = "YOLO11n de classe unica, 2,59M parametros, mAP50 0,891 em 125 imagens de teste"
+
+[[files]]
+path = "yolo-football-ball-detection.pt"
+sha256 = "fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb"
+bytes = 5535706

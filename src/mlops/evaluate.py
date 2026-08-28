@@ -51,6 +51,9 @@ class MetricReport:
     scores: Mapping[str, float]
     confusion: Mapping[str, int] | None = None
     baseline_majority: Mapping[str, float] | None = None
+    baseline_majority_covered: Mapping[str, float] | None = None
+    baseline_metadata: float | None = None
+    mcnemar: Mapping[str, float] | None = None
     threshold: Mapping[str, float] | None = None
     label_grain: Mapping[str, object] | None = None
 
@@ -68,6 +71,13 @@ class MetricReport:
             "baseline_majority": (
                 None if self.baseline_majority is None else dict(self.baseline_majority)
             ),
+            "baseline_majority_covered": (
+                None
+                if self.baseline_majority_covered is None
+                else dict(self.baseline_majority_covered)
+            ),
+            "baseline_metadata": self.baseline_metadata,
+            "mcnemar": None if self.mcnemar is None else dict(self.mcnemar),
             "threshold": None if self.threshold is None else dict(self.threshold),
             "label_grain": None if self.label_grain is None else dict(self.label_grain),
         }
@@ -93,7 +103,7 @@ def evaluate(
     *,
     population: str = "",
 ) -> Report:
-    declaradas = [nome for nome, _ in table.metrics]
+    declaradas = [m.feature for m in table.metrics]
     extras = sorted(
         {nome for por_tiro in predictions.values() for nome in por_tiro} - set(declaradas)
     )
@@ -108,6 +118,7 @@ def _metric(
     truth: Mapping[str, Mapping[str, str]],
     table: Labels,
 ) -> MetricReport:
+    metrica = table.metric_for(feature)
     rotulo = table.label_for(feature)
     if rotulo is None:
         raise EvaluationError(
@@ -141,6 +152,11 @@ def _metric(
         baseline_majority=(
             None if rotulo.type == "numeric" else majority([a for _, a in pares], esperados)
         ),
+        baseline_majority_covered=(
+            None if rotulo.type == "numeric" or not pares else majority_covered(pares)
+        ),
+        baseline_metadata=metrica.baseline_metadata if metrica is not None else None,
+        mcnemar=None if rotulo.type == "numeric" or not pares else mcnemar(pares),
         threshold=_threshold(pares) if rotulo.type == "bool" else None,
         label_grain=(None if rotulo.grain is None else {"unit": "m", "step": rotulo.grain}),
     )
@@ -202,6 +218,59 @@ def majority(cobertos: Sequence[object], todos: Sequence[object]) -> dict[str, f
     pares = [(maioria, str(a)) for a in alvo]
     acertos = sum(1 for _, a in pares if str(a) == maioria)
     return {"accuracy": acertos / len(alvo), **_f1(pares), "n": len(alvo)}
+
+
+def majority_covered(pares: Sequence[tuple[object, object]]) -> dict[str, float]:
+    """A melhor constante calculada DENTRO do subconjunto coberto, e nao na populacao inteira.
+
+    `majority` mede a maioria na populacao e a acuracia no coberto, o que e o par certo para
+    julgar cobertura. Mas ele nao responde a outra pergunta, que e a que decide se a feature
+    aprendeu alguma coisa: naquele subconjunto especifico, um constante teria ido melhor? Com
+    cobertura de 60% num rotulo de maioria 0,52, a melhor constante do coberto pode chegar a 0,86,
+    e um numero absoluto de 0,60 passaria por bom estando muito abaixo do trivial.
+    """
+    alvos = [a for _, a in pares]
+    maioria, acertos = Counter(str(a) for a in alvos).most_common(1)[0]
+    constante = [(maioria, str(a)) for a in alvos]
+    return {"accuracy": acertos / len(alvos), **_f1(constante), "n": len(alvos)}
+
+
+def mcnemar(pares: Sequence[tuple[object, object]]) -> dict[str, float]:
+    """O teste pareado contra o constante, que e o que separa sinal de ruido neste conjunto.
+
+    Diferenca de acuracia nao decide quando a maioria e 0,894 e ha 64 positivos em 604: um modelo
+    util de `looked_before` tem acuracia 0,8825, ABAIXO do constante, e ainda assim vai de macro F1
+    0,472 para 0,743. O pareado olha so os casos em que os dois discordam, que e onde a informacao
+    esta.
+
+    E o exato binomial, e nao a aproximacao qui-quadrado, porque com `b + c` na casa das dezenas a
+    aproximacao erra justamente na faixa que interessa.
+    """
+    alvos = [a for _, a in pares]
+    maioria = Counter(str(a) for a in alvos).most_common(1)[0][0]
+    b = sum(1 for p, a in pares if str(_as_bool(p)) == str(a) and maioria != str(a))
+    c = sum(1 for p, a in pares if str(_as_bool(p)) != str(a) and maioria == str(a))
+    return {
+        "modelo_acertou_constante_errou": b,
+        "modelo_errou_constante_acertou": c,
+        "p_value": _binomial_bilateral(b, c),
+    }
+
+
+def _binomial_bilateral(b: int, c: int) -> float:
+    n = b + c
+    if n == 0:
+        return 1.0
+    menor = min(b, c)
+    cauda = sum(_combinacoes(n, i) for i in range(menor + 1)) / (2**n)
+    return min(1.0, 2.0 * cauda)
+
+
+def _combinacoes(n: int, k: int) -> int:
+    resultado = 1
+    for i in range(k):
+        resultado = resultado * (n - i) // (i + 1)
+    return resultado
 
 
 def _threshold(pares: Sequence[tuple[object, object]]) -> dict[str, float] | None:

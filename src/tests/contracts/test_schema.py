@@ -31,7 +31,12 @@ from contracts.validation import validate_shot_event
 PINNED_VERSION = "1.0"
 PINNED_DIGEST = "2cef64e155c096e1ea7714ffca65dcd0f885e990f4d8a6a5e0ced600b330da75"
 
-IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__"}
+IGNORED_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".claude", "var"}
+"""Pastas que nao sao o repositorio, e que fariam a varredura achar copia que nao existe no git.
+
+`.claude` guarda worktree temporario de agente, que e uma checagem completa do repo e portanto tem
+o proprio `shot_event.v1.json`; `var` guarda cache e execucao. As duas sao ignoradas pelo git, entao
+copia dentro delas nao e o defeito que este teste procura, que e schema duplicado e versionado."""
 
 _RAIZES_DO_SDIST = {"src", "pyproject.toml", "README.md", "PKG-INFO", ".gitignore"}
 

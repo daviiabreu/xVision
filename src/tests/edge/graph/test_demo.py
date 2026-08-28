@@ -42,6 +42,6 @@ def test_the_printed_table_carries_the_stage_the_set_and_the_time(
     main()
 
     saida = capsys.readouterr().out
-    assert "stub-shot@0.1.0" in saida
-    assert "window" in saida
+    assert "ball-break@0.1.0" in saida
+    assert "dense" in saida
     assert "bola em metros" in saida

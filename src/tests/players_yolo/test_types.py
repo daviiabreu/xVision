@@ -58,6 +58,10 @@ def test_frame_serialization_uses_the_contract_vocabulary() -> None:
                 "role": "goalkeeper",
                 "jersey_number": None,
                 "pitch_xy": None,
+                # `keypoints` entrou em `PlayerDetection` junto com a especie `pose`, e o default
+                # e a tupla vazia, entao este detector nao preenche e o `asdict` continua
+                # reportando o campo. Sai `()` e nao `[]` porque `asdict` preserva o tipo.
+                "keypoints": (),
             }
         ],
     }

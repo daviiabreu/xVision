@@ -232,20 +232,30 @@ def test_degraded_values_pass_the_event_schema() -> None:
 
 
 def test_an_empty_selection_yields_an_event_without_features() -> None:
-    """Plataforma sem modelo instalado entrega evento sem feature, e nao evento inventado.
+    """Plataforma sem feature instalada entrega evento sem feature, e nao evento inventado.
 
-    A tupla esta vazia porque nenhuma feature foi escrita ainda.
-    O caminho precisa continuar valido: quem consome o evento tem que receber lista vazia em
-    vez de erro, senao instalar o primeiro modelo vira mudanca de contrato.
+    A configuracao vem escrita aqui e nao de `config/pipeline.toml`. Ate a entrega da primeira
+    feature as duas coincidiam, e o teste passava por acidente: hoje a producao declara
+    `[features.body_part]`, e ler de la faria este teste medir o estado do arquivo em vez do
+    comportamento do carregador.
     """
+    from edge.features.registry import load_extractors, read_feature_config
+
+    selecao = load_extractors(read_feature_config('[modules.shot]\nimpl = "x:Y"\n'))
+
+    assert selecao == ()
+    assert roda(list(selecao), frozenset({"players", "ball", "field"})) == ()
+
+
+def test_the_production_configuration_loads_every_feature_it_declares() -> None:
+    """O outro lado: o que `config/pipeline.toml` declara precisa existir e carregar."""
     from pathlib import Path
 
     from edge.features.registry import load_extractors, read_feature_config
 
     selecao = load_extractors(read_feature_config(Path("config/pipeline.toml")))
 
-    assert selecao == ()
-    assert roda(list(selecao), frozenset({"players", "ball", "field"})) == ()
+    assert {e.spec.name for e in selecao} == {"body_part", "type_of_play"}
 
 
 def test_contract_error_is_what_the_platform_catches_for_bad_evidence() -> None:

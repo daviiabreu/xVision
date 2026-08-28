@@ -185,6 +185,24 @@ def _base(manifest: ArtifactManifest, root: Path | None) -> Path:
     return raiz / digest
 
 
+def entrypoint_of(artifact: str | None, *, root: Path | None = None) -> Path | None:
+    """O peso que `ModuleSpec.artifact` descreve, ou `None` quando o modulo nao declara nenhum.
+
+    E o unico ponto onde um modulo toca o enderecamento de peso, e existe para os sete donos nao
+    reescreverem a mesma sequencia de `read_manifest` mais `resolve`. `None` e resposta legitima e
+    frequente: a suite de conformidade instancia o modulo sem artefato, e nesse caminho o modulo
+    precisa degradar em vez de estourar.
+
+    Peso ausente continua levantando `ArtifactMissing` com o caminho exato, porque configuracao que
+    aponta para peso que nao existe e erro de operacao e nao degradacao: quem pediu o modelo
+    precisa saber que ele nao carregou, em vez de receber saida vazia parecida com ausencia de
+    deteccao.
+    """
+    if artifact is None:
+        return None
+    return resolve(read_manifest(Path(artifact)), root=root)
+
+
 def sha256_of(path: Path) -> str:
     digestor = hashlib.sha256()
     with path.open("rb") as arquivo:

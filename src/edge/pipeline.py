@@ -14,6 +14,7 @@ escreve relatorio.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 from contracts import Clip, ShotEvent
@@ -46,6 +47,21 @@ class ContactOutOfRange(PipelineError): ...
 class AssemblyFailed(PipelineError): ...
 
 
+@dataclass(frozen=True)
+class ClipResult:
+    """O que o clipe produziu, nomeado em vez de posicional.
+
+    Ate aqui isto era uma tupla de dois, e o terceiro campo mostrou por que isso nao escala: a
+    procedencia do instante, se ele foi medido na trajetoria ou estimado no ponto medio, e a
+    diferenca entre um numero e um preenchimento, e nao cabia em lugar nenhum do evento. Tupla que
+    cresce faz todo chamador desempacotar de novo e nao diz o que o campo novo significa.
+    """
+
+    event: ShotEvent
+    stages: tuple[StageRun, ...]
+    shot_source: str | None
+
+
 class _Shot:
     def __init__(self, frame_index: int, shooter_track_id: int | None) -> None:
         self._frame_index = frame_index
@@ -67,7 +83,7 @@ def process_clip(
     provider: FrameSource,
     extractors: Sequence[FeatureExtractor],
     cache: PerceptionCache | None = None,
-) -> tuple[ShotEvent, tuple[StageRun, ...]]:
+) -> ClipResult:
     execucao = run_pipeline(
         clip=clip, modules=modules, framesets=framesets, provider=provider, cache=cache
     )
@@ -82,7 +98,24 @@ def process_clip(
         features=run_features(extractors, execucao.perception, contato, execucao.outputs),
         pipeline=execucao.pipeline,
     )
-    return evento, execucao.stages
+    return ClipResult(event=evento, stages=execucao.stages, shot_source=_source(execucao))
+
+
+def _source(execucao: RunResult) -> str | None:
+    """De onde o instante veio, para a execucao separar clipe medido de clipe estimado.
+
+    Sem isto, cem clipes que cairam no ponto medio e cem que mediram a trajetoria chegam ao
+    relatorio com a mesma cara, e a cobertura do card parece o dobro do que e.
+    """
+    saida = execucao.outputs.get(SHOT)
+    if saida is None:
+        return None
+    for registros in saida.records:
+        for registro in registros:
+            valor = registro.get("source")
+            if isinstance(valor, str):
+                return valor
+    return None
 
 
 def _check_assembly(execucao: RunResult) -> None:

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from edge.cache.perception import PerceptionCache, perception_key, run_module
+from edge.cache.perception import PerceptionCache, perception_key, run_module, tuning_of
 from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, ModuleSpec, PreprocessSpec
 
 SPEC = ModuleSpec(
@@ -22,7 +22,17 @@ SPEC = ModuleSpec(
     frames="coarse",
     preprocess=PreprocessSpec(width=8, height=8, color="rgb", letterbox=False, normalize="none"),
 )
-CHAVE_FIXADA = "d667512351d29a1f67aaed7e33390b463ead2d9c216a48fabc3046c54426c7f1"
+CHAVE_FIXADA = "b0b38c491e6a3a544a936584ce085f426c9eb57b6594b08c1881c32e73859e7c"
+"""O valor mudou uma vez, em 26/08/2026, ao entrar o ajuste do modulo na chave.
+
+O anterior era d667512351d29a1f. Mudar a chave invalida todo o cache em disco, e nesse caso isso e
+o efeito desejado e nao dano colateral: as entradas antigas foram gravadas por um detector cujo
+limiar de confianca nao aparecia em endereco nenhum, entao servir qualquer uma delas seria devolver
+medida de um ajuste sob o nome de outro.
+
+O teste continua existindo pelo motivo de sempre: mudanca acidental de formato de chave nao levanta
+nada, so faz a proxima execucao recalcular tudo em silencio e pagar de novo o que ja estava pronto.
+"""
 REGISTRO = {"box": (0.0, 0.0, 1.0, 1.0), "confidence": 0.9}
 REGISTRO_JSON = {"box": [0.0, 0.0, 1.0, 1.0], "confidence": 0.9}
 
@@ -320,3 +330,41 @@ def test_run_module_serves_fresh_output_when_the_weight_behind_the_manifest_chan
     run_module(modulo, entrada, {}, cache=cache, clip_id="c")
 
     assert chamadas == 2, "o cache serviu saida do peso antigo"
+
+
+def test_mudar_o_ajuste_do_modulo_muda_a_chave() -> None:
+    """Sem isto, baixar conf de 0,25 para 0,10 servia a percepcao antiga e media o valor de antes.
+
+    `implementation_id` hasheia o arquivo do modulo e o digest cobre o peso, e nenhum dos dois muda
+    quando o ajuste vem do TOML. A execucao seguinte devolvia o resultado do limiar velho e o
+    relatorio o publicava como se fosse o novo.
+    """
+    from edge.modules.ball import YoloBall
+
+    frouxo, apertado = YoloBall(), YoloBall()
+    frouxo.configure({"conf": 0.10})
+    apertado.configure({"conf": 0.25})
+
+    assert tuning_of(frouxo) != tuning_of(apertado)
+    assert perception_key(
+        "c1", frouxo.spec, (0, 1), {}, "impl", tuning=tuning_of(frouxo)
+    ) != perception_key("c1", apertado.spec, (0, 1), {}, "impl", tuning=tuning_of(apertado))
+
+
+def test_modulo_sem_ajuste_nao_muda_de_endereco() -> None:
+    """Modulo que nao declara ajuste tem que continuar achando o que ja esta em disco."""
+    from edge.modules.stubs import STUBS
+
+    stub = next(m() for m in STUBS)
+
+    assert tuning_of(stub) is None
+
+
+def test_a_mesma_configuracao_da_a_mesma_chave() -> None:
+    from edge.modules.ball import YoloBall
+
+    um, outro = YoloBall(), YoloBall()
+    um.configure({"conf": 0.10, "imgsz": 1600})
+    outro.configure({"imgsz": 1600, "conf": 0.10})
+
+    assert tuning_of(um) == tuning_of(outro)

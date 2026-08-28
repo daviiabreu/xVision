@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mlops.evaluate import EvaluationError, evaluate
-from mlops.labels import Label, Labels
+from mlops.labels import Label, LabelError, Labels, Metric
 
 MARKED = Label(
     name="marked",
@@ -26,7 +26,7 @@ DISTANCIA = Label(
 )
 TABELA = Labels(
     labels={"marked": MARKED, "shot_distance_m": DISTANCIA},
-    metrics=(("marked", "marked"), ("distancia", "shot_distance_m")),
+    metrics=(Metric("marked", "marked"), Metric("distancia", "shot_distance_m")),
 )
 
 
@@ -132,7 +132,7 @@ def test_the_macro_f1_covers_every_class_the_model_predicted_too() -> None:
         domain=("open play", "set piece", "individual"),
         missing=("",),
     )
-    tabela = Labels(labels={"jogada": jogada}, metrics=(("jogada", "jogada"),))
+    tabela = Labels(labels={"jogada": jogada}, metrics=(Metric("jogada", "jogada"),))
     gabarito = {str(i): {"jogada": "open play"} for i in range(10)}
     predicoes = {
         str(i): {"jogada": ("open play" if i < 5 else "set piece", None)} for i in range(10)
@@ -206,3 +206,66 @@ def test_the_majority_baseline_is_reported_even_when_nothing_was_predicted() -> 
     assert metrica.baseline_majority is not None
     assert metrica.baseline_majority["accuracy"] == pytest.approx(0.9)
     assert metrica.baseline_majority["n"] == 10
+
+
+def test_a_melhor_constante_do_coberto_sai_ao_lado_da_da_populacao() -> None:
+    """Com cobertura parcial, a maioria da populacao nao e a barra do subconjunto avaliado."""
+    verdade = {f"s{i}": {"marked": "true" if i < 2 else "false"} for i in range(10)}
+    previsto = {f"s{i}": {"marked": (True, None)} for i in range(2)}
+
+    (linha, _) = evaluate(previsto, verdade, TABELA).metrics
+
+    assert linha.baseline_majority is not None
+    assert linha.baseline_majority_covered is not None
+    assert linha.baseline_majority["accuracy"] == 0.0
+    assert linha.baseline_majority_covered["accuracy"] == 1.0
+    assert linha.baseline_majority_covered["n"] == 2
+
+
+def test_o_baseline_do_metadado_atravessa_a_tabela_ate_o_relatorio() -> None:
+    """Tres rotulos ja estao resolvidos por coluna tabular, e a maioria sozinha nao e a barra."""
+    tabela = Labels(
+        labels={"marked": TABELA.label("marked")},
+        metrics=(Metric("marked", "marked", baseline_metadata=0.7947),),
+    )
+    verdade = {"s0": {"marked": "true"}}
+
+    (linha,) = evaluate({"s0": {"marked": (True, None)}}, verdade, tabela).metrics
+
+    assert linha.baseline_metadata == 0.7947
+    assert linha.to_dict()["baseline_metadata"] == 0.7947
+
+
+def test_baseline_de_metadado_fora_da_faixa_e_recusado() -> None:
+    with pytest.raises(LabelError):
+        Metric("marked", "marked", baseline_metadata=1.4)
+
+
+def test_mcnemar_conta_so_onde_o_modelo_e_o_constante_discordam() -> None:
+    verdade = {f"s{i}": {"marked": "true" if i < 3 else "false"} for i in range(10)}
+    previsto = {f"s{i}": {"marked": (i < 3, None)} for i in range(10)}
+
+    (linha, _) = evaluate(previsto, verdade, TABELA).metrics
+
+    assert linha.mcnemar is not None
+    assert linha.mcnemar["modelo_acertou_constante_errou"] == 3
+    assert linha.mcnemar["modelo_errou_constante_acertou"] == 0
+
+
+def test_o_p_valor_do_mcnemar_separa_ruido_de_sinal() -> None:
+    """Cinco acertos sem falso positivo nao passam de 0,05, e seis passam: e o limiar do exato."""
+    from mlops.evaluate import mcnemar
+
+    cinco = [(True, True)] * 5 + [(False, False)] * 20
+    seis = [(True, True)] * 6 + [(False, False)] * 20
+
+    assert mcnemar(cinco)["p_value"] >= 0.05
+    assert mcnemar(seis)["p_value"] < 0.05
+
+
+def test_um_modelo_identico_ao_constante_nao_tem_p_valor_significativo() -> None:
+    from mlops.evaluate import mcnemar
+
+    pares = [(False, True)] * 3 + [(False, False)] * 20
+
+    assert mcnemar(pares)["p_value"] == 1.0

@@ -2,17 +2,25 @@
 
 Trocar qual modelo roda em `players` e trocar uma linha de configuracao. Nenhum
 arquivo de codigo muda, e nenhum dono de outra especie fica sabendo.
+
+O que a entrada declara alem de `impl`, `artifact`, `frames` e `needs` vai para `options`, e o
+registro nao interpreta nada disso: cada especie tem vocabulario proprio, e uma lista fechada de
+campos aqui obrigaria este arquivo a mudar toda vez que um dono acrescentasse um limiar ao seu
+modelo. O caso que abriu o campo: `conf` e os limites de forma do detector da bola estavam cravados
+em `src/`, entao calibrar o limiar contra a dobra de ajuste exigia editar codigo, e o valor
+calibrado nao aparecia em lugar nenhum da configuracao que descreve a execucao.
 """
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from importlib import import_module
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import cast
+from types import MappingProxyType
+from typing import Protocol, cast, runtime_checkable
 
 from edge.modules.base import (
     MODULE_KINDS,
@@ -35,6 +43,27 @@ class UnknownImplementation(ModuleError): ...
 class UnknownDependency(ModuleError): ...
 
 
+class ModuleNotConfigurable(ModuleError): ...
+
+
+CAMPOS_DA_ENTRADA = frozenset({"impl", "artifact", "frames", "needs"})
+"""O que o registro entende. Todo o resto e ajuste da especie, e passa inteiro para ela."""
+
+SEM_AJUSTE: Mapping[str, object] = MappingProxyType({})
+"""Padrao imutavel: `dict` como `default_factory` deixaria o tipo parcialmente desconhecido."""
+
+
+@runtime_checkable
+class ConfigurableModule(Protocol):
+    """Modulo que aceita ajuste vindo do TOML, alem de peso e conjunto de quadros.
+
+    Opcional de proposito: `field` e `identity` sao stubs sem numero para ajustar, e obrigar todos
+    a implementar um metodo vazio trocaria um erro claro na configuracao por seis linhas mortas.
+    """
+
+    def configure(self, options: Mapping[str, object]) -> None: ...
+
+
 @dataclass(frozen=True)
 class ModuleConfig:
     kind: str
@@ -42,6 +71,7 @@ class ModuleConfig:
     artifact: str | None = None
     frames: str | None = None
     needs: tuple[str, ...] | None = None
+    options: Mapping[str, object] = SEM_AJUSTE
 
 
 def read_config(source: str | Path) -> tuple[ModuleConfig, ...]:
@@ -62,6 +92,7 @@ def read_config(source: str | Path) -> tuple[ModuleConfig, ...]:
                 artifact=_optional_str(key, "artifact", entry.get("artifact")),
                 frames=_optional_str(key, "frames", entry.get("frames")),
                 needs=_needs(key, needs),
+                options={k: v for k, v in entry.items() if k not in CAMPOS_DA_ENTRADA},
             )
         )
     return tuple(entries)
@@ -84,8 +115,25 @@ def load_modules(configs: tuple[ModuleConfig, ...]) -> dict[str, PerceptionModul
         unknown = tuple(n for n in module.spec.needs if n not in MODULE_KINDS)
         if unknown:
             raise UnknownDependency(f"{key} depende de especie desconhecida: {', '.join(unknown)}")
+        if config.options:
+            _configurar(key, module, config.options)
         registry[config.kind] = module
     return registry
+
+
+def _configurar(key: str, module: PerceptionModule, options: Mapping[str, object]) -> None:
+    """Ajuste declarado para modulo que nao aceita ajuste e erro, e nao um campo a ignorar.
+
+    Ignorar seria o mesmo modo de falha que motivou o campo: quem escreveu `conf = 0.10` na secao
+    errada leria o numero no arquivo, veria a execucao terminar sem reclamar e concluiria que o
+    limiar mudou.
+    """
+    if not isinstance(module, ConfigurableModule):
+        raise ModuleNotConfigurable(
+            f"{key} declara {', '.join(sorted(options))}, e {type(module).__name__} nao aceita "
+            "ajuste por configuracao"
+        )
+    module.configure(options)
 
 
 def _needs(key: str, needs: list[object] | None) -> tuple[str, ...] | None:

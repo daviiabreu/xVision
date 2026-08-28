@@ -68,7 +68,14 @@ def perception_key(
     impl: str,
     *,
     artifact_digest: str | None = None,
+    tuning: str | None = None,
 ) -> str:
+    """A chave do cache. `tuning` e o ajuste em vigor do modulo, e sem ele a chave mente.
+
+    `implementation_id` hasheia o arquivo do modulo e o digest cobre o peso, mas o ajuste que vem do
+    TOML nao aparece em nenhum dos dois: com `conf` na configuracao, baixar o limiar de 0,25 para
+    0,10 deixava a chave identica e a execucao seguinte servia a percepcao antiga, medindo o valor
+    antigo como se fosse o novo. O mesmo vale para `imgsz` e para o numero de ladrilhos."""
     canonico = json.dumps(
         [
             clip_id,
@@ -80,6 +87,7 @@ def perception_key(
             repr(spec.batching),
             artifact_digest or spec.artifact,
             spec.preprocess.fingerprint,
+            tuning or "",
             list(indices),
             {kind: _to_json(ctx[kind]) for kind in sorted(spec.needs) if kind in ctx},
         ],
@@ -135,6 +143,7 @@ def run_module(
         ctx,
         implementation_id(module),
         artifact_digest=artifact_digest_of(module.spec.artifact),
+        tuning=tuning_of(module),
     )
     guardado = cache.get(key)
     if guardado is not None and _responde_ao_pedido(guardado, module.spec.kind, batch.indices):
@@ -142,6 +151,20 @@ def run_module(
     saida = _como_o_cache_devolve(module.infer(batch, ctx))
     cache.put(key, saida)
     return saida
+
+
+def tuning_of(module: PerceptionModule) -> str | None:
+    """O ajuste em vigor do modulo, lido por `getattr` e nao por metodo do protocolo.
+
+    Alargar `PerceptionModule` obrigaria os sete donos e todo duble de teste a crescer um metodo que
+    a maioria nao usa: `field` e `identity` sao stubs sem nada para ajustar. Modulo que nao declara
+    ajuste devolve `None` e a chave fica como era, entao nada existente muda de endereco.
+    """
+    impressao = getattr(module, "fingerprint", None)
+    if not callable(impressao):
+        return None
+    valor: object = impressao()
+    return None if valor is None else str(valor)
 
 
 def artifact_digest_of(artifact: str | None) -> str | None:

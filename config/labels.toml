@@ -117,7 +117,11 @@ label = "assist"
 [[metric]]
 feature = "body_part"
 label = "body_part_3"
+# cortes_metadados.foot reproduz a coluna em 633 de 633: a maioria de 0,519 nao e a barra
+baseline_metadata = 1.0
 
 [[metric]]
 feature = "type_of_play"
 label = "type_of_play"
+# origin_of_move acerta 485 de 609 com o melhor mapa possivel, contra maioria de 0,657
+baseline_metadata = 0.7964

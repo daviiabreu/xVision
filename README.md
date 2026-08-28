@@ -138,9 +138,57 @@ npm install
 npm run dev
 ```
 
-### Execução Completa
+### Pipeline de borda
 
-<!-- TODO: preencher quando o pipeline de borda tiver o primeiro executável -->
+O pipeline roda pela CLI `xvision`, instalada junto com o projeto:
+
+```bash
+uv sync --all-extras
+uv run --frozen --all-extras xvision --help
+```
+
+O vídeo do parceiro não vem no repositório e os pesos de modelo também não. Os clipes ficam em
+`data/footstats/`, os pesos em `var/models/` endereçados pelo conteúdo, e os dois caminhos são
+ignorados pelo git. `xvision data status` e `xvision artifact status` dizem o que falta e onde.
+
+Para processar um clipe, ou o catálogo inteiro:
+
+```bash
+uv run --frozen --all-extras xvision run --clip <arquivo.mp4>
+uv run --frozen --all-extras xvision run --all --config config/pipeline.models.toml
+```
+
+Cada execução grava um diretório em `var/runs/` com os eventos em JSONL, o relatório e a procedência
+(commit, configuração, host, versões dos módulos).
+
+### Medição
+
+Três comandos medem elos diferentes da cadeia, e é proposital que sejam três: o de ponta mede a
+feature e não diz onde ela quebrou.
+
+```bash
+uv run --frozen --all-extras xvision eval <execução>          # features contra os rótulos do parceiro
+uv run --frozen --all-extras xvision eval-ball --dobra tudo   # a bola no instante do contato
+uv run --frozen --all-extras xvision eval-instant <execução>  # o instante contra o gabarito manual
+uv run --frozen --all-extras xvision placar --run-dir <execução> --bola <json do eval-ball>
+```
+
+O `placar` junta os três numa tabela só. Ele existe porque uma mudança pode subir a métrica da
+percepção e derrubar a feature, e com os números em terminais separados isso passa por vitória.
+
+### Gabarito manual do instante
+
+O instante do chute não sai da marcação do parceiro, cujo grão é de um segundo. Ele é anotado a mão:
+
+```bash
+uv run --frozen --all-extras xvision label scrub --annotator <nome>   # janela, quadro a quadro
+uv run --frozen --all-extras xvision label sheet                      # folha em PNG, sem janela
+uv run --frozen --all-extras xvision label stats                      # quanto já tem, e a concordância
+```
+
+O `scrub` precisa de janela e roda onde o `opencv` foi compilado com uma; o `sheet` escreve PNG e
+não depende de nada. A amostra é estratificada por partida com semente fixa, então rodar de novo
+continua de onde parou.
 
 ## Histórico de Lançamentos
 

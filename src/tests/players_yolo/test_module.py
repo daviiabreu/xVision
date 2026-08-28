@@ -1,6 +1,8 @@
 """O adaptador conferido pela suite da propria borda, e nao por teste escrito aqui."""
 
 from collections.abc import Mapping
+from dataclasses import replace
+from typing import cast
 
 import numpy as np
 import pytest
@@ -58,10 +60,48 @@ def test_the_registry_can_build_the_module_with_no_arguments() -> None:
     assert TrackingModule().spec.kind == "tracking"
 
 
-def test_without_the_source_resolution_the_module_refuses_to_load() -> None:
-    """A recusa e o item 2 inteiro: sem o tamanho, a caixa sairia no espaco errado e calada."""
+def test_without_the_source_resolution_the_module_refuses_to_infer() -> None:
+    """A recusa continua, e mudou de lugar: sem o tamanho a caixa sairia errada e calada.
+
+    Ela saiu do `load()` porque em producao o registro constroi com `_resolve(...)()`, sem
+    argumento, e a medida chega no lote. Recusar antes de ver o lote recusaria sempre.
+    """
+    module = PlayersModule(backend=FakeBackend())
+    module.load()
+
     with pytest.raises(ModuleNotLoaded, match="resolucao do clipe de origem"):
-        PlayersModule(backend=FakeBackend()).load()
+        module.infer(make_batch(PREPROCESS), {})
+
+
+def test_the_module_takes_the_resolution_from_the_batch() -> None:
+    """O caminho de producao: nada no construtor, e o `FrameBatch` carrega a medida.
+
+    A caixa cobre o tensor inteiro, entao a de volta cobre o quadro inteiro. Se a conversao
+    tivesse ficado sem tamanho, sairiam os pixels do tensor 1280x1280 em vez de 1920x1080.
+    """
+    module = PlayersModule(backend=FakeBackend())
+    module.load()
+    lote = replace(make_batch(PREPROCESS), source_size=SOURCE)
+
+    registros = module.infer(lote, {}).records[0]
+
+    assert [registro["role"] for registro in registros] == ["player", "referee"]
+    x1, y1, x2, y2 = cast("tuple[float, float, float, float]", registros[0]["box"])
+    assert (x1, y1) == (150.0, 30.0)
+    assert (x2, y2) == (300.0, 330.0)
+
+
+def test_the_batch_resolution_wins_over_the_constructor() -> None:
+    """Divergindo as duas, vale a do lote: ela e a medida do quadro que de fato entrou."""
+    module = PlayersModule(source_size=(640, 360), backend=FakeBackend())
+    module.load()
+
+    do_construtor = module.infer(make_batch(PREPROCESS), {}).records[0][0]["box"]
+    do_lote = module.infer(replace(make_batch(PREPROCESS), source_size=SOURCE), {}).records[0][0][
+        "box"
+    ]
+
+    assert do_construtor != do_lote
 
 
 def test_players_drops_the_ball_and_reports_role_and_confidence() -> None:

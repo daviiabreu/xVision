@@ -1,8 +1,28 @@
-# Peso de hub, no formato que `edge.artifacts.read_manifest` le e `xvision artifact get` confere.
+# Quatro classes de transmissao de futebol no lugar da classe `person` do COCO.
 #
-# O JSON que estava aqui antes tinha esquema proprio e nao passava por nenhum dos dois: o leitor
-# da borda usa `tomllib`, entao ele engasgava no primeiro `{`. Digest, caminho e verificacao de
-# integridade ja existiam no repositorio; faltava este arquivo falar a mesma lingua.
+# Este arquivo e a juncao de dois manifestos que descreviam o mesmo peso: o `1.0.0`, que veio do
+# `develop` com a procedencia e as licencas, e o `0.1.0`, que veio da branch do instante da
+# finalizacao com a medida do que o peso muda na metrica. Os dois declaravam o mesmo `path` e o
+# mesmo `sha256`, e o digest e sobre esse par, entao os dois enderecavam
+# `var/models/fac37e36b0dc6f605ace4b134107d134396734a99254931aee2acbc2768a0256/` e o peso ja em
+# disco continua servindo. Ficou a versao `1.0.0`, que e a que o `develop` publicou.
+#
+# ## O que o peso resolve
+#
+# O `yolov8n` do COCO enxerga gente e para por ai: goleiro, jogador de linha, arbitro e gandula
+# saem todos como `person`, e o `_classes_do_peso` cai no mapa `COCO_PERSON`, que deixa `role` em
+# aberto. Como a metrica de qualidade da bola mede a distancia da bola ate a caixa de gente mais
+# proxima, um arbitro conta como jogador e aproxima o contato de quem nao chutou.
+#
+# Este peso tem `goalkeeper`, `player` e `referee` separados, e a classe 0 e a bola, que o
+# `_classes_do_peso` deixa de fora da contagem de gente porque `ball` nao esta em `PAPEIS`.
+#
+# Ele detecta menos gente, e isso e o esperado: medido no quadro do contato dos 24 clipes da dobra
+# de ajuste, 18,5 caixas de gente por quadro contra 23,1 do `yolov8n`, cobrindo 4,2% do quadro
+# contra 4,9%. Com menos caixa a metrica fica mais dificil e nao mais facil: um ponto sorteado no
+# gramado encosta em alguem 12,48% das vezes, contra 13,29% com o COCO.
+#
+# ## Onde por o arquivo
 #
 # O peso nao vem no Git, porque `*.pt` e ignorado. Para colocar no lugar certo:
 #
@@ -20,8 +40,10 @@ entrypoint = "football-player-detection.pt"
 [[files]]
 path = "football-player-detection.pt"
 sha256 = "75b09c377fbf9d0791d23f6cfb689f5aed6eaa43a6818bd1fb884cf7507fffaf"
+bytes = 136802409
 
 [source]
+classes = "0 ball, 1 goalkeeper, 2 player, 3 referee"
 repository = "https://github.com/roboflow/sports"
 setup = "https://github.com/roboflow/sports/blob/main/examples/soccer/setup.sh"
 download = "https://drive.google.com/uc?id=17PXFNlx-jI7VjVo_vQnB1sONjRyvoB-q"

@@ -14,7 +14,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "opencv-python", marker = "sys_platform == 'nunca'" }]
+overrides = [{ name = "opencv-python", marker = "sys_platform == 'never'" }]
 
 [[package]]
 name = "annotated-doc"
@@ -3366,7 +3366,7 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "nvidia-ml-py", marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
-    { name = "opencv-python", marker = "sys_platform == 'nunca'" },
+    { name = "opencv-python", marker = "sys_platform == 'never'" },
     { name = "pillow", marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
     { name = "polars", marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
     { name = "psutil", marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },

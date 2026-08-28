@@ -28,7 +28,7 @@ REQUIRED: Mapping[str, frozenset[str]] = {
     "field": frozenset(),
     "tracking": frozenset({"track_id"}),
     "identity": frozenset({"track_id"}),
-    "pose": frozenset(),
+    "pose": frozenset({"track_id", "keypoints"}),
     "shot": frozenset({"frame_index"}),
 }
 

@@ -86,9 +86,34 @@ class Label:
 
 
 @dataclass(frozen=True)
+class Metric:
+    """Uma metrica: a feature, a coluna que a mede, e a barra contra a qual ela e julgada.
+
+    `baseline_metadata` e a fracao que o metadado do proprio corte ja acerta sozinho, sem tocar em
+    video. Ela existe porque tres dos rotulos declarados ja estao resolvidos por tabela, e comparar
+    uma feature de video so contra a maioria publicaria como ganho o que ninguem comprou: medido,
+    `cortes_metadados.foot` reproduz `body_part` em 633 de 633, e `origin_of_move` acerta
+    `type_of_play` em 485 de 609 com o melhor mapa possivel.
+
+    `None` quando nao ha coluna tabular que resolva o rotulo, que e o caso das cinco restantes.
+    """
+
+    feature: str
+    label: str
+    baseline_metadata: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.baseline_metadata is not None and not 0.0 <= self.baseline_metadata <= 1.0:
+            raise LabelError(
+                f"a metrica {self.feature!r} declara baseline_metadata "
+                f"{self.baseline_metadata!r}, e ela e uma fracao entre 0 e 1"
+            )
+
+
+@dataclass(frozen=True)
 class Labels:
     labels: Mapping[str, Label]
-    metrics: Sequence[tuple[str, str]] = field(default_factory=tuple)
+    metrics: Sequence[Metric] = field(default_factory=tuple)
 
     def label(self, name: str) -> Label:
         try:
@@ -99,14 +124,17 @@ class Labels:
             ) from erro
 
     def features_for(self, label: str) -> tuple[str, ...]:
-        return tuple(feature for feature, alvo in self.metrics if alvo == label)
+        return tuple(m.feature for m in self.metrics if m.label == label)
+
+    def metric_for(self, feature: str) -> Metric | None:
+        return next((m for m in self.metrics if m.feature == feature), None)
 
     def required(self) -> tuple[Label, ...]:
         return tuple(rotulo for rotulo in self.labels.values() if rotulo.required)
 
     def label_for(self, feature: str) -> Label | None:
-        alvo = next((rotulo for nome, rotulo in self.metrics if nome == feature), None)
-        return None if alvo is None else self.label(alvo)
+        metrica = self.metric_for(feature)
+        return None if metrica is None else self.label(metrica.label)
 
 
 def read_labels(source: str | Path) -> Labels:
@@ -118,14 +146,23 @@ def read_labels(source: str | Path) -> Labels:
         if rotulo.name in rotulos:
             raise LabelError(f"rotulo {rotulo.name!r} declarado duas vezes")
         rotulos[rotulo.name] = rotulo
-    metricas: list[tuple[str, str]] = []
+    metricas: list[Metric] = []
     for entrada in cast("list[dict[str, object]]", documento.get("metric", [])):
         feature, alvo = entrada.get("feature"), entrada.get("label")
         if not isinstance(feature, str) or not isinstance(alvo, str):
             raise LabelError("cada metric precisa declarar feature e label, os dois texto")
         if alvo not in rotulos:
             raise LabelError(f"a metrica {feature!r} aponta para o rotulo {alvo!r}, que nao existe")
-        metricas.append((feature, alvo))
+        base = entrada.get("baseline_metadata")
+        if base is not None and not isinstance(base, (int, float)):
+            raise LabelError(
+                f"a metrica {feature!r} declara baseline_metadata {base!r}, e ele e um numero"
+            )
+        metricas.append(
+            Metric(
+                feature=feature, label=alvo, baseline_metadata=None if base is None else float(base)
+            )
+        )
     return Labels(labels=rotulos, metrics=tuple(metricas))
 
 

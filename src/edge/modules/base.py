@@ -79,6 +79,22 @@ class ModuleSpec:
     frames: str
     preprocess: PreprocessSpec
     needs: tuple[str, ...] = ()
+    optional_needs: tuple[str, ...] = ()
+    """Especies que refinam a resposta e sem as quais o modulo ainda funciona.
+
+    A diferenca para `needs` e o que acontece quando elas falham. Modulo sem `needs` satisfeito e
+    pulado, e no caso do `shot` isso custa o clipe inteiro: `process_clip` levanta `NoShotDetected`
+    e nenhuma feature chega a ser medida. Com `optional_needs` a etapa roda mesmo assim, so que sem
+    o refinamento.
+
+    O caso que criou o campo: o instante da finalizacao sai da trajetoria da bola, e a proximidade
+    de um jogador serve para recusar uma quebra que acontece com a bola sozinha no meio do campo.
+    Exigir `players` para isso trocaria uma melhora por uma fragilidade, porque um clipe em que a
+    deteccao de jogador falha passaria a nao produzir evento nenhum.
+
+    Elas entram na ordenacao do grafo como `needs`, entao o refinador roda antes de quem refina.
+    """
+
     batching: Batching = PerFrame()
     artifact: str | None = None
 
@@ -100,9 +116,32 @@ def tensor_dtype(normalize: Normalize) -> np.dtype[np.uint8] | np.dtype[np.float
 
 @dataclass(frozen=True)
 class FrameBatch:
+    """O lote pre-processado, mais o tamanho do quadro de onde ele saiu.
+
+    `source_size` e `(largura, altura)` do quadro original, e existe porque `records.py` cobra caixa
+    em pixel do quadro original enquanto o modulo so recebe o tensor ja redimensionado. Sem esse
+    numero nao ha como voltar, e todo detector de verdade emitiria caixa no espaco errado sem
+    ninguem notar: a caixa continua sendo quatro floats plausiveis. Os stubs nao esbarravam nisso
+    porque leem o gabarito da fixture em vez de olhar o tensor.
+
+    `source_fps` existe pelo mesmo motivo, um nivel acima: sem a taxa, o modulo so consegue contar
+    quadros, e todo limite fisico (velocidade de bola, aceleracao, tempo de posse) vira numero em
+    unidade de quadro que muda de significado a cada clipe. Os dois sao opcionais porque lote
+    montado a mao em teste nao precisa deles, e fonte em memoria nao tem arquivo de onde tirar.
+
+    `clip_id` existe pelo mesmo padrao dos dois anteriores: o modulo nao tem outro jeito de saber de
+    que clipe o lote saiu, e ha implementacao que precisa. A que motivou o campo e o oraculo de
+    instante, que le o gabarito manual para medir quanto do erro de uma feature vem do instante
+    errado e quanto vem da propria feature. Ele vive em `mlops` e nao em `edge` justamente porque le
+    rotulo, e a fronteira de import impede que um modulo de producao faca o mesmo.
+    """
+
     indices: tuple[int, ...]
     tensor: np.ndarray[tuple[int, ...], np.dtype[np.generic]]
     preprocess: PreprocessSpec
+    source_size: tuple[int, int] | None = None
+    source_fps: float | None = None
+    clip_id: str | None = None
 
     def __post_init__(self) -> None:
         expected = (

@@ -52,9 +52,6 @@ dev = [
     "httpx2>=2.0",
 ]
 
-[tool.uv]
-override-dependencies = ["opencv-python; sys_platform == 'nunca'"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -99,6 +96,26 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["api", "cli", "contracts", "edge", "mlops", "xvision_players_yolo"]
+
+[tool.uv]
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
+# O `ultralytics` depende de `opencv-python`, o build com GUI, enquanto o projeto declara
+# `opencv-python-headless`. Com os dois instalados quem ganha o nome `cv2` depende da ordem de
+# instalacao, e o build com GUI exige libxcb, libGL e o resto do X11.
+#
+# Isso quebrou o CI de forma nao obvia: os testes da API falhavam com
+# `ImportError: libxcb.so.1: cannot open shared object file`, sem nenhuma relacao aparente com a
+# mudanca que os trouxe. E o mesmo pacote iria parar na imagem do dispositivo de borda, que nao tem
+# tela nenhuma.
+#
+# O marcador `sys_platform == 'never'` nunca e verdadeiro, entao a dependencia transitiva some e
+# sobra so o headless, que oferece o mesmo `cv2` sem as funcoes de janela. O `ultralytics` nao usa
+# janela fora de `show=True`.
+#
+# A anotacao do gabarito nao se perde com isso, e foi medido: o wheel headless de macOS reporta
+# `GUI: COCOA` e `cv2.imshow` funciona, entao `xvision label scrub` continua abrindo janela ali. O
+# wheel de Linux reporta `GUI: NONE`, e para esse caso existe `xvision label sheet`, que escreve
+# PNG. O `scrub` le o backend do proprio build e aponta o caminho alternativo quando nao ha janela.
 
 [tool.pyright]
 include = ["src"]

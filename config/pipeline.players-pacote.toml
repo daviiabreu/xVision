@@ -1,0 +1,81 @@
+# A mesma configuracao de producao, com `players` e `tracking` no pacote da MR !31.
+#
+# Ela existe para uma comparacao, e nao para ser o padrao. Duas implementacoes das duas especies
+# convivem no repositorio depois do merge com o `develop`:
+#
+#   `edge.modules.players:YoloPlayers`      e `edge.modules.tracking:GreedyTracking`
+#   `xvision_players_yolo.module:PlayersModule` e `:TrackingModule`
+#
+# As duas foram escritas em paralelo, por pessoas diferentes, sem que nenhuma pudesse medir a
+# outra. Escolher por argumento seria escolher por quem fala mais alto, e a metrica ja existe:
+#
+#   xvision eval-ball --config config/pipeline.models.toml         --dobra ajuste
+#   xvision eval-ball --config config/pipeline.players-pacote.toml --dobra ajuste
+#
+# A metrica da bola mede a distancia da bola detectada ate a caixa de jogador mais proxima, entao
+# ela responde de fato sobre `players`: detector que perde gente, ou que conta arbitro como
+# jogador, move o numero. Rodar as duas e comparar decide qual fica.
+#
+# O que difere da producao, e o teste em `test_config_de_modelos.py` cobra que seja so isto:
+# `impl` de `players` e de `tracking`. Peso, frameset, ajuste da bola e features ficam iguais,
+# senao a comparacao mede duas coisas ao mesmo tempo.
+#
+# `frames` das duas segue `dense`, como na producao, e nao o `coarse`/`window` que os `ModuleSpec`
+# do pacote declaram: o registro sobrepoe o do spec, e igualar aqui e o que mantem a comparacao
+# valida. A dobra reservada continua fora, e `eval-ball` tem `--dobra ajuste` como padrao por isso.
+
+[frames.coarse]
+strategy = "uniform"
+fps = 5
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[frames.window]
+strategy = "around"
+anchor   = "shot"
+before_s = 1.5
+after_s  = 0.5
+fps      = "native"
+
+[modules.players]
+impl     = "xvision_players_yolo.module:PlayersModule"
+artifact = "models/players/football-player-detection-1.0.0.toml"
+frames   = "dense"
+
+[modules.ball]
+impl     = "edge.modules.ball:YoloBall"
+artifact = "models/ball/yolo-football-ball-detection-0.1.0.toml"
+frames   = "dense"
+conf            = 0.10
+imgsz           = 1600
+ladrilhos       = 2
+sobreposicao_px = 100
+
+[modules.field]
+impl   = "edge.modules.stubs:StubField"
+frames   = "dense"
+
+[modules.shot]
+impl   = "edge.modules.shot:BallBreakShot"
+frames = "dense"
+
+[modules.tracking]
+impl   = "xvision_players_yolo.module:TrackingModule"
+frames   = "dense"
+
+[modules.pose]
+impl     = "edge.modules.pose:YoloPose"
+artifact = "models/pose/yolov8n-pose-8.4.0.toml"
+frames   = "dense"
+
+[modules.identity]
+impl   = "edge.modules.stubs:StubIdentity"
+frames   = "dense"
+
+[features.body_part]
+impl = "edge.features.body_part:BodyPart"
+
+[features.type_of_play]
+impl = "edge.features.type_of_play:TypeOfPlay"

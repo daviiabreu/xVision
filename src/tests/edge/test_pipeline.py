@@ -13,17 +13,17 @@ from pathlib import Path
 
 import pytest
 
-from contracts import Clip, FeatureValue, Perception, ShotEvent
+from contracts import Clip, FeatureValue, Perception
 from contracts.validation import validate_shot_event
 from edge.features.base import FeatureExtractor, FeatureSpec, ShotOutput
 from edge.frames.provider import FrameProvider, VideoSource
 from edge.graph.framesets import read_framesets
-from edge.graph.runner import StageRun
 from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, PerceptionModule
 from edge.modules.registry import load_modules, read_config
 from edge.pipeline import (
     AmbiguousContact,
     AssemblyFailed,
+    ClipResult,
     ContactOutOfRange,
     NoShotDetected,
     process_clip,
@@ -66,9 +66,7 @@ def clipe(tmp_path: Path) -> Clip:
     )
 
 
-def _roda(
-    clipe: Clip, extractors: Sequence[FeatureExtractor] = ()
-) -> tuple[ShotEvent, tuple[StageRun, ...]]:
+def _roda(clipe: Clip, extractors: Sequence[FeatureExtractor] = ()) -> ClipResult:
     provider = FrameProvider(VideoSource(clipe.path))
     try:
         return process_clip(
@@ -83,26 +81,24 @@ def _roda(
 
 
 def test_a_clip_becomes_an_event_that_validates_against_the_schema(clipe: Clip) -> None:
-    evento, etapas = _roda(clipe)
+    resultado = _roda(clipe)
 
-    validate_shot_event(evento.to_dict())
-    assert [e.status for e in etapas] == ["ok"] * len(etapas)
+    validate_shot_event(resultado.event.to_dict())
+    assert [e.status for e in resultado.stages] == ["ok"] * len(resultado.stages)
 
 
 def test_the_shot_id_and_the_timestamp_come_from_the_frame_the_shot_module_found(
     clipe: Clip,
 ) -> None:
     """O instante nao e escolhido aqui: sai do quadro que a especie `shot` apontou."""
-    evento, _ = _roda(clipe)
+    evento = _roda(clipe).event
 
     assert evento.shot_id == f"{clipe.clip_id}:{SHOT_FRAME_INDEX}"
     assert evento.shot_timestamp_s == pytest.approx(SHOT_FRAME_INDEX / clipe.fps)
 
 
 def test_an_empty_selection_yields_an_event_without_features(clipe: Clip) -> None:
-    evento, _ = _roda(clipe)
-
-    assert evento.features == ()
+    assert _roda(clipe).event.features == ()
 
 
 def test_a_run_where_the_shot_module_finds_nothing_says_so_instead_of_inventing(
@@ -274,7 +270,7 @@ class _ShotComContato:
         self._real.close()
 
 
-def _roda_com_shot(clipe: Clip, registro: dict[str, object]) -> tuple[ShotEvent, object]:
+def _roda_com_shot(clipe: Clip, registro: dict[str, object]) -> ClipResult:
     modulos = dict(load_modules(read_config(CONFIG)))
     modulos["shot"] = _ShotComContato(modulos["shot"], registro)  # pyright: ignore[reportArgumentType]
     provider = FrameProvider(VideoSource(clipe.path))
@@ -352,3 +348,16 @@ def test_the_track_of_whoever_shot_survives_until_the_features(clipe: Clip) -> N
         provider.close()
 
     assert vistos == [77], "o identificador de quem chutou nao chegou a feature"
+
+
+def test_the_run_can_tell_a_measured_instant_from_an_estimated_one(clipe: Clip) -> None:
+    """Sem isto, cem clipes no ponto medio e cem medidos chegam ao relatorio com a mesma cara."""
+    medido = _roda_com_shot(clipe, {"frame_index": SHOT_FRAME_INDEX, "source": "ball-break"})
+    estimado = _roda_com_shot(clipe, {"frame_index": SHOT_FRAME_INDEX, "source": "midpoint"})
+
+    assert medido.shot_source == "ball-break"
+    assert estimado.shot_source == "midpoint"
+
+
+def test_a_shot_record_without_source_does_not_invent_one(clipe: Clip) -> None:
+    assert _roda_com_shot(clipe, {"frame_index": SHOT_FRAME_INDEX}).shot_source is None

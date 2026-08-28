@@ -21,7 +21,7 @@ from __future__ import annotations
 import platform
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
 
@@ -31,6 +31,7 @@ from contracts import (
     Clip,
     FieldGeometry,
     FramePerception,
+    Keypoint,
     Perception,
     PipelineMetadata,
     PlayerDetection,
@@ -38,6 +39,7 @@ from contracts import (
 from edge.cache.perception import PerceptionCache, run_module
 from edge.graph.framesets import AroundFrames, FrameSet, FrameSetError, resolve
 from edge.graph.order import topological_order
+from edge.modules import inference
 from edge.modules.base import (
     MODULE_KINDS,
     FrameBatch,
@@ -84,8 +86,9 @@ def run_pipeline(
     provider: FrameSource,
     cache: PerceptionCache | None = None,
 ) -> RunResult:
+    inference.reset()
     _refuse_unknown_framesets(modules, framesets)
-    arestas = _edges(modules, framesets)
+    arestas = edges(modules, framesets)
     ordem = topological_order(arestas)
 
     agora = datetime.now(timezone.utc)
@@ -123,15 +126,28 @@ def run_pipeline(
     )
 
 
-def _edges(
+def edges(
     modules: Mapping[str, PerceptionModule], framesets: Mapping[str, FrameSet]
 ) -> dict[str, tuple[str, ...]]:
     arestas: dict[str, tuple[str, ...]] = {}
     for kind, modulo in modules.items():
         conjunto = framesets[modulo.spec.frames]
         ancora = (conjunto.anchor,) if isinstance(conjunto, AroundFrames) else ()
-        arestas[kind] = tuple(dict.fromkeys(modulo.spec.needs + ancora))
+        arestas[kind] = tuple(
+            dict.fromkeys(modulo.spec.needs + modulo.spec.optional_needs + ancora)
+        )
     return arestas
+
+
+def required(modulo: PerceptionModule, framesets: Mapping[str, FrameSet]) -> tuple[str, ...]:
+    """As especies sem as quais a etapa nao roda, que nao sao todas as arestas do grafo.
+
+    `optional_needs` entra na ordenacao para o refinador rodar antes, e sai daqui porque a etapa
+    precisa rodar sem ele.
+    """
+    conjunto = framesets[modulo.spec.frames]
+    ancora = (conjunto.anchor,) if isinstance(conjunto, AroundFrames) else ()
+    return tuple(dict.fromkeys(modulo.spec.needs + ancora))
 
 
 def _refuse_unknown_framesets(
@@ -154,7 +170,7 @@ def _run_stage(
     cache: PerceptionCache | None,
 ) -> tuple[StageRun, ModuleOutput | None]:
     spec = modulo.spec
-    faltando = tuple(kind for kind in depende_de if kind not in saidas)
+    faltando = tuple(kind for kind in required(modulo, framesets) if kind not in saidas)
     if faltando:
         return _stage(spec, "skipped", f"{', '.join(faltando)} nao produziu saida", 0.0), None
 
@@ -196,8 +212,15 @@ def _infer(
     entao `var/cache/perception` ficava vazio depois de uma execucao completa.
     """
     spec = modulo.spec
-    ctx = {kind: saidas[kind] for kind in spec.needs}
-    lotes = [provider.frames(lote, spec.preprocess) for lote in _batches(indices, spec.batching)]
+    ctx = {
+        kind: saidas[kind]
+        for kind in dict.fromkeys(spec.needs + spec.optional_needs)
+        if kind in saidas
+    }
+    lotes = [
+        replace(provider.frames(lote, spec.preprocess), clip_id=clip_id)
+        for lote in _batches(indices, spec.batching)
+    ]
     if cache is None:
         return _merge(spec.kind, [modulo.infer(lote, ctx) for lote in lotes])
     return _merge(
@@ -321,8 +344,13 @@ def _frame(
         for r in por_quadro.get("identity", {}).get(indice, ())
         if "jersey_number" in r
     }
+    poses = {
+        int(cast("Any", r["track_id"])): _keypoints(r["keypoints"])
+        for r in por_quadro.get("pose", {}).get(indice, ())
+        if "keypoints" in r
+    }
     jogadores = tuple(
-        _player(registro, trajetorias.get(posicao), camisas, calibrado)
+        _player(registro, trajetorias.get(posicao), camisas, poses, calibrado)
         for posicao, registro in enumerate(por_quadro.get("players", {}).get(indice, ()))
     )
     return FramePerception(
@@ -338,6 +366,7 @@ def _player(
     registro: Mapping[str, object],
     track_id: int | None,
     camisas: Mapping[int, int],
+    poses: Mapping[int, tuple[Keypoint, ...]],
     calibrado: bool,
 ) -> PlayerDetection:
     return PlayerDetection(
@@ -348,17 +377,40 @@ def _player(
         role=cast("Any", registro.get("role")),
         jersey_number=camisas.get(track_id) if track_id is not None else None,
         pitch_xy=_pitch(registro, calibrado),
+        keypoints=poses.get(track_id, ()) if track_id is not None else (),
     )
+
+
+def _keypoints(valor: object) -> tuple[Keypoint, ...]:
+    """Aceita `(nome, x, y)` e `(nome, x, y, confianca)`, porque os dois ja existem no projeto.
+
+    O stub e a geometria de campo emitem tripla, e estimador de pose de verdade tem confianca por
+    ponto. Recusar a tripla obrigaria a reescrever o stub para nada, e recusar a quadrupla jogaria
+    fora justamente o numero que decide se a medida se sustenta.
+    """
+    pontos: list[Keypoint] = []
+    for bruto in cast("Any", valor):
+        if len(bruto) == 3:
+            nome, x, y = bruto
+            pontos.append(Keypoint(str(nome), float(x), float(y)))
+            continue
+        nome, x, y, confianca = bruto
+        pontos.append(
+            Keypoint(str(nome), float(x), float(y), None if confianca is None else float(confianca))
+        )
+    return tuple(pontos)
 
 
 def _ball(registros: tuple[Mapping[str, object], ...], calibrado: bool) -> BallDetection | None:
     if not registros:
         return None
     registro = registros[0]
+    origem = registro.get("source")
     return BallDetection(
         box=Box(*cast("Any", registro["box"])),
         confidence=float(cast("Any", registro["confidence"])),
         pitch_xy=_pitch(registro, calibrado),
+        source=None if origem is None else str(origem),
     )
 
 

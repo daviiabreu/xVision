@@ -211,7 +211,7 @@ def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, An
     clipe = probe(caminho, clip_id=f"video-{identificador}")
     provider = FrameProvider(VideoSource(caminho))
     try:
-        evento, etapas = process_clip(
+        resultado = process_clip(
             clip=clipe,
             modules=load_modules(read_config(config)),
             framesets=read_framesets(config),
@@ -231,7 +231,7 @@ def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, An
             valor=feature.value,
             status=feature.status,
         )
-        for feature in evento.features
+        for feature in resultado.event.features
     ]
     return [
         Resultado(
@@ -240,5 +240,5 @@ def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, An
             frame=None,
             metricas=medidas if etapa.kind == "shot" else [],
         ).model_dump()
-        for etapa in etapas
+        for etapa in resultado.stages
     ]

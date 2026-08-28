@@ -198,3 +198,6 @@ src/models/line_tracking/runs/*
 *.tfstate.*
 *.tfvars
 .terraform/
+
+# worktrees temporarios de agentes
+.claude/worktrees/

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pytest
 
 from edge.modules import registry
@@ -12,6 +14,7 @@ from edge.modules.base import (
     UnknownModuleKind,
 )
 from edge.modules.registry import (
+    ModuleNotConfigurable,
     UnknownDependency,
     UnknownImplementation,
     load_modules,
@@ -126,3 +129,49 @@ def test_a_needs_entry_that_is_not_text_is_refused_instead_of_stringified() -> N
 def test_an_artifact_that_is_not_text_is_refused() -> None:
     with pytest.raises(ModuleError, match="artifact"):
         read_config('[modules.players]\nimpl = "x:Y"\nartifact = 42\n')
+
+
+class _PlayersConfiguravel:
+    spec = ModuleSpec(
+        kind="players", name="d", version="0.1.0", frames="coarse", preprocess=PREPROCESS
+    )
+
+    def __init__(self) -> None:
+        self.recebido: dict[str, object] = {}
+
+    def configure(self, options: Mapping[str, object]) -> None:
+        self.recebido = dict(options)
+
+
+def test_o_que_a_entrada_declara_alem_dos_campos_conhecidos_chega_a_especie() -> None:
+    """`conf` e os limites de forma do detector estavam cravados em `src/`, e calibrar o limiar
+    contra a dobra de ajuste exigia editar codigo.
+    """
+    texto = (
+        f'[modules.players]\nimpl = "{HERE}:{_PlayersConfiguravel.__name__}"\n'
+        'artifact = "models/players/x.toml"\nconf = 0.10\nmax_aspect = 2.2\n'
+    )
+
+    config = read_config(texto)
+    modulo = load_modules(config)["players"]
+
+    assert config[0].options == {"conf": 0.10, "max_aspect": 2.2}
+    assert isinstance(modulo, _PlayersConfiguravel)
+    assert modulo.recebido == {"conf": 0.10, "max_aspect": 2.2}
+
+
+def test_ajuste_declarado_para_modulo_que_nao_ajusta_levanta() -> None:
+    """Ignorar em silencio e o mesmo modo de falha que o campo veio corrigir: quem escreveu o
+    numero na secao errada leria o arquivo, veria a execucao terminar e acreditaria no limiar.
+    """
+    config = read_config(f'[modules.players]\nimpl = "{HERE}:_Players"\nconf = 0.10\n')
+
+    with pytest.raises(ModuleNotConfigurable, match="conf"):
+        load_modules(config)
+
+
+def test_entrada_sem_ajuste_nao_exige_configure() -> None:
+    """`field` e `identity` sao stubs sem numero para ajustar, e continuam carregando."""
+    modules = load_modules(read_config(f'[modules.players]\nimpl = "{HERE}:_Players"\n'))
+
+    assert isinstance(modules["players"], _Players)

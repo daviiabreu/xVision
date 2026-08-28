@@ -1,4 +1,11 @@
 {
   "title": "Sprint 2",
-  "pages": ["planejamento", "backend", "frontend", "placeholder", "slides"]
+  "pages": [
+    "planejamento",
+    "backend",
+    "frontend",
+    "97-deteccao-do-instante-da-finalizacao",
+    "placeholder",
+    "slides"
+  ]
 }

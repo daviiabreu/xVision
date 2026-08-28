@@ -48,6 +48,80 @@ def prepare(frame: Frame, spec: PreprocessSpec) -> Frame:
     return _normalize(pronto, spec.normalize, spec.color)
 
 
+def to_source_box(
+    box: tuple[float, float, float, float],
+    spec: PreprocessSpec,
+    source_size: tuple[int, int],
+) -> tuple[float, float, float, float]:
+    """Desfaz o enquadramento e devolve a caixa em pixel do quadro original.
+
+    E o inverso exato de `_fit`, e existe porque `edge.modules.records` cobra caixa no espaco do
+    quadro original enquanto o modulo so ve o tensor redimensionado. Sem ela, todo detector emitiria
+    quatro floats plausiveis no espaco errado, e nem o schema nem a suite de conformidade teriam
+    como perceber.
+
+    Nao mexe em cor, em `ops` nem em normalizacao: nenhuma das tres move um pixel de lugar.
+    """
+    largura, altura = source_size
+    if largura <= 0 or altura <= 0:
+        raise PreprocessError(
+            f"source_size={source_size!r}, e o quadro de origem tem medida positiva"
+        )
+    x1, y1, x2, y2 = box
+    if not spec.letterbox:
+        return (
+            x1 * largura / spec.width,
+            y1 * altura / spec.height,
+            x2 * largura / spec.width,
+            y2 * altura / spec.height,
+        )
+    escala = min(spec.width / largura, spec.height / altura)
+    conteudo_w = max(1, round(largura * escala))
+    conteudo_h = max(1, round(altura * escala))
+    esquerda = (spec.width - conteudo_w) // 2
+    topo = (spec.height - conteudo_h) // 2
+    return (
+        (x1 - esquerda) / escala,
+        (y1 - topo) / escala,
+        (x2 - esquerda) / escala,
+        (y2 - topo) / escala,
+    )
+
+
+def to_tensor_box(
+    box: tuple[float, float, float, float],
+    spec: PreprocessSpec,
+    source_size: tuple[int, int],
+) -> tuple[float, float, float, float]:
+    """Leva a caixa do quadro original para o espaco do tensor, que e a ida de `to_source_box`.
+
+    Serve a quem precisa recortar: a especie `players` entrega caixa em pixel do quadro original,
+    e quem vai olhar aquele jogador de perto tem em maos o tensor ja redimensionado.
+    """
+    largura, altura = source_size
+    if largura <= 0 or altura <= 0:
+        raise PreprocessError(
+            f"source_size={source_size!r}, e o quadro de origem tem medida positiva"
+        )
+    x1, y1, x2, y2 = box
+    if not spec.letterbox:
+        return (
+            x1 * spec.width / largura,
+            y1 * spec.height / altura,
+            x2 * spec.width / largura,
+            y2 * spec.height / altura,
+        )
+    escala = min(spec.width / largura, spec.height / altura)
+    esquerda = (spec.width - max(1, round(largura * escala))) // 2
+    topo = (spec.height - max(1, round(altura * escala))) // 2
+    return (
+        x1 * escala + esquerda,
+        y1 * escala + topo,
+        x2 * escala + esquerda,
+        y2 * escala + topo,
+    )
+
+
 def _recolor(frame: Frame, color: Color) -> Frame:
     code = _FROM_BGR[color]
     convertido = frame if code is None else cv2.cvtColor(frame, code)

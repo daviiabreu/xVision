@@ -1,19 +1,21 @@
-"""Os dois `PerceptionModule` deste pacote, e o motivo de a chave ainda nao estar virada.
+"""Os dois `PerceptionModule` deste pacote, agora que a chave pode ser virada.
 
-O `config/pipeline.toml` continua apontando `players` e `tracking` para os stubs, e nao para as
-duas classes daqui, por uma razao que nao e de acabamento: **o modulo nao tem como saber a
-resolucao do clipe de origem**.
+Este arquivo nasceu bloqueado, e o bloqueio esta resolvido. O que ele dizia: `records.py` cobra
+que `box` saia em pixel do quadro original, o `FrameBatch` carregava `indices`, `tensor` e
+`preprocess`, e nenhum dos tres dizia quanto media o quadro antes do redimensionamento. A conta de
+volta ja estava escrita em `to_source_box` e era exata; faltava so o par de numeros. Sem ele
+`load()` recusava, porque devolver box no espaco do tensor e a falha que este repositorio mais
+odeia: o runner monta `Perception` sem reclamar, as sete etapas saem `ok`, e a coordenada esta
+errada por um fator que depende do clipe.
 
-O `records.py` da borda cobra que `box` saia em pixel do quadro original. O `FrameBatch` que o
-runner entrega carrega `indices`, `tensor` e `preprocess`, e o tensor ja veio redimensionado e
-com letterbox aplicado. Nenhum dos tres diz quanto media o quadro antes. Os stubs contornam isso
-lendo o gabarito da fixture, que um modelo de verdade nao tem. A conta de volta esta escrita aqui
-em `to_source_box` e e exata: falta so o par de numeros.
+O par chegou. O `FrameBatch` carrega `source_size`, e a recusa saiu do `load()` para o `infer()`,
+que e onde o lote esta em maos e a medida pode ser lida. Recusar no `load` deixaria de fazer
+sentido: em producao o registro constroi com `_resolve(...)()`, sem argumento nenhum, e o tamanho
+nunca chegaria por ali.
 
-Enquanto o `FrameBatch` nao carregar esse par, `load()` recusa. Devolver box no espaco do tensor
-seria a falha que este repositorio mais odeia: o runner monta `Perception` sem reclamar, as sete
-etapas saem `ok`, e a coordenada esta errada por um fator que depende do clipe. Recusar no `load`
-custa uma etapa vermelha e diz exatamente onde por a mao.
+O `source_size` do construtor continua valendo, como excecao e nao como caminho: lote montado a
+mao em teste nao tem clipe de origem, e `make_batch` nao inventa um. Quando os dois existem vale o
+do lote, porque ele e a medida do quadro que de fato entrou.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from edge.frames.preprocess import to_source_box as source_box
 from edge.modules.base import (
     FrameBatch,
     ModuleInputs,
@@ -48,53 +51,58 @@ PREPROCESS = PreprocessSpec(
 VERSION = "0.1.0"
 
 SEM_TAMANHO = (
-    "o modulo nao recebeu a resolucao do clipe de origem, e sem ela a caixa sairia em pixel do "
-    "tensor pre-processado, e nao do quadro original que `edge.modules.records` cobra. O "
-    "`FrameBatch` nao carrega essa medida: construa o modulo com `source_size=(largura, altura)` "
-    "ou estenda o `FrameBatch` para leva-la"
+    "o lote nao trouxe `source_size` e o modulo nao recebeu um no construtor, e sem a resolucao do "
+    "clipe de origem a caixa sairia em pixel do tensor pre-processado, e nao do quadro original "
+    "que `edge.modules.records` cobra. Em producao quem preenche e `edge.frames.provider`; em "
+    "teste, construa o modulo com `source_size=(largura, altura)`"
 )
 
 
 def to_source_box(box: Box, preprocess: PreprocessSpec, source: tuple[int, int]) -> Box:
-    """Desfaz o enquadramento que `edge.frames.preprocess.prepare` aplicou.
+    """Desfaz o enquadramento que `edge.frames.preprocess.prepare` aplicou, e limita ao quadro.
 
-    E o inverso literal do `_fit` de la, letterbox inclusive, e nao uma aproximacao: a escala e a
-    mesma `min(largura_alvo / largura, altura_alvo / altura)` e a margem e a mesma divisao inteira
-    por dois. Sair da conta exata deslocaria toda caixa por ate um pixel em cada eixo.
+    A conta agora e a de `edge.frames.preprocess.to_source_box`, e nao uma segunda copia dela. A
+    daqui foi escrita quando a fundacao nao tinha a funcao, e as duas eram o inverso literal do
+    mesmo `_fit`: mesma escala `min(largura_alvo / largura, altura_alvo / altura)` e mesma margem
+    por divisao inteira por dois. Duas copias de uma conta exata sao duas oportunidades de
+    divergir por um pixel, e o pixel nao apareceria em teste nenhum das duas.
+
+    O que sobra aqui e o que a fundacao nao faz: o vocabulario `Box` deste pacote, e o `clip_box`,
+    porque caixa de deteccao pode passar a borda do quadro e quem consome espera pixel valido.
     """
     largura, altura = source
-    if preprocess.letterbox:
-        escala = min(preprocess.width / largura, preprocess.height / altura)
-        esquerda = (preprocess.width - max(1, round(largura * escala))) // 2
-        topo = (preprocess.height - max(1, round(altura * escala))) // 2
-        devolvida = Box(
-            x1=(box.x1 - esquerda) / escala,
-            y1=(box.y1 - topo) / escala,
-            x2=(box.x2 - esquerda) / escala,
-            y2=(box.y2 - topo) / escala,
+    devolvida = Box(
+        *source_box(
+            (box.x1, box.y1, box.x2, box.y2),
+            preprocess,
+            source,
         )
-    else:
-        por_x = largura / preprocess.width
-        por_y = altura / preprocess.height
-        devolvida = Box(x1=box.x1 * por_x, y1=box.y1 * por_y, x2=box.x2 * por_x, y2=box.y2 * por_y)
+    )
     return clip_box(devolvida, width=largura, height=altura)
 
 
 class _SourceSpace:
-    """A metade comum das duas especies: recusar sem tamanho e converter a caixa de volta."""
+    """A metade comum das duas especies: achar o tamanho do quadro e converter a caixa de volta."""
 
     spec: ModuleSpec
 
     def __init__(self, source_size: tuple[int, int] | None) -> None:
         self._source_size = source_size
 
-    def _require_source_size(self) -> tuple[int, int]:
-        if self._source_size is None:
-            raise ModuleNotLoaded(f"{self.spec.name}: {SEM_TAMANHO}")
-        return self._source_size
+    def _source_of(self, batch: FrameBatch) -> tuple[int, int]:
+        """O lote ganha do construtor: ele e a medida do quadro que de fato entrou.
 
-    def _box(self, box: Box) -> tuple[float, float, float, float]:
-        convertida = to_source_box(box, self.spec.preprocess, self._require_source_size())
+        O construtor descreve um clipe suposto e nao muda entre chamadas, enquanto o lote vem do
+        provedor com a resolucao daquele arquivo. Quando as duas divergem, seguir a do construtor
+        deslocaria toda caixa por um fator que ninguem veria.
+        """
+        tamanho = batch.source_size or self._source_size
+        if tamanho is None:
+            raise ModuleNotLoaded(f"{self.spec.name}: {SEM_TAMANHO}")
+        return tamanho
+
+    def _box(self, box: Box, source: tuple[int, int]) -> tuple[float, float, float, float]:
+        convertida = to_source_box(box, self.spec.preprocess, source)
         return (convertida.x1, convertida.y1, convertida.x2, convertida.y2)
 
 
@@ -135,7 +143,6 @@ class PlayersModule(_SourceSpace):
         self._backend: DetectionBackend | None = None
 
     def load(self) -> None:
-        self._require_source_size()
         if self._injected is not None:
             self._backend = self._injected
             return
@@ -155,11 +162,12 @@ class PlayersModule(_SourceSpace):
         if self._backend is None:
             raise ModuleNotLoaded(self.spec.name)
         check_preprocess(batch, self.spec.preprocess)
+        fonte = self._source_of(batch)
         papeis = self._backend.class_roles
         registros = tuple(
             tuple(
                 {
-                    "box": self._box(raw.box),
+                    "box": self._box(raw.box, fonte),
                     "confidence": raw.confidence,
                     "role": papeis[raw.class_id],
                 }
@@ -206,7 +214,6 @@ class TrackingModule(_SourceSpace):
         self._backend: TrackingBackend | None = None
 
     def load(self) -> None:
-        self._require_source_size()
         if self._injected is not None:
             self._backend = self._injected
         elif self._weights is None:
@@ -227,6 +234,7 @@ class TrackingModule(_SourceSpace):
         if self._backend is None:
             raise ModuleNotLoaded(self.spec.name)
         check_preprocess(batch, self.spec.preprocess)
+        fonte = self._source_of(batch)
         papeis = self._backend.class_roles
         registros: list[tuple[Mapping[str, object], ...]] = []
         for frame in _frames(batch):
@@ -236,7 +244,7 @@ class TrackingModule(_SourceSpace):
                     {
                         "detection_index": posicao,
                         "track_id": raw.track_id,
-                        "box": self._box(raw.box),
+                        "box": self._box(raw.box, fonte),
                     }
                     for posicao, raw in enumerate(aceitas)
                 )

@@ -1,0 +1,69 @@
+# A configuracao que roda os modelos de verdade, e nao os stubs.
+#
+# Ela e um arquivo separado porque `pipeline.toml` precisa rodar em qualquer clone: os pesos moram
+# em `var/models`, que e ignorado pelo git, e a suite inteira carregaria torch para provar coisas
+# que nao dependem de modelo nenhum. Aqui o peso e obrigatorio, e quando ele nao esta em disco o
+# `resolve` levanta `ArtifactMissing` com o caminho exato, que e o comportamento certo: quem pediu
+# o modelo precisa saber que ele nao carregou.
+#
+#   xvision run --all --config config/pipeline.models.toml
+#
+# `field` e `identity` continuam stub. O `field` e o card #53 do Danilo e nao tem substituto aqui;
+# o `identity` nao bloqueia nenhuma das sete metricas declaradas e fica declaradamente de fora.
+# Trocar cada um e trocar duas linhas aqui.
+
+[frames.coarse]
+strategy = "uniform"
+fps = 5
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[frames.window]
+strategy = "around"
+anchor   = "shot"
+before_s = 1.5
+after_s  = 0.5
+fps      = "native"
+
+[modules.players]
+impl     = "edge.modules.players:YoloPlayers"
+artifact = "models/players/football-player-detection-1.0.0.toml"
+frames   = "dense"
+
+[modules.ball]
+impl     = "edge.modules.ball:YoloBall"
+artifact = "models/ball/yolo-football-ball-detection-0.1.0.toml"
+frames   = "dense"
+conf            = 0.10
+imgsz           = 1600
+ladrilhos       = 2
+sobreposicao_px = 100
+
+[modules.field]
+impl   = "edge.modules.stubs:StubField"
+frames   = "dense"
+
+[modules.shot]
+impl   = "mlops.oracle:AnnotatedShot"
+frames = "dense"
+
+[modules.tracking]
+impl   = "edge.modules.tracking:GreedyTracking"
+frames   = "dense"
+
+[modules.pose]
+impl     = "edge.modules.pose:YoloPose"
+artifact = "models/pose/yolov8n-pose-8.4.0.toml"
+frames   = "dense"
+
+[modules.identity]
+impl   = "edge.modules.stubs:StubIdentity"
+frames   = "dense"
+
+[features.body_part]
+impl = "edge.features.body_part:BodyPart"
+
+[features.type_of_play]
+impl = "edge.features.type_of_play:TypeOfPlay"

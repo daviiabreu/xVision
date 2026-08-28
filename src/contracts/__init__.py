@@ -14,6 +14,7 @@ from contracts.perception import (
     Clip,
     FieldGeometry,
     FramePerception,
+    Keypoint,
     Perception,
     PlayerDetection,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "FeatureValue",
     "FieldGeometry",
     "FramePerception",
+    "Keypoint",
     "Perception",
     "PipelineMetadata",
     "PlayerDetection",

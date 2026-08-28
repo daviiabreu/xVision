@@ -1,0 +1,232 @@
+"""A configuracao que roda os modelos de verdade precisa ser valida onde nao ha peso nenhum.
+
+Ela e arquivo separado de `config/pipeline.toml` porque a suite inteira carregaria torch para
+provar coisas que nao dependem de modelo, e porque um clone novo nao tem `var/models`. Isso cria
+um risco proprio: arquivo que ninguem exercita apodrece calado, e o defeito so aparece quando
+alguem tenta rodar os 633 clipes.
+
+Estes testes fecham esse risco sem precisar de peso. Carregar um modulo instancia a classe e nao
+chama `load`, entao nada toca disco: o que se verifica e que o `impl` importa, que a especie bate
+com a secao, que o manifesto declarado existe, e que o grafo ordena.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from edge.artifacts import read_manifest
+from edge.graph.framesets import read_framesets
+from edge.graph.order import topological_order
+from edge.graph.runner import edges
+from edge.modules.ball.detector import DetectorConfig
+from edge.modules.base import MODULE_KINDS, PerceptionModule
+from edge.modules.registry import load_modules, read_config
+
+MODELOS = Path("config/pipeline.models.toml")
+PADRAO = Path("config/pipeline.toml")
+PACOTE = Path("config/pipeline.players-pacote.toml")
+
+
+@pytest.fixture(scope="module")
+def modelos() -> dict[str, PerceptionModule]:
+    return dict(load_modules(read_config(MODELOS)))
+
+
+def test_a_configuracao_de_modelos_declara_as_sete_especies(
+    modelos: dict[str, PerceptionModule],
+) -> None:
+    assert set(modelos) == MODULE_KINDS
+
+
+def test_todo_impl_declarado_importa_e_bate_com_a_especie(
+    modelos: dict[str, PerceptionModule],
+) -> None:
+    """`load_modules` recusa kind divergente: este teste garante que ele rodou sobre o arquivo."""
+    for kind, modulo in modelos.items():
+        assert modulo.spec.kind == kind
+
+
+def test_o_grafo_da_configuracao_de_modelos_ordena_sem_ciclo(
+    modelos: dict[str, PerceptionModule],
+) -> None:
+    """Sem conjunto ancorado nao ha barreira, e `players` pode rodar antes do `shot`.
+
+    Era o contrario ate a entrega do instante: `players` vivia num conjunto ancorado no `shot`, o
+    que impedia o `shot` de olhar para ele. Sem essa restricao o instante saia da maior quebra da
+    trajetoria, mesmo quando a bola estava sozinha no meio do campo ou na arquibancada.
+    """
+    ordem = topological_order(edges(modelos, read_framesets(MODELOS)))
+
+    assert set(ordem) == MODULE_KINDS
+    assert ordem.index("ball") < ordem.index("shot")
+    assert ordem.index("players") < ordem.index("shot")
+    assert ordem.index("players") < ordem.index("tracking")
+    assert ordem.index("tracking") < ordem.index("pose")
+    assert ordem.index("shot") < ordem.index("pose")
+
+
+def test_todo_manifesto_declarado_existe_e_e_legivel(modelos: dict[str, PerceptionModule]) -> None:
+    """O peso nao vem no repositorio, mas o manifesto que o descreve vem e precisa ser valido."""
+    declarados = [
+        (kind, modulo.spec.artifact)
+        for kind, modulo in modelos.items()
+        if modulo.spec.artifact is not None
+    ]
+
+    assert declarados, "a configuracao de modelos nao declara peso nenhum"
+    for kind, caminho in declarados:
+        manifesto = read_manifest(Path(caminho))
+        assert manifesto.kind == kind
+        assert manifesto.files, f"{caminho} sem sha256 nao detecta troca de peso"
+
+
+def test_as_duas_configuracoes_declaram_os_mesmos_conjuntos_de_quadros() -> None:
+    """Conjunto divergente faria o mesmo modulo amostrar diferente em cada arquivo."""
+    assert read_framesets(MODELOS) == read_framesets(PADRAO)
+
+
+CONF_MEDIANA_DA_BOLA_CORRETA = 0.154
+"""Confianca mediana da bola certa nos 38 quadros de contato anotados. p25 0,096, minimo 0,033."""
+
+
+def test_o_limiar_de_confianca_da_bola_fica_abaixo_da_mediana_da_bola_correta() -> None:
+    """Limiar acima da mediana zera o candidato certo antes de qualquer filtro nosso.
+
+    Com o padrao 0,25 o detector descartava a bola correta em 21 a 23 dos 38 quadros de contato, e
+    a dobra de ajuste ficava em 3/24 = 0,125, praticamente o acaso medido de 0,1307. Descer para
+    0,10 leva a 9/24 = 0,375, com 6 clipes ganhos e nenhum perdido. O teste existe para a proxima
+    pessoa que abrir o arquivo nao devolver o numero ao padrao sem medir de novo.
+    """
+    entrada = {c.kind: c for c in read_config(MODELOS)}["ball"]
+
+    conf = entrada.options.get("conf")
+    assert isinstance(conf, float)
+    assert conf < CONF_MEDIANA_DA_BOLA_CORRETA
+
+
+def test_o_ajuste_declarado_na_secao_da_bola_chega_ao_detector() -> None:
+    """Ajuste que fica no TOML sem alcancar o `DetectorConfig` e pior que ajuste nenhum: quem le o
+    arquivo acredita no valor e a execucao usa outro.
+    """
+    entrada = {c.kind: c for c in read_config(MODELOS)}["ball"]
+
+    ajustada = DetectorConfig(weights="x.pt").com_ajustes(entrada.options)
+
+    assert ajustada.conf == pytest.approx(entrada.options["conf"])
+
+
+def test_a_configuracao_padrao_nao_exige_peso_de_disco() -> None:
+    """Ela precisa rodar em clone novo: peso mora em `var/`, que e ignorado pelo git."""
+    padrao = load_modules(read_config(PADRAO))
+
+    assert all(modulo.spec.artifact is None for modulo in padrao.values())
+
+
+def test_o_oraculo_so_difere_da_producao_no_modulo_do_instante() -> None:
+    """As duas configuracoes tem que medir a mesma percepcao, senao a comparacao nao vale nada.
+
+    O experimento que separa erro de instante de erro de percepcao troca `shot` pelo gabarito e
+    deixa tudo igual. Elas divergiram uma vez e o defeito foi calado: `conf = 0.10` entrou so na de
+    producao e o oraculo continuou rodando a bola a 0,25, entao a medida de `body_part` pelo caminho
+    do oraculo comparava um detector com outro em vez de comparar dois instantes.
+    """
+    producao = {c.kind: c for c in read_config(Path("config/pipeline.models.toml"))}
+    oraculo = {c.kind: c for c in read_config(Path("config/pipeline.oracle.toml"))}
+
+    assert set(producao) == set(oraculo)
+    assert oraculo["shot"].impl == "mlops.oracle:AnnotatedShot"
+    assert producao["shot"].impl != oraculo["shot"].impl
+    for kind in sorted(set(producao) - {"shot"}):
+        assert producao[kind] == oraculo[kind], f"{kind} diverge entre producao e oraculo"
+
+
+def test_a_janela_so_difere_do_oraculo_no_frameset_da_pose() -> None:
+    """Taxa nativa ancorada no chute e a unica variavel dessa configuracao."""
+    oraculo = {c.kind: c for c in read_config(Path("config/pipeline.oracle.toml"))}
+    janela = {c.kind: c for c in read_config(Path("config/pipeline.oracle-janela.toml"))}
+
+    assert janela["pose"].frames == "window"
+    assert oraculo["pose"].frames == "dense"
+    for kind in sorted(set(oraculo) - {"pose"}):
+        assert oraculo[kind] == janela[kind], f"{kind} diverge entre oraculo e janela"
+
+
+def test_o_pacote_de_jogadores_so_difere_da_producao_no_impl_das_duas_especies() -> None:
+    """As duas implementacoes de `players` e `tracking` precisam ser comparaveis, e nao parecidas.
+
+    Depois do merge com o `develop` convivem `edge.modules.players:YoloPlayers` e o
+    `PlayersModule` do pacote da MR !31, e o mesmo par em `tracking`. Escolher entre elas e medir,
+    e `xvision eval-ball` mede: a metrica da bola le a distancia ate a caixa de jogador mais
+    proxima, entao detector que perde gente move o numero.
+
+    O que este teste protege e a validade da comparacao. Se o peso, o frameset ou o ajuste da bola
+    divergirem junto com o `impl`, o numero passa a medir duas mudancas somadas e nao diz de qual
+    delas veio a diferenca. E o mesmo modo de falha que fez o oraculo rodar a bola a 0,25 enquanto
+    a producao rodava a 0,10, calado.
+    """
+    producao = {c.kind: c for c in read_config(MODELOS)}
+    pacote = {c.kind: c for c in read_config(PACOTE)}
+    trocadas = {"players", "tracking"}
+
+    assert set(producao) == set(pacote)
+    assert pacote["players"].impl == "xvision_players_yolo.module:PlayersModule"
+    assert pacote["tracking"].impl == "xvision_players_yolo.module:TrackingModule"
+    for kind in sorted(trocadas):
+        assert producao[kind].impl != pacote[kind].impl, f"{kind} nao trocou de implementacao"
+        assert producao[kind].artifact == pacote[kind].artifact, f"{kind}: peso diferente"
+        assert producao[kind].frames == pacote[kind].frames, f"{kind}: frameset diferente"
+    for kind in sorted(set(producao) - trocadas):
+        assert producao[kind] == pacote[kind], f"{kind} diverge entre producao e pacote"
+
+
+def test_o_impl_do_pacote_de_jogadores_importa_e_bate_com_a_especie() -> None:
+    """Mesma garantia que `modelos` tem: o arquivo nao pode apodrecer calado por ninguem rodar.
+
+    `load_modules` instancia sem chamar `load`, entao nada toca disco. O que se prova aqui e que os
+    dois `impl` do pacote resolvem, que o registro consegue construi-los sem argumento e que a
+    especie de cada um bate com a secao onde esta declarado.
+    """
+    pacote = dict(load_modules(read_config(PACOTE)))
+
+    assert set(pacote) == MODULE_KINDS
+    for kind, modulo in pacote.items():
+        assert modulo.spec.kind == kind
+    assert set(topological_order(edges(pacote, read_framesets(PACOTE)))) == MODULE_KINDS
+
+
+def test_nenhuma_especie_volta_para_o_peso_generico_do_coco() -> None:
+    """O detector generico era a causa raiz, e a regressao para ele nao levantaria nada.
+
+    O `yolov8n.pt` do COCO ve bola pela classe 32, `sports ball`, que reune bola de basquete, de
+    tenis e de futebol vistas de perto, enquanto o objeto do problema tem 13 px a cinquenta metros.
+    Medido no quadro do contato dos 24 clipes da dobra de ajuste, trocar so o peso da bola pelo
+    dedicado leva a taxa de 3 para 11 em 24, ganhando 8 clipes e perdendo nenhum.
+
+    `players` continua com peso de futebol e nao com o COCO por outro motivo: `person` nao distingue
+    goleiro, arbitro e gandula, e a metrica da bola mede distancia ate a caixa de gente mais
+    proxima, entao arbitro contado como jogador aproxima o contato de quem nao chutou.
+    """
+    for arquivo in (
+        "pipeline.models.toml",
+        "pipeline.oracle.toml",
+        "pipeline.oracle-janela.toml",
+        "pipeline.players-pacote.toml",
+    ):
+        for entrada in read_config(Path("config") / arquivo):
+            if entrada.kind not in {"ball", "players"}:
+                continue
+            assert entrada.artifact is not None
+            assert "yolov8n-8.4.0" not in entrada.artifact, f"{arquivo}: {entrada.kind} no COCO"
+
+
+def test_a_bola_tem_peso_proprio_e_nao_o_de_jogadores() -> None:
+    """A Roboflow separa os dois modelos, e a medida aqui diz o mesmo.
+
+    O peso de quatro classes tem a bola dominada por jogador em 372 imagens de treino, e mediu 7 em
+    24 na dobra de ajuste. O dedicado, de classe unica, mediu 11 em 24 no mesmo conjunto.
+    """
+    entradas = {c.kind: c for c in read_config(Path("config/pipeline.models.toml"))}
+
+    assert entradas["ball"].artifact != entradas["players"].artifact

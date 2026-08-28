@@ -6,6 +6,10 @@ field = "models/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
 strategy = "uniform"
 fps = 5
 
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
 [frames.window]
 strategy = "around"
 anchor   = "shot"
@@ -15,28 +19,34 @@ fps      = "native"
 
 [modules.players]
 impl   = "edge.modules.stubs:StubPlayers"
-frames = "coarse"
+frames   = "dense"
 
 [modules.ball]
 impl   = "edge.modules.stubs:StubBall"
-frames = "coarse"
+frames = "dense"
 
 [modules.field]
 impl   = "edge.modules.stubs:StubField"
-frames = "coarse"
+frames   = "dense"
 
 [modules.shot]
-impl   = "edge.modules.stubs:StubShot"
-frames = "coarse"
+impl   = "edge.modules.shot:BallBreakShot"
+frames = "dense"
 
 [modules.tracking]
 impl   = "edge.modules.stubs:StubTracking"
-frames = "window"
+frames   = "dense"
 
 [modules.pose]
 impl   = "edge.modules.stubs:StubPose"
-frames = "window"
+frames   = "dense"
 
 [modules.identity]
 impl   = "edge.modules.stubs:StubIdentity"
-frames = "window"
+frames   = "dense"
+
+[features.body_part]
+impl = "edge.features.body_part:BodyPart"
+
+[features.type_of_play]
+impl = "edge.features.type_of_play:TypeOfPlay"

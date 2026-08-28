@@ -68,7 +68,8 @@ def test_the_metrics_are_not_empty_in_this_scenario(cliente: TestClient, tmp_pat
     corpo = _resultado(cliente, tmp_path)
 
     metricas = [m for r in corpo["resultados"] for m in r["metricas"]]
-    assert len(metricas) == 3, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    assert len(metricas) == 5, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    assert {"distancia_falsa", "sem_leitura"} <= {m["nome"] for m in metricas}
 
 
 def test_a_metric_carries_the_unit_its_feature_declares(
@@ -160,6 +161,8 @@ def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: 
     tipos = {m["nome"]: m["tipo"] for r in corpo["resultados"] for m in r["metricas"]}
 
     assert tipos == {
+        "body_part": None,
+        "type_of_play": "text",
         "distancia_falsa": "float",
         "sem_leitura": None,
         "parte_do_corpo": "text",

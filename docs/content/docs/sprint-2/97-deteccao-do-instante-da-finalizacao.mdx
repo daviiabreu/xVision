@@ -1,0 +1,703 @@
+---
+title: Detecção do instante da finalização
+description: O módulo que aponta o quadro do contato com a bola, a cadeia de percepção que ele ancora, e a medição que sustenta cada número
+---
+
+## O que foi entregue
+
+O pipeline saiu de zero evento para evento em todos os clipes processados. O módulo da espécie
+`shot` substitui o stub que respondia a partir do gabarito da fixture e passa a apontar o instante
+do contato a partir da trajetória da bola no vídeo real.
+
+Ele é a âncora do sistema inteiro: o conjunto de quadros `window` abre em volta do instante que
+ele aponta, e é nessa janela que `players`, `tracking` e `pose` medem. Instante errado desloca a
+janela toda.
+
+Para o módulo funcionar sobre vídeo real foi preciso entregar junto a cadeia de percepção de que
+ele depende, e fechar cinco defeitos de plataforma que só aparecem quando um modelo de verdade
+encosta no contrato.
+
+## Onde se encaixa no fluxo
+
+```text
+  ball ──► shot ──► players ──► tracking ──► pose
+   │        │          │            │          │
+  coarse  coarse    window       window     window
+  5 fps   5 fps    (âncora)     (âncora)   (âncora)
+                                              │
+                                              ▼
+                                    body_part, type_of_play
+```
+
+A espécie `ball` varre o clipe inteiro a 5 fps e alimenta o `shot`. As quatro seguintes rodam só
+na janela de 1,5 s antes e 0,5 s depois do instante, que a 59,94 fps são 121 quadros.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele não faz |
+| --- | --- | --- |
+| `edge.geometry.contact` | achar a quebra da trajetória e refiná-la entre amostras | não abre vídeo, não carrega peso, não decide de quem é a bola |
+| `edge.modules.shot.BallBreakShot` | emitir um `frame_index` por clipe, ou o ponto médio declarado | não detecta a bola, não sabe quem chutou |
+| `edge.modules.ball.YoloBall` | posição da bola por quadro, com trajetória fechada | não converte para metros, isso depende da homografia |
+| `edge.modules.players.YoloPlayers` | uma caixa por jogador, em ordem estável | não rastreia e não identifica |
+| `edge.modules.tracking.GreedyTracking` | ligar as caixas ao longo do tempo | não redetecta, não mede velocidade |
+| `edge.modules.pose.YoloPose` | keypoints do finalizador na janela | não detecta jogador, não mede ângulo |
+| `edge.features.body_part` | cabeça, perna esquerda ou perna direita | não decide se o chute foi bom |
+| `edge.features.type_of_play` | bola parada, jogada aberta ou lance individual | não mede assistência |
+
+O rastreador da bola e o filtro de forma vêm do trabalho do Gabriel Alves na branch
+`feat/ball-tracking`, trazidos para a fundação com os onze testes dele. O que mudou foi a casca:
+lá um script abria vídeo por conta própria, e a suíte de conformidade proíbe isso.
+
+### Duas implementações de `players` e de `tracking`
+
+A tabela acima lista as que esta entrega usou para medir. Existe uma segunda de cada uma, no pacote
+`xvision-players-yolo`, do Daniel Dias e da Yasmim Passos: `PlayersModule` e `TrackingModule`. Elas
+não são versão anterior nem rascunho, e nenhuma das duas frentes pôde medir a outra na época, porque
+foram escritas em paralelo.
+
+O pacote apontava para os stubs por um bloqueio de plataforma que ele próprio documentava: o
+`FrameBatch` não carregava a resolução do clipe de origem, e sem ela a caixa sairia em pixel do
+tensor pré-processado em vez do quadro original que `edge.modules.records` cobra. O campo
+`source_size` resolveu isso, e o módulo do pacote agora lê a medida do lote.
+
+A diferença de fundo está no `tracking`. O `GreedyTracking` associa por sobreposição, sem peso, e
+não usa o `model.track` do Ultralytics de propósito: aquele rastreador guarda estado entre chamadas
+com `persist=True`, e a suíte de conformidade cobra que duas chamadas com a mesma entrada devolvam a
+mesma saída. O `TrackingModule` usa ByteTrack e zera os rastreadores no início de cada clipe.
+
+Qual das duas fica é medida, e não argumento. `config/pipeline.players-pacote.toml` é a de produção
+com os dois `impl` trocados, e um teste cobra que nada mais divirja entre as duas, senão o número
+passaria a medir duas mudanças somadas:
+
+```bash
+xvision eval-ball --config config/pipeline.models.toml         --dobra ajuste
+xvision eval-ball --config config/pipeline.players-pacote.toml --dobra ajuste
+```
+
+A métrica da bola responde de fato sobre `players`, porque ela mede a distância da bola detectada
+até a caixa de jogador mais próxima: detector que perde gente, ou que conta árbitro como jogador,
+move o número.
+
+## Fluxo de dados
+
+A espécie `ball` entrega uma caixa por quadro amostrado, em pixel do quadro original:
+
+```python
+{"box": (958.2, 431.7, 972.4, 445.9), "confidence": 0.62, "source": "detected"}
+```
+
+O módulo `shot` lê essa sequência, mede a virada do vetor velocidade e o ganho de velocidade em
+cada amostra interior, e emite um registro só:
+
+```python
+{"frame_index": 72, "confidence": 0.792, "source": "ball-break",
+ "turn_deg": 173.28, "speed_ratio": 2.404}
+```
+
+O campo `source` separa medido de estimado. Quando a trajetória não sustenta uma quebra, o módulo
+emite o ponto médio do trecho amostrado com `source` igual a `midpoint` e confiança baixa, em vez
+de não emitir nada.
+
+## Decisões
+
+**O instante é geometria, e não modelo treinado.** A finalização é o único momento do clipe em que
+a bola muda de direção e ganha velocidade ao mesmo tempo. Anzer e Bauer resolveram o mesmo
+problema por essa via depois de medirem desvios de até 20 s na anotação manual, e chegaram a
+0,23 s de erro médio com 95,9% dos chutes dentro de 0,3 s.
+
+A alternativa descartada foi um classificador temporal sobre descritores de movimento da imagem.
+Ele ignora a bola, que é o único sinal físico do contato, e gasta rótulo manual escasso no treino
+quando esse rótulo vale muito mais como conjunto de teste.
+
+**O refino cruza retas ajustadas sem o próprio ponto da quebra.** A primeira versão cruzava os
+segmentos que passam por ele, que se encontram trivialmente nele: o refino era um arredondamento
+disfarçado. O teste pegou, e a correção move o instante para dentro do intervalo entre amostras.
+
+**`shooter_track_id` sai sempre ausente, e isso é estrutural.** O identificador vem da espécie
+`tracking`, que roda na janela ancorada no `shot`. Um `shot` que dependesse de `tracking` fecharia
+ciclo no grafo, e o `topological_order` recusa a execução antes de começar. Quem precisa saber de
+quem é o chute identifica o jogador mais próximo da bola no quadro do contato.
+
+**A pose recorta o finalizador em vez de olhar o quadro inteiro.** Medido num clipe do parceiro, o
+estimador de pose encontrou 2 pessoas onde o detector de jogadores encontrou 14, porque jogador de
+transmissão tem caixa de cerca de 32 por 102 pixels num quadro de 1920 por 1080. Sobre o recorte do
+mesmo jogador, ampliado, foram 14 de 14. Recortar os 22 custaria cerca de 1900 inferências por
+clipe, e as duas features que precisam de pose falam do finalizador: são 121 recortes, em lotes,
+medidos em 14,8 ms cada contra 39,6 ms um a um.
+
+**O `tracking` não usa o rastreador do Ultralytics.** Aquele guarda estado entre chamadas com
+`persist=True`, e a suíte de conformidade cobra que duas chamadas com a mesma entrada devolvam a
+mesma saída. A associação é gulosa sobre as caixas de `players`, com afinidade que combina
+sobreposição e distância normalizada pela diagonal da caixa.
+
+**A configuração de modelos é arquivo separado.** O `config/pipeline.toml` precisa rodar em
+qualquer clone: os pesos moram em `var/models`, que é ignorado pelo git, e a suíte carregaria
+PyTorch para provar coisas que não dependem de modelo nenhum. Os modelos reais ficam em
+`config/pipeline.models.toml`, que é explícito.
+
+## Cinco defeitos de plataforma que a entrega destapou
+
+Nenhum deles levanta exceção, e é isso que os torna caros.
+
+O primeiro é a janela quase nunca ter homografia. O `field` rodava a 5 fps e a janela roda em taxa
+nativa, então só 10 dos 121 quadros da janela podiam ter registro de campo: nos outros 111 o
+`assemble` apagava a coordenada de campo de jogador e de bola, e a culpa cairia no dono do `field`.
+
+O segundo é a junção por quadro entre `players` e `tracking`. Com `players` a cada 12 quadros e
+`tracking` a cada um, só os múltiplos de 12 encontravam par, e nos outros onze o identificador não
+chegava ao jogador.
+
+O terceiro é que a correção óbvia dos dois primeiros fecha ciclo no grafo. A saída que ordena
+limpo põe `players` e `field` na janela, que não depende deles.
+
+O quarto é a caixa no espaço errado. O contrato cobra caixa em pixel do quadro original, e o módulo
+só recebe o tensor já redimensionado. Sem o tamanho da origem não há volta possível, e todo
+detector emitiria quatro números plausíveis no espaço errado sem ninguém perceber. O `FrameBatch`
+passou a carregar `source_size`.
+
+O quinto é a unidade de tempo. O limite de salto do rastreador é em pixel por segundo, e alimentá-lo
+com índice de quadro o afrouxa pelo fator da taxa. Medido nos dez primeiros clipes do parceiro, com
+o limite assim desligado o rastreador aceitava salto de 125 pixels por quadro, e cinco dos dez
+instantes mudaram de lugar depois da correção. O `FrameBatch` passou a carregar `source_fps`.
+
+## Como se mede
+
+O critério de aceite do card pedia que o erro do instante coubesse na incerteza de 60 quadros da
+marcação do parceiro. **Esse critério não é avaliável**, e o motivo foi medido.
+
+Para pousar a marcação dentro do clipe é preciso o deslocamento entre o relógio da transmissão e o
+relógio de jogo. O resíduo dele em torno da mediana por partida e tempo de jogo tem p50 de 2,0 s e
+p90 de 7,5 s. Somando o grão de 1 s da própria marcação, a incerteza fica entre 180 e 510 quadros,
+contra clipes de 240 a 420. A incerteza do gabarito é do tamanho do clipe inteiro.
+
+As duas tolerâncias que substituem esse critério saem da configuração e não de gosto. Com
+`before_s` de 1,5 e `after_s` de 0,5 a 59,94 fps, a janela é 90 quadros antes e 30 depois:
+
+| Erro do instante | Efeito na janela |
+| --- | --- |
+| até 30 quadros | contato dentro, dois terços do contexto anterior preservados |
+| até 90 quadros | contato dentro, nenhum contexto anterior |
+| acima de 120 quadros | a janela não contém mais o contato |
+
+O gabarito manual é anotado com `xvision label`, que escreve folha de contato em PNG em vez de
+abrir janela. O motivo é medido: o `opencv-python-headless` que o lock trava sai com `GUI: NONE` no
+wheel de Linux, então uma ferramenta com janela só rodaria na máquina de uma pessoa.
+
+```bash
+xvision label sheet --limit 40
+xvision label set 4995949 72 --annotator davi
+xvision label stats
+xvision eval-instant var/runs/<id-da-execucao>
+```
+
+A concordância entre anotadores é reportada junto, porque sem ela o gabarito não tem barra de erro
+própria e todo erro medido contra ele parece erro do modelo.
+
+## Números medidos
+
+Na fixture sintética, que é o único lugar do projeto com gabarito exato do instante, o erro é de
+**zero quadros**: o módulo aponta o quadro 18 e o gabarito é 18. Isso prova que a geometria mede o
+que diz medir quando a trajetória é conhecida, e não substitui a validação contra clipe real.
+
+Sobre os 604 clipes do conjunto, com a cadeia completa e nenhuma falha:
+
+| Medida | Valor |
+| --- | --- |
+| Clipes processados | 604 de 604, zero falhas |
+| Instantes medidos da trajetória | 600 |
+| Instantes estimados no ponto médio | 4 |
+| Cobertura da feature `body_part` | 97,4% |
+| Cobertura da feature `type_of_play` | 87,7% |
+
+O pipeline saiu de zero evento para 604. A cadeia de percepção roda de ponta a ponta em vídeo real
+e o instante quase nunca cai no ramo de degradação.
+
+## As duas features falharam, e quatro configurações dizem o mesmo
+
+| Configuração do detector e da amostragem | Acurácia de `body_part` |
+| --- | --- |
+| COCO `yolov8n`, bola a 5 fps | 0,330 |
+| mais a restrição de proximidade com jogador | 0,326 |
+| mais a correção do viés de keypoint | 0,334 |
+| peso treinado em futebol, bola a 15 fps | 0,339 |
+
+Acaso num problema de três classes é 0,333. As quatro caem em cima disso.
+
+O último resultado, sobre os 604 e sem nenhuma falha:
+
+| Feature | Acurácia | Maioria | Macro F1 | Macro F1 da maioria | McNemar |
+| --- | --- | --- | --- | --- | --- |
+| `body_part` | 0,339 | 0,522 | 0,315 | 0,229 | +91 contra 197 |
+| `type_of_play` | 0,391 | 0,667 | 0,310 | 0,267 | +64 contra 225 |
+
+As duas ganham do preditor constante em macro F1 e perdem em acurácia, e o teste pareado diz que a
+perda não é ruído. Ganhar em macro F1 sozinho não vale nada aqui, porque o constante só prevê uma
+classe e por construção tem macro F1 baixo.
+
+O `type_of_play` piorou quando a bola passou a ser amostrada a 15 fps, de 0,504 para 0,391. Isso é
+esperado e é uma admissão: os limiares de velocidade da árvore de decisão foram escolhidos para
+amostragem a 5 fps e nunca foram calibrados contra medida nenhuma.
+
+## Por que elas falharam, e o que isso descarta
+
+Três hipóteses foram levantadas antes do gabarito e as três morreram contra medição.
+
+A primeira foi distância temporal entre a amostra de bola e o contato. A mediana é de zero quadros:
+a bola está no quadro certo.
+
+A segunda foi trajetória travada num objeto fixo da arquibancada. As trajetórias não estavam
+paradas, tinham 1386 pixels de diagonal de envelope num quadro de 1920: eram ruído saltando pela
+cena, e o limite de salto do rastreador não segurava porque é em pixel por segundo e a amostragem
+era de 5 fps, o que autoriza 900 pixels entre duas amostras.
+
+A terceira foi o detector. Trocar o `yolov8n` do COCO pelo peso treinado em futebol melhorou a
+percepção de forma visível, com 17 instantes estimados em vez de 31, e não moveu a acurácia. Na
+época isso foi lido como absolvição do detector, e o gabarito mostrou que a leitura estava errada:
+o peso melhor detecta mais bolas, e continua detectando a bola errada no quadro que importa.
+
+## O gabarito separou dois erros que o número final confundia
+
+Uma feature geométrica errada tem duas causas possíveis e a acurácia não distingue: ou a regra está
+errada, ou está certa olhando o quadro errado. O gabarito manual permitiu separá-las de forma
+direta, trocando o detector de instante por um oráculo que lê o quadro anotado e deixando o resto
+do grafo idêntico. A diferença entre as duas medidas é o custo do instante, e nada mais.
+
+Foram anotados 38 clipes de 28 partidas, com o contato marcado quadro a quadro em resolução nativa.
+Dois clipes da amostra de 40 ficaram de fora porque não têm finalização visível: os dois são
+`is_blocked` de fora da área, e chute travado na saída não parece chute.
+
+Sobre esses 38 clipes, o detector cinemático erra o instante com mediana de 63 quadros, ou 1,05
+segundo. Só 32 por cento caem dentro da tolerância de 30 quadros, e 45 por cento do contato cai
+fora da janela de extração inteira, que pega 90 quadros antes e 30 depois.
+
+O efeito nas duas features, medido de forma pareada nos clipes que as duas execuções cobriram,
+porque comparar acurácias sobre conjuntos de tamanhos diferentes não decide nada:
+
+| Feature | Detector cinemático | Instante anotado | Discordam | Só o anotado acerta | p |
+| --- | --- | --- | --- | --- | --- |
+| `type_of_play` | 11 de 37 | 22 de 37 | 15 | 13 contra 2 | 0,0074 |
+| `body_part` | 10 de 30 | 10 de 30 | 16 | 8 contra 8 | 1,0000 |
+
+O `p` é de um teste de sinal exato sobre os pares discordantes: sob a hipótese de que o instante
+não importa, cada discordância é cara ou coroa.
+
+O `type_of_play` dobra, e a divisão 13 contra 2 dá p igual a 0,0074. O instante era a causa dele.
+Contra o preditor constante o quadro é o mesmo: com o detector a feature era significativamente
+pior que responder sempre a classe majoritária, com p igual a 0,004; com o instante anotado o teste
+dá p igual a 1,0. Ela ainda não ganha da constante, mas deixou de perder para ela.
+
+O `body_part` dá exatamente a mesma acurácia nas duas execuções, e discorda em 16 dos 30 clipes com
+divisão de 8 contra 8, ou seja p igual a 1,0000. É um nulo tão limpo quanto este conjunto permite
+observar. **O instante nunca foi a causa dele.**
+
+## A causa do `body_part` está antes, e é a bola
+
+Com o instante certo em mãos, a pergunta passou a ser o que a percepção vê no quadro do contato.
+Numa finalização a bola está em contato com o finalizador por definição, então a detecção tem que
+cair sobre ou colada a uma caixa de jogador. Medido nos 38 clipes anotados:
+
+| Medida no quadro do contato anotado | Clipes |
+| --- | --- |
+| bola **detectada** a 20 pixels ou menos de uma caixa de jogador | 6 de 38 |
+| o mesmo, contando também posição inventada pelo rastreador | 11 de 38 |
+| bola a mais de 50 pixels de todo jogador, ou ausente | 21 de 38 |
+| nenhuma posição de bola no quadro | 10 de 38 |
+
+A primeira e a segunda linha medem coisas diferentes, e a diferença entre elas era um defeito da
+própria régua. O rastreador preenche lacunas de até 0,33 segundo por interpolação linear, e o módulo
+marca cada posição com `detected` ou `interpolated`. Mas o montador da percepção descartava esse
+campo, então a métrica contava reta inventada como se fosse detecção. O instante do chute é
+exatamente onde a trajetória da bola vira, e uma reta traçada por cima da virada passa longe do pé:
+cinco dos onze acertos originais eram extrapolação.
+
+O número honesto é 6 de 38, ou 0,158. Para ter escala, o acaso foi medido e não suposto: o quadro do
+contato tem 24 jogadores na mediana e as caixas deles cobrem 5,4 por cento da imagem, então dois mil
+pontos uniformes na faixa de gramado de cada quadro acertam 13,07 por cento das vezes. **A percepção
+da bola no instante do chute está a 1,21 vezes o acaso.**
+
+E como o finalizador é escolhido por proximidade da bola, a cadeia inteira desaba a partir daí: bola
+errada leva a jogador errado, que leva a pose do jogador errado, que faz a regra geométrica virar
+cara ou coroa.
+
+O que descobriu a causa não foi número, foi imagem. O diagnóstico numérico levou a três hipóteses
+erradas seguidas; o primeiro quadro anotado com a bola e o corpo desenhados mostrou em segundos que
+o detector marcava um borrão branco na placa de publicidade da FIFA como sendo a bola.
+
+## A causa da causa: o detector nunca foi treinado em futebol
+
+Um diagnóstico paralelo encontrou o que nenhuma medição anterior tinha olhado. Os manifestos
+`models/ball/yolov8n-8.4.0.toml` e `models/players/yolov8n-8.4.0.toml` declaram os dois o mesmo
+`entrypoint`, o `yolov8n.pt` pré-treinado no COCO. A bola sai da classe genérica 32, `sports ball`,
+que no COCO reúne bola de basquete, de tênis e de futebol vistas de perto.
+
+Isso explica a assimetria que estava nesta página como observação sem causa: `person` é classe forte
+do COCO e a espécie `players` funciona, enquanto `sports ball` é fraca para um objeto de 13 pixels a
+cinquenta metros da câmera. O peso treinado em futebol, com `ball` como classe própria, está em
+disco desde a sprint anterior sem nenhuma configuração apontando para ele.
+
+Três outros defeitos de configuração vieram junto, todos medidos:
+
+- O pré-processamento reduz 1920 por 1080 a 1280 por 736, escala 0,667, o que leva a bola de 13,5 a
+  9,0 pixels de lado. Nove pixels é uma célula do nível P3 do YOLOv8, que tem passo 8. Medido no
+  quadro do contato, o candidato de maior confiança acerta 4 vezes em 38 a 1280 e entre 14 e 18 a
+  1920.
+- A confiança mínima é 0,25 e está cravada em código, sem caminho pela configuração. A confiança
+  mediana da bola correta é 0,154, com primeiro quartil em 0,096, então o limiar apaga os candidatos
+  certos em 21 a 23 dos 38 quadros de contato.
+- O rastreador piora o resultado em vez de melhorar. Ele ancora no candidato de maior confiança e
+  depois decide só por continuidade de movimento, e o único caminho para reancorar exige lacuna de
+  mais de cinco quadros, coisa que um falso positivo sempre presente nunca produz. No clipe 4996262
+  o candidato correto tem confiança 0,493 sobre o gramado, colado a um jogador, e o rastreador
+  prefere um borrão imóvel de confiança 0,367 cujo `x` vale 1271,3 e 1271,2 e 1271,1 ao longo de
+  sete quadros. O resultado sai a 131,8 pixels; sem o rastreador, a zero.
+
+Uma hipótese popular morreu na mesma medição. A versão anterior desta página afirmava que nove das
+trinta e oito detecções caíam acima da linha do gramado. O limiar usado para dizer isso era 0,45 da
+altura, com o sinal invertido: `y` menor é mais alto na imagem, e a linha de fundo real do gramado,
+medida em 337 quadros, tem mediana 0,285 e máximo 0,411. Com o limiar corrigido o número cai de nove
+para um, e um filtro de altura, que três frentes de diagnóstico propuseram de forma independente,
+vale no máximo um clipe.
+
+## E há um segundo gargalo, independente do primeiro
+
+A tentação era parar no detector de bola e declarar a causa encontrada. O teste que impediu isso foi
+separar os clipes pela qualidade da bola e medir a feature em cada grupo.
+
+Nos 11 clipes em que a bola já está encostada num jogador hoje, o `body_part` acerta 3, ou 0,273.
+Nos 20 em que ela está longe ou ausente, acerta 7, ou 0,350. Os intervalos se sobrepõem e o número
+de clipes é pequeno, então isso não prova que a bola seja irrelevante. Prova o suficiente para o
+plano: **corrigir a bola sozinha não entrega a feature**, porque o grupo que já tem bola boa não
+está melhor.
+
+A medição da pose no mesmo quadro mostra o motivo. A pose funciona: 16 dos 17 keypoints saem com
+confiança acima de 0,3. O problema é a escala do que ela mede.
+
+| Medida no quadro do contato anotado | Valor |
+| --- | --- |
+| altura do finalizador na imagem | 95 pixels na mediana, 24 no mínimo, 131 no máximo |
+| separação entre `ankle_left` e `ankle_right` | 12,8 pixels na mediana, 2,0 no mínimo |
+| diâmetro da bola | cerca de 24 pixels |
+| clipes com os tornozelos mais juntos que a bola | 24 de 32 |
+
+A regra decide entre `PERNA_ESQUERDA` e `PERNA_DIREITA` perguntando qual tornozelo está mais perto
+da bola. Com os tornozelos a 12,8 pixels e a bola com 24 pixels de diâmetro, **a bola encosta nos
+dois tornozelos ao mesmo tempo em três quartos dos clipes**, e a comparação decide no ruído. Nenhum
+detector de bola, por melhor que seja, muda isso: é um limite de resolução da imagem de transmissão.
+
+A distinção entre cabeça e pé não sofre do mesmo problema, porque a cabeça fica a cerca de 80 pixels
+dos tornozelos num jogador de 95, o que é mais de três vezes o diâmetro da bola.
+
+A hipótese para esquerda contra direita, a ser testada e ainda não testada, é cinemática e não
+geométrica: a perna que chuta balança e a que apoia fica parada, então a diferença de velocidade
+entre os dois tornozelos em quadros vizinhos separa as duas mesmo com 12 pixels entre elas.
+Velocidade é diferença temporal e não sofre do mesmo limite de resolução que a posição.
+
+## O que foi corrigido, e quanto cada correção valeu
+
+As correções foram calibradas contra as dobras 0 a 2 do gabarito, 24 clipes, e a dobra reservada
+ficou fora até o fim. Isso importa porque quase toda correção aqui é escolha de limiar ou de peso, e
+calibrar contra o conjunto em que se mede não mede generalização, mede memória. A divisão é por
+partida e não por clipe, então clipe de ajuste e clipe reservado nunca vêm do mesmo gramado, da
+mesma câmera nem da mesma iluminação.
+
+| Correção | Taxa na dobra de ajuste | Ganhou | Perdeu |
+| --- | --- | --- | --- |
+| linha de base, `yolov8n` do COCO a `conf` 0,25 | 3 de 24 | | |
+| confiança mínima de 0,25 para 0,10 | 9 de 24 | 6 | 0 |
+| peso dedicado só a bola, no lugar do COCO | 11 de 24 | 8 | 0 |
+
+As duas primeiras linhas são medidas separadamente, sobre a mesma base, e não somam: elas atacam o
+mesmo conjunto de clipes por caminhos diferentes.
+
+A confiança mínima estava acima da própria bola. A confiança mediana da bola correta no quadro do
+contato é 0,154, com primeiro quartil em 0,096, e o limiar de 0,25 apagava os candidatos certos em
+21 a 23 dos 38 quadros. Ele não desce a 0,05 porque ali a contagem de candidatos por quadro vai de
+1 para 3,5 e a taxa sobe sem mover `body_part`, o que seria ganhar o instrumento e perder o objetivo.
+
+O peso novo é um YOLO11n de classe única treinado só em bola de futebol de transmissão, com 2,59
+milhões de parâmetros e 5,5 MB. Ele não substitui o de jogadores, e a separação é deliberada: o
+modelo de quatro classes que o projeto tinha em vista treina a bola como uma classe entre quatro em
+372 imagens, dominada por jogador, e medido dá 7 de 24 contra os 11 de 24 do dedicado. A Roboflow
+separa os dois modelos pelo mesmo motivo.
+
+Duas correções não valeram nada e isso também é resultado. O rastreador de bola ganhou 1 clipe em 24
+depois de receber uma porta de reancoragem, e quem o mediu registrou que 4 de 24 não é distinguível
+de 3 de 24. E o limite de razão de aspecto ficou onde estava: medida a distribuição, os 24
+candidatos colados a jogador têm aspecto entre 0,67 e 1,62, nenhum acima do limite, e afrouxá-lo
+para 2,2, 2,5 ou 3,0 dá exatamente a mesma taxa.
+
+## Dois defeitos que teriam anulado a medição
+
+O primeiro estava no cache compartilhado entre espécies. A chave era o peso, o pré-processamento e o
+índice do quadro, sem a confiança nem o tamanho de inferência. Como `ball` e `players` usavam o mesmo
+peso e o mesmo pré-processamento, `players` rodava primeiro a 0,25 e servia a passada a `ball`, que
+pedia 0,10: a mudança de limiar não tinha efeito nenhum e a execução reportava o número de antes.
+
+O segundo estava no cache de percepção em disco. A chave cobre o arquivo do módulo e o digest do
+peso, e nenhum dos dois muda quando o ajuste vem da configuração. Baixar a confiança deixava a chave
+idêntica, então a execução seguinte devolvia a percepção antiga. O módulo passa a declarar o próprio
+ajuste, lido por `getattr` e não por método do protocolo, porque alargar o contrato obrigaria as
+sete espécies a crescer um método que `field` e `identity` não usam.
+
+Os dois têm a mesma forma e é a que mais custa caro: **a mudança parece aplicada, o número sai, e o
+número é do estado anterior.** Nenhum dos dois levantaria erro.
+
+## Ladrilhar o quadro, e por que a resolução é a alavanca
+
+A bola tem cerca de 13 pixels de lado no quadro de 1920 por 1080. O pré-processamento reduzia isso a
+1280 por 736, uma escala de 0,667, o que leva a bola a 8,7 pixels: exatamente uma célula do nível P3
+do YOLOv8, que tem passo 8. Detectar um objeto do tamanho de uma célula é o regime em que a cabeça
+de detecção começa a falhar.
+
+Medido no quadro do contato dos 24 clipes da dobra de ajuste, escolhendo o candidato de maior
+confiança e sem o rastreador:
+
+| Configuração | Acerto |
+| --- | --- |
+| passada cheia a 1280, o que rodava | 12 de 24 |
+| passada cheia a 1920 | 15 de 24 |
+| ladrilho 2 por 2 com 100 pixels de sobreposição, cada pedaço a 1280 | 18 de 24 |
+| o mesmo, cada pedaço a 1600 | 19 de 24 |
+
+O ladrilho não é engenhosidade nossa: é a receita que a Roboflow publica para bola de futebol, com
+supressão por sobreposição a IoU 0,1 na faixa comum, e o SAHI reporta de 5 a 7 pontos de AP só com
+inferência fatiada em objeto pequeno. A sobreposição não é enfeite: sem ela a bola que cai na divisa
+sai partida em duas meias caixas e o filtro de forma descarta as duas por razão de aspecto.
+
+O custo é quatro inferências por quadro em vez de uma. A escolha entre 1280 e 1600 por pedaço vale
+um clipe em 24 e cerca de 60 por cento de tempo a mais, o que é uma troca a decidir contra o
+orçamento da borda e não contra a métrica.
+
+Medido no pipeline inteiro, com o rastreador e tudo, e não mais na sonda de um quadro só, a dobra de
+ajuste vai de 11 de 24 para **20 de 24**, ganhando 12 clipes e perdendo 3.
+
+O número que vale é o da dobra reservada, que ficou intocada desde o começo e nunca guiou escolha
+nenhuma de peso, limiar ou configuração:
+
+| Conjunto | Linha de base | Final | Ganhou | Perdeu |
+| --- | --- | --- | --- | --- |
+| dobra de ajuste, 24 clipes | 3 de 24, ou 0,125 | 20 de 24, ou 0,833 | 12 | 3 |
+| **dobra reservada, 14 clipes** | 3 de 14, ou 0,214 | **13 de 14, ou 0,929** | 11 | 1 |
+| os 38 juntos | 6 de 38, ou 0,158 | 33 de 38, ou 0,868 | 28 | 1 |
+
+O resultado na dobra reservada sai **acima** do da dobra de ajuste, e não abaixo. Isso é o teste que
+o holdout existe para fazer: se as escolhas tivessem decorado o conjunto de calibração, o número
+reservado cairia. Ele subiu, então a melhora generaliza para partidas, gramados e enquadramentos que
+nenhuma decisão viu.
+
+Duas leituras do resumo importam mais que a taxa. A primeira é que `com_bola_detectada` sai de 11
+para **24 de 24** na dobra de ajuste, e de 15 para 37 sobre os 38: o detector passa a achar bola em
+quase todos os clipes, e a interpolação deixa de ser necessária no quadro do contato. A segunda é que a contagem estrita e a que inclui posição inventada
+dão o mesmo número, 20, o que não acontecia na linha de base, onde 5 dos 11 acertos eram extrapolação.
+
+As 3 regressões têm todas a mesma forma: nos clipes 4996262, 4996941 e 4997505 a bola estava a 0, 7 e
+0 pixels do finalizador e passou a 129, 92 e 60. Ladrilhar produz mais candidatos, e em três clipes um
+falso positivo ganha do verdadeiro no ranking por confiança. A correção seria na seleção entre
+candidatos e não no detector, e ela não foi feita nesta sprint.
+
+## Alternativas medidas e descartadas
+
+A rubrica cobra alternativa descartada com motivo, e estas foram testadas e não passaram.
+
+**Filtro de Kalman ou de partículas na bola.** O WASB testou os dois em cinco conjuntos, incluindo
+futebol em 1920 por 1080, e reporta explicitamente que não observou melhora sobre aceleração
+constante.
+
+**Corte fixo de altura para rejeitar detecção na arquibancada.** Três frentes de diagnóstico
+propuseram isso de forma independente, e as três partiam do mesmo número errado. A linha de fundo do
+gramado, medida em 337 quadros, tem mediana 0,285 e máximo 0,411 da altura, então o corte em 0,45
+que a métrica usava nunca cortava arquibancada nenhuma: oito dos nove clipes que ele apontava estavam
+sobre grama. Com o limiar corrigido o filtro vale no máximo um clipe líquido, e mata 8 de 143
+candidatos que estão colados a jogador.
+
+**Taxa nativa na espécie `ball`.** Custaria quatro vezes as inferências e a amostragem não é o
+gargalo: medido, o quadro amostrado dá 33 de 38 contra 31 de 38 do quadro exato do contato.
+
+**Recorte único de 640 por 640 centrado nos jogadores.** Falha por cobertura, e não por resolução: a
+bola cai dentro dessa janela em apenas 21 dos 38 clipes.
+
+**Trocar o peso da bola pelo modelo de quatro classes.** Medido, dá 7 de 24 contra 11 de 24 do peso
+dedicado.
+
+**Recalibrar o escore do detector de instante.** A hipótese era que o chute se distingue por acelerar
+a bola e não por virá-la, já que o escore pesa 0,6 na virada contra 0,4 na aceleração e essa
+proporção nunca foi medida. Sobre as trajetórias despejadas, na dobra de ajuste, o peso 0,4 sobe a
+fração dentro da tolerância de 0,292 para 0,375, e aceleração pura, com peso zero, desaba para 0,208.
+
+Só que **o ganho não sobrevive ao holdout**: na dobra reservada o peso 0,4 dá 0,071 contra 0,143 dos
+valores atuais. Foi ruído de calibração sobre 24 clipes, e o holdout existe exatamente para pegar
+isso. Exigir que a quebra aconteça encostada num jogador também não ajuda, em nenhuma margem entre 0
+e 200 pixels, e exigir velocidade mínima depois da quebra piora de forma monótona.
+
+O detector de instante não se conserta ajustando o escore, e isso é o que a sprint aprendeu sobre ele.
+O problema é de informação e não de peso: num clipe há várias quebras de trajetória, entre drible,
+passe, defesa e desvio, e nada no que o módulo enxerga diz qual delas manda a bola para o gol. Saber
+isso pede a direção do gol, que depende de homografia de campo, e a espécie `field` ainda é stub.
+
+**Separar cabeçada de chute pela distância da bola até a cabeça.** Esta foi fechada, reaberta e
+fechada de novo, e vale contar a sequência porque ela mostra o custo de decidir por medida indireta.
+
+Foi fechada primeiro contra o detector genérico, com a varredura mostrando que a porta só subtraía.
+Depois foi reaberta, porque a acurácia de cabeça contra pé tinha subido de 17 em 31 para 28 em 36 com
+o peso dedicado, o que parecia dizer que a distinção voltara a valer. E foi fechada de novo quando a
+medida direta desmentiu a indireta.
+
+A razão entre a distância da bola até a cabeça e até o tornozelo mais próximo, no quadro do contato
+anotado e com o detector já corrigido, tem mediana **9,32 nas cabeçadas e 4,51 nos chutes de perna**.
+Ela está invertida em relação à física: na cabeçada a bola fica mais longe da cabeça. Varrendo todos
+os cortes possíveis e escolhendo o melhor **olhando a resposta**, o acerto é 24 de 32, exatamente
+igual a responder sempre perna. O teto do método empata com a constante, então qualquer corte
+escolhido honestamente fica abaixo dele.
+
+Confirmado nas duas medições independentes. No pipeline, a porta em 1,0 disparou em 9 clipes, todos
+de perna, e em nenhuma das 8 cabeçadas verdadeiras. Na comparação offline sobre a percepção final:
+
+| Regra | dobra de ajuste | dobra reservada |
+| --- | --- | --- |
+| distância até a bola, a que estava em produção | 5 de 23, ou 0,217 | 5 de 14, ou 0,357 |
+| **só velocidade do tornozelo** | **9 de 20, ou 0,450** | **7 de 13, ou 0,538** |
+| velocidade com a porta da cabeça | 4 de 20, ou 0,200 | 6 de 13, ou 0,462 |
+
+A regra por velocidade quase dobra a que estava em produção nas duas dobras, e qualquer porta da
+cabeça a piora. A classe `CABECA` deixa de ser produzida, o que é entrega parcial declarada: são 8
+dos 38 clipes que entram inteiros como erro.
+
+A inversão diz onde procurar depois, e a hipótese é testável. Cabeçada quase sempre vem de cruzamento
+com a área cheia, e o finalizador é escolhido por proximidade da bola: é provável que o corpo
+escolhido não seja o que cabeceou. Testar isso pede escolher o finalizador por outra coisa, e não por
+outro limiar.
+
+## O placar no fim da sprint
+
+Todas as medidas abaixo são sobre os 38 clipes com instante anotado, com a configuração de produção.
+A coluna do meio troca só o módulo `shot` pelo gabarito, então a diferença entre as duas colunas é o
+custo do detector de instante e nada mais.
+
+| Medida | Detector de instante | Instante anotado |
+| --- | --- | --- |
+| bola no quadro do contato | 33 de 38, ou 0,868 (acaso 0,131) | igual |
+| `body_part`, três classes | 12 de 37, ou 0,324 (maioria 0,432) | **17 de 36, ou 0,472** (maioria 0,417) |
+| `body_part`, cabeça contra pé | 29 de 37, ou 0,784 (maioria 0,784) | 28 de 36, ou 0,778 (maioria 0,778) |
+| `type_of_play` | 18 de 38, ou 0,474 (maioria 0,605) | 15 de 37, ou 0,405 (maioria 0,622) |
+
+A maioria vai em cada célula, e não numa coluna só, porque ela depende de quais clipes a feature
+cobriu: as duas execuções cobrem conjuntos diferentes, e uma referência única seria comparar contra
+o número errado num dos lados.
+
+A percepção da bola passa a referência com folga e é a única linha que passa. Ela sai de 1,21 vezes o
+acaso para 6,6, num teto de 7,6.
+
+O `body_part` de três classes passa a maioria pela primeira vez, e só com o instante certo. Com o
+detector de instante ele fica em 0,324, abaixo dela. **O instante virou o gargalo da feature**, que é
+a inversão exata do que valia no começo da sprint, quando o instante era irrelevante e a bola era
+tudo.
+
+Sobre o quanto essa passagem significa, o número honesto é menos animador que a tabela. O teste
+pareado contra o preditor constante dá 8 clipes em que só o modelo acerta contra 6 em que só a
+constante acerta, o que é `p = 0,79`: **com 36 clipes a diferença de acurácia não é distinguível de
+ruído**. O que muda de forma visível é a forma da previsão, e ali o macro F1 vai de 0,196 para 0,354,
+porque o modelo prevê as duas pernas e a constante prevê uma só.
+
+O `type_of_play` piorou com o detector de bola corrigido, e a causa está medida. Ele decide por duas
+quantidades, quantos quadros a bola ficou imóvel e a que velocidade ela chegou, e as duas foram
+calibradas para amostragem a 5 fps com um detector que quase não achava a bola. Sobre trajetória de
+verdade elas não separam as classes:
+
+| Rótulo verdadeiro | `quadros_imoveis`, mediana | `velocidade_de_chegada`, mediana |
+| --- | --- | --- |
+| `set piece` | 0 | 21,9 |
+| `individual` | 0 | 9,8 |
+| `open play` | 0 | 9,3 |
+
+`quadros_imoveis` é zero nas três classes, então o ramo de bola parada nunca dispara. E `individual`
+e `open play`, que são 35 dos 38 clipes, chegam com a mesma velocidade. Varrendo os dois limiares
+contra a dobra de ajuste e medindo o melhor par na reservada, o resultado é 0,500 contra uma maioria
+de 0,643: **nem o melhor limiar possível salva a regra**. O que falta não é calibração, são outros
+insumos.
+
+## Trade-offs
+
+O ponto positivo é que nada aqui precisa de treino nem de rótulo novo: as correções que mais valeram
+foram trocar um peso, baixar um limiar e ladrilhar o quadro, todas configuração e nenhuma modelo
+novo. Toda decisão continua inspecionável, e o registro de cada instante carrega a virada em graus e
+a razão de velocidade que a produziram.
+
+A desvantagem principal mudou de lugar e ficou menor, mas continua nomeada: **o módulo depende
+inteiramente da espécie `ball`**. Ela deixou de ser o elo mais fraco, com 24 de 24 clipes tendo bola
+detectada no quadro do contato e 20 deles com ela colada ao finalizador, mas sem trajetória utilizável
+o módulo ainda cai no ponto médio, e o ponto médio não mede nada.
+
+A segunda desvantagem é nova e é o preço da primeira. O ladrilho custa quatro inferências por quadro
+em vez de uma, e o peso da bola deixou de ser o mesmo de `players`, o que desliga o compartilhamento
+de passada entre as duas espécies. O custo por quadro na borda **não foi medido**, e ele é o número
+que decide se esta configuração cabe no dispositivo ou se ela é só a configuração de referência
+contra a qual uma versão mais barata vai ser comparada.
+
+## Riscos e incertezas
+
+O gabarito tem 38 clipes de 28 partidas, e isso limita o que se consegue provar. Para uma regra a
+0,75 bater a maioria de 0,611 dentro das pernas, com 80 por cento de poder e alfa de 0,05, seriam
+precisos 71 clipes de perna, ou cerca de 83 clipes anotados. Para uma regra a 0,65, seriam 963
+clipes de perna, acima da população inteira de 609. Ou seja: **esquerda contra direita só é provável
+se a regra for muito boa**, e com este conjunto a diferença entre 0,54 e 0,67 não é distinguível.
+
+A concordância entre anotadores não foi medida. Todos os 38 clipes têm um anotador só, então o
+gabarito não tem barra de erro própria, e todo erro medido contra ele mistura erro do modelo com erro
+de quem anotou. A ferramenta já grava o anotador e calcula a concordância; falta uma segunda passada
+sobre um subconjunto.
+
+O peso da bola é licenciado sob AGPL-3.0, assim como o `ultralytics`, e o projeto se declara
+CC-BY-4.0 no `pyproject.toml`. Isso não bloqueia trabalho acadêmico e não é novo, mas passou a valer
+para mais um artefato e precisa estar resolvido antes de qualquer entrega ao parceiro.
+
+O ramo `individual` da feature `type_of_play` é limite declarado e não defeito. O enum do parceiro
+colapsa dois eixos que a Opta mantém ortogonais, e nenhuma regra sobre a bola separa lance individual
+de jogada aberta sem assistência.
+
+## Ainda não implementado
+
+O detector de instante virou o caminho crítico, e essa é a inversão da sprint. Ele erra 64 quadros na
+mediana contra o gabarito, e só 26 por cento dos clipes caem dentro da tolerância de 30 quadros. Isso
+**não melhorou** quando a bola foi corrigida, o que é a informação útil: 37 dos 38 clipes usam a
+quebra de trajetória medida e só 1 cai no ponto médio, ou seja o detector acha quebras, e acha a
+quebra errada. Num clipe há várias, entre drible, passe, defesa e desvio, e a que ele pontua mais
+alto nem sempre é o chute. A hipótese a testar é que o chute se distingue por acelerar a bola e não
+por virá-la: hoje o escore pesa 0,6 na virada e 0,4 na aceleração, e essa proporção nunca foi
+calibrada contra clipe real.
+
+A calibração dos limiares do `type_of_play` foi tentada e não resolve, o que também é resultado. As
+duas quantidades que a regra compara não separam as classes: `quadros_imoveis` é zero nas três, e
+`individual` e `open play`, que são 35 dos 38 clipes, chegam com a mesma velocidade. O melhor par de
+limiares possível dá 0,500 na dobra reservada contra uma maioria de 0,643. O que falta são outros
+insumos, e o candidato natural é a posição da bola em campo, que depende da espécie `field`.
+
+A seleção entre candidatos de bola não foi tocada. O ladrilho produz quatro vezes mais candidatos, e
+em 3 dos 24 clipes da dobra de ajuste um falso positivo passa o verdadeiro no ranking por confiança.
+A hipótese a testar é que continuidade de trajetória sobre a janela inteira separa os dois melhor que
+confiança por quadro, e ela se testa comparando as duas escolhas sobre os mesmos candidatos, sem
+tocar no detector.
+
+Esquerda contra direita continua sem solução provada. Foram testadas e medidas oito regras: distância
+até a bola, velocidade do tornozelo em sete janelas, caminho percorrido, deslocamento líquido, ângulo
+quadril-tornozelo, altura do tornozelo, avanço do joelho e altura relativa da bola. A velocidade ganha
+claramente da distância, que é a regra que estava em produção e é a pior de todas, mas nenhuma passa a
+maioria com significância neste conjunto. O que destrava isso é gabarito e não algoritmo, e o número
+está calculado acima.
+
+As espécies `field` e `identity` continuam stub. O `field` é card de outra pessoa e sem ele nenhuma
+coordenada em metros existe, o que mantém `marked`, `occupied_area` e `goalkeeper_position` fora do
+alcance. O `identity` não bloqueia nenhuma das sete métricas declaradas e fica de fora por decisão.
+
+O ajuste fino do peso em dado da própria competição não foi feito. O peso em uso é treinado em bola
+de futebol de transmissão de outra fonte, e o SAHI reporta que o ganho do ladrilho quase triplica
+quando o ajuste fino também é fatiado, o que sugere que os 20 de 24 ainda não são o teto da técnica.
+
+## Referências
+
+- Anzer, G. e Bauer, P. (2021). A Goal Scoring Probability Model for Shots Based on Synchronized
+  Positional and Event Data in Football. Frontiers in Sports and Active Living, 3:624475.
+- Mead, J., O'Hare, A. e McMenemy, P. (2023). Expected goals in football: Improving model
+  performance and demonstrating value. PLOS ONE, 18(4).
+- Stats Perform. [Opta Event Definitions](https://www.statsperform.com/opta-event-definitions/).
+- FBref. [Expected Goals Model Explained](https://fbref.com/en/expected-goals-model-explained/).

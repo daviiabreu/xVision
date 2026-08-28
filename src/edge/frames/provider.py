@@ -92,6 +92,18 @@ class VideoSource:
             quadros[indice] = quadro
         return quadros
 
+    @property
+    def fps(self) -> float | None:
+        """A taxa do arquivo, para o modulo poder raciocinar em segundos e nao em quadros.
+
+        Sem ela um gate de velocidade em pixel por segundo vira pixel por quadro, e a diferenca
+        nao aparece: o rastreador continua devolvendo trajetoria, so que sem rejeitar salto
+        nenhum. Medido nos clipes do parceiro, o gate desligado deixa passar salto de 125 px por
+        quadro onde a fisica da uns 14.
+        """
+        taxa = self._open().get(cv2.CAP_PROP_FPS)
+        return float(taxa) if taxa and taxa > 0 else None
+
     def close(self) -> None:
         if self._capture is not None:
             self._capture.release()
@@ -119,7 +131,33 @@ class FrameProvider:
         tensor = np.empty(forma, dtype=tensor_dtype(spec.normalize))
         for posicao, indice in enumerate(indices):
             tensor[posicao] = self._ready[(indice, impressao)]
-        return FrameBatch(indices=tuple(indices), tensor=tensor, preprocess=spec)
+        return FrameBatch(
+            indices=tuple(indices),
+            tensor=tensor,
+            preprocess=spec,
+            source_size=self._source_size(indices),
+            source_fps=self._source_fps(),
+        )
+
+    def _source_fps(self) -> float | None:
+        """Lido por `getattr` de proposito, e nao por metodo do protocolo `FrameSource`.
+
+        Alargar o protocolo obrigaria todo duble de teste a crescer um metodo que ele nao usa, e
+        fonte que nao sabe a taxa e caso legitimo: quem monta quadro em memoria nao tem arquivo.
+        """
+        taxa = getattr(self._source, "fps", None)
+        return float(taxa) if isinstance(taxa, (int, float)) and taxa > 0 else None
+
+    def _source_size(self, indices: Sequence[int]) -> tuple[int, int] | None:
+        """O tamanho do quadro decodificado, que so este lado conhece.
+
+        O modulo recebe o tensor ja redimensionado e precisa devolver caixa em pixel do quadro
+        original, entao sem este numero nao ha volta possivel.
+        """
+        if not indices:
+            return None
+        quadro = self._decoded.get(indices[0])
+        return None if quadro is None else (int(quadro.shape[1]), int(quadro.shape[0]))
 
     def close(self) -> None:
         self._source.close()
