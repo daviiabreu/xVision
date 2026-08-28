@@ -8,10 +8,15 @@ HTTP. Ele é a implementação da [Proposta A](/docs/sprint-1/arquitetura/propos
 diferença que precisa ficar declarada: na proposta a borda processa perto de onde o vídeo chega e
 um serviço central recebe o evento pronto, e nesta sprint as duas pontas rodam na mesma máquina.
 
-Os sete módulos de percepção são stubs, e isso é deliberado. Eles respondem do gabarito de uma
-fixture sintética gerada pelo próprio código, não de vídeo, e é o que permite a plataforma existir,
-ser exercitada de ponta a ponta e ser medida antes de qualquer modelo. Quem trouxer um modelo real
-troca uma linha em `config/pipeline.toml`.
+São sete espécies de módulo de percepção, e cinco já têm implementação real. Quais delas rodam com
+modelo depende da configuração: `config/pipeline.toml` é a que roda em qualquer clone, sem peso em
+disco, e nela só o `shot` é real; `config/pipeline.models.toml` exige os pesos em `var/models` e
+liga também `players`, `ball`, `tracking` e `pose`. O `field` e o `identity` continuam stub nas
+duas. O stub que sobra não é acidente: ele responde do gabarito de uma fixture sintética gerada
+pelo próprio código, não de vídeo, e é o que permite a plataforma ser exercitada de ponta a ponta
+numa máquina sem peso nenhum. Trocar um stub por um modelo continua sendo editar uma linha de
+configuração. O quadro consolidado do que ficou de fora está em
+[o que fica para a próxima sprint](../o-que-falta).
 
 Esta é a página de entrada da pasta e o ponto de integração das outras:
 [o contrato do evento](/docs/sprint-2/backend/contrato),
@@ -109,7 +114,7 @@ evento cru: ele consome a projeção por etapa que o serviço HTTP monta.
 ### Do zero até o evento
 
 O único requisito de máquina é o [uv](https://docs.astral.sh/uv/), que instala o próprio Python.
-A sequência completa, exatamente como foi rodada em 25/08/2026 numa estação de trabalho macOS
+A sequência completa, exatamente como foi rodada em 28/08/2026 numa estação de trabalho macOS
 `aarch64`:
 
 ```bash
@@ -126,13 +131,13 @@ na ordem em que apareceu no terminal:
 
 ```text
 ../var/out/synthetic.mp4
-  ball       ok           17.2 ms
+  ball       ok            4.3 ms
   field      ok            0.6 ms
-  players    ok            0.7 ms
-  shot       ok            0.5 ms
-  identity   ok           14.8 ms
-  pose       ok            1.3 ms
-  tracking   ok            1.2 ms
+  identity   ok            4.8 ms
+  players    ok            1.3 ms
+  pose       ok            2.2 ms
+  tracking   ok            1.4 ms
+  shot       ok            1.4 ms
 ../var/runs/synthetic/events.jsonl
 ```
 
@@ -141,9 +146,10 @@ A fixture tem 30 quadros a 10 fps, ou seja 3 s, em 320 por 240 e 25 618 bytes, m
 clipes da Footstats com o mesmo decodificador, 609 abrem e 24 não, todos os que abrem estão em
 1920 por 1080, 582 a 59,94 fps e 27 a 60 fps, com mediana de duração de 7 s e p95 de 11 s. É a
 população inteira, e não uma amostra. Os tempos acima, portanto, são o custo da plataforma numa
-estação de trabalho, e não o custo de inferir num dispositivo de borda. Eles são também os de uma
-execução fria: em cinco execuções seguidas na mesma máquina, `ball` ficou entre 2,8 ms e 3,2 ms e
-`identity` entre 4,3 ms e 6,2 ms, a mesma ordem de grandeza da faixa medida em
+estação de trabalho com a configuração padrão, em que só o `shot` roda implementação real, e não o
+custo de inferir num dispositivo de borda. A saída mostrada é a da primeira de seis execuções
+seguidas na mesma máquina; nas cinco seguintes, `ball` ficou entre 4,1 ms e 4,4 ms, `identity`
+entre 4,3 ms e 4,7 ms e `shot` entre 0,5 ms e 0,6 ms. O detalhe por módulo está em
 [a borda](/docs/sprint-2/backend/borda).
 
 O evento gravado em `var/runs/synthetic/events.jsonl` é a mesma execução da tabela acima:
@@ -155,28 +161,52 @@ O evento gravado em `var/runs/synthetic/events.jsonl` é a mesma execução da t
   "clip_id": "synthetic",
   "match_id": null,
   "shot_timestamp_s": 1.8,
-  "features": [],
+  "features": [
+    {
+      "name": "body_part",
+      "version": "0.2.0",
+      "status": "unavailable",
+      "value": null,
+      "confidence": null,
+      "reason": "o finalizador tem 0 quadros com os dois tornozelos acima de 0.3 de confianca na janela de 0.25 s em torno do contato, e a comparacao precisa de dois",
+      "evidence": {}
+    },
+    {
+      "name": "type_of_play",
+      "version": "0.1.0",
+      "status": "ok",
+      "value": "individual",
+      "confidence": null,
+      "reason": null,
+      "evidence": {
+        "quadros_lidos": 19,
+        "quadros_imoveis": 0,
+        "velocidade_de_chegada_px_por_quadro": 1.87,
+        "leitura": "bola chegou a 1.9 px por quadro"
+      }
+    }
+  ],
   "pipeline": {
     "versions": {
       "ball": "stub-ball@0.1.0",
       "field": "stub-field@0.1.0",
-      "players": "stub-players@0.1.0",
-      "shot": "stub-shot@0.1.0",
       "identity": "stub-identity@0.1.0",
+      "players": "stub-players@0.1.0",
       "pose": "stub-pose@0.1.0",
-      "tracking": "stub-tracking@0.1.0"
+      "tracking": "stub-tracking@0.1.0",
+      "shot": "ball-break@0.1.0"
     },
     "timings_ms": {
-      "ball": 17.212,
-      "field": 0.623,
-      "players": 0.667,
-      "shot": 0.454,
-      "identity": 14.767,
-      "pose": 1.32,
-      "tracking": 1.204
+      "ball": 4.254,
+      "field": 0.577,
+      "identity": 4.85,
+      "players": 1.293,
+      "pose": 2.209,
+      "tracking": 1.444,
+      "shot": 1.422
     },
     "host": "laptop",
-    "started_at": "2026-08-25T03:03:51.086Z"
+    "started_at": "2026-08-28T17:25:35.687Z"
   }
 }
 ```
@@ -184,8 +214,12 @@ O evento gravado em `var/runs/synthetic/events.jsonl` é a mesma execução da t
 Três coisas nesse payload merecem leitura atenta. `shot_id` é `clip_id` mais o quadro do contato, e
 é a chave de idempotência que o RNF-07 pede: reprocessar o mesmo clipe produz a mesma chave.
 `versions` lista apenas o módulo que rodou, então etapa que falhou não aparece afirmando ter
-produzido saída. E `features` vem vazia porque nenhuma feature está declarada em
-`config/pipeline.toml`, o que é a parcialidade principal desta entrega e está declarada como tal.
+produzido saída, e é ali que se lê o que é stub e o que não é: `shot` responde `ball-break@0.1.0`,
+ou seja o instante de 1,8 s saiu de uma regra sobre a trajetória da bola, ainda que nesta
+configuração essa trajetória venha do stub. E `features` traz as duas declaradas em `[features.*]`,
+com destinos opostos: `type_of_play` mede e responde `individual`, e `body_part` responde
+`unavailable` com o motivo escrito por extenso, porque a pose do stub não sustenta a leitura.
+Feature que não pode medir diz que não mediu, em vez de devolver um palpite com cara de número.
 
 ### Do evento até o frontend
 
@@ -208,10 +242,10 @@ execução, registra a passagem pela borda:
 
 ```text
 INFO xvision.api video=1 iniciou
-INFO xvision.api video=1 terminou etapas=7 ms=29
+INFO xvision.api video=1 terminou etapas=7 ms=16
 ```
 
-E o corpo que o frontend recebe no `GET /v1/videos/1`, recortado nas duas primeiras etapas:
+E o corpo que o frontend recebe no `GET /v1/videos/1`, recortado em três das sete etapas:
 
 ```json
 {
@@ -219,17 +253,42 @@ E o corpo que o frontend recebe no `GET /v1/videos/1`, recortado nas duas primei
   "video_status": "Finalizado",
   "resultados": [
     { "nome_processo": "ball", "status": true, "frame": null, "metricas": [] },
-    { "nome_processo": "field", "status": true, "frame": null, "metricas": [] }
+    { "nome_processo": "field", "status": true, "frame": null, "metricas": [] },
+    {
+      "nome_processo": "shot",
+      "status": true,
+      "frame": null,
+      "metricas": [
+        {
+          "nome": "body_part",
+          "unidade_de_medida": "classe",
+          "tipo": null,
+          "valor": null,
+          "status": "unavailable"
+        },
+        {
+          "nome": "type_of_play",
+          "unidade_de_medida": "classe",
+          "tipo": "text",
+          "valor": "individual",
+          "status": "ok"
+        }
+      ]
+    }
   ],
   "motivo": null,
-  "render_url": "/v1/videos/1/render"
+  "render_url": null
 }
 ```
 
-`metricas` vem vazia pelo mesmo motivo que `features` vem vazia no evento, e `frame` responde
-`null` porque a imagem de demonstração depende da visualização, que não entra nesta sprint.
-`render_url` aponta para o vídeo anotado da visão superior e vem nulo quando o serviço não o
-produziu, o que acontece sempre que falta um dos dois pesos declarados em `[render.top_view]`.
+As sete etapas voltam na ordem em que rodaram, e `metricas` só vem preenchida na etapa `shot`, que
+é onde a finalização existe: é ela que carrega as duas features do evento, com o mesmo `status` que
+elas tinham lá, e `tipo` sai `null` justamente na que não mediu, para quem gera cliente a partir do
+contrato não receber `float` de uma categoria sem leitura. `frame` responde `null` porque a imagem
+de demonstração depende da visualização, que não entra nesta sprint. `render_url` aponta para o
+vídeo anotado da visão superior e vem nulo quando o serviço não o produziu, o que acontece sempre
+que falta um dos dois pesos declarados em `[render.top_view]`: é o caso deste clone, e o log da
+mesma execução registra o aviso `sem visao superior: o peso de players nao esta pronto`.
 
 O frontend vive em `src/interface`, e é TypeScript: ele fica fora dos portões de Python e tem os
 seus próprios, seis jobs em `.gitlab/ci/frontend.yml`. Os testes que varrem `src/` definem área
@@ -269,16 +328,20 @@ quebraria em qualquer instalação que não fosse editável.
 `config/pipeline.toml` com `impl` no formato `pacote.modulo:Classe`, e o registry carrega o que
 estiver declarado. *Alternativa descartada:* uma lista de imports no código do pipeline, que é mais
 simples de ler e obriga a mexer em Python para trocar um modelo, contrariando o RNF-09. A troca de
-um stub por um modelo real é, hoje, a edição de uma linha, e a suíte de conformidade passa a rodar
-contra a implementação nova ao custo de três linhas: uma classe que herda `ModuleConformance` e a
-fixture que devolve o módulo. Caso de teste, nenhum precisa ser escrito.
+um stub por um modelo real é a edição de uma linha, e isso deixou de ser promessa nesta sprint:
+`config/pipeline.models.toml` é o mesmo grafo com quatro `impl` trocados e o `artifact` de cada
+peso, sem uma linha de Python diferente. A suíte de conformidade passa a rodar contra a
+implementação nova ao custo de três linhas: uma classe que herda `ModuleConformance` e a fixture
+que devolve o módulo. Caso de teste, nenhum precisa ser escrito.
 
 **A plataforma antes do modelo, com stub declarado como stub.** *Alternativa descartada:* começar
 por um detector real e montar a plataforma em volta dele. Ela adia o fluxo demonstrável de ponta a
 ponta para depois do primeiro modelo funcionar, e concentra o risco num item só. Com stubs, o
 caminho clipe até evento até frontend já existe, é medido e falha de forma declarada, e o que falta
-é substituível peça a peça. O preço está nomeado em Riscos: nenhum número de tempo desta página
-mede inferência.
+é substituível peça a peça. A aposta se pagou dentro da própria sprint: cinco das sete espécies
+passaram a ter implementação real sem que o grafo, o contrato do evento ou a tela mudassem. O preço
+continua nomeado em Riscos: nenhum número de tempo desta página mede inferência, porque a
+configuração padrão não carrega peso nenhum.
 
 ## Trade-offs
 
@@ -310,11 +373,13 @@ que o sistema se recomponha depois de um `rm -rf var/`, está declarada em
 
 ## Riscos e incertezas
 
-**Os sete módulos são stubs, e isso contamina toda medida de tempo desta página.** Eles respondem do
-gabarito da fixture, não de vídeo. Os 29 ms que o log do serviço registra são o custo da plataforma
-numa estação de trabalho: com modelos reais, numa Jetson, o tempo por clipe muda de ordem de
-grandeza. É a maior incerteza aberta, e nenhum número aqui deve ser lido como evidência sobre o
-RNF-01.
+**A configuração padrão não carrega modelo, e isso contamina toda medida de tempo desta página.**
+Em `config/pipeline.toml`, seis das sete espécies respondem do gabarito da fixture e a sétima,
+`shot`, é uma regra geométrica sobre a saída delas: nenhuma rede roda. Os 16 ms que o log do
+serviço registra são, portanto, o custo da plataforma numa estação de trabalho. Com
+`config/pipeline.models.toml`, que carrega três pesos, e numa Jetson, o tempo por clipe muda de
+ordem de grandeza. É a maior incerteza aberta, e nenhum número aqui deve ser lido como evidência
+sobre o RNF-01.
 
 **Ninguém tem a placa nesta sprint.** A imagem para a Jetson não existe, e a armadilha conhecida
 está registrada no `Dockerfile` em vez de ser redescoberta na hora errada: a base do JetPack já traz
@@ -329,9 +394,13 @@ pacotes existem para a arquitetura, e não que rodam na placa.
 nos dois sentidos contra o mesmo arquivo de schema, mas quem carrega o evento pela rede ainda não
 foi escrito. Até lá, o RNF-07 tem a chave de idempotência sem ter o caminho onde ela seria exercida.
 
-**A avaliação está pronta e não tem o que avaliar.** Sem feature declarada, o `eval` reporta
-cobertura zero. O relatório é honesto sobre isso, mas é fácil de ler errado, e o detalhe está na
-[página do dado e do número](/docs/sprint-2/backend/dados-e-avaliacao).
+**A avaliação tem duas das sete métricas para avaliar.** O `config/labels.toml` declara sete
+métricas com gabarito do parceiro, e só `body_part` e `type_of_play` têm feature que as produza. A
+`marked` está no meio do caminho: a lógica existe em `edge/participants/marking.py` e falta a
+`Feature` que a liga ao pipeline. As outras quatro não existem. O relatório é honesto sobre a
+diferença, mas ela é fácil de ler errado, e o detalhe está na
+[página do dado e do número](/docs/sprint-2/backend/dados-e-avaliacao) e em
+[o que fica para a próxima sprint](../o-que-falta).
 
 **O gabarito do parceiro tem grão grosso, e isso limita o critério de aceite de qualquer modelo
 futuro.** O que está medido: a coluna de distância tem exatamente dez valores distintos, de 5 a 50
@@ -344,25 +413,30 @@ rótulo, e não o modelo. A derivação completa está em
 
 ## Ainda não implementado
 
+O quadro consolidado da sprint inteira, com as sete espécies e as sete métricas lado a lado, está
+em [o que fica para a próxima sprint](../o-que-falta). A tabela abaixo é o recorte do backend.
+
 | O que falta | Como a hipótese será testada |
 | --- | --- |
-| Os sete módulos de percepção | Trocar o `impl` de `modules.shot` no `pipeline.toml` por uma implementação real e medir o erro do instante detectado contra a marcação do parceiro, sabendo que a incerteza do gabarito é de cerca de 60 quadros. `shot` vem primeiro porque ancora a janela de `pose`, `tracking` e `identity` |
-| Features de nível 1, 2 e 3 | Declarar em `[features.*]`, rodar `xvision run --all` seguido de `xvision eval`, e exigir que a acurácia bata a linha de base de maioria com margem maior que o grão do gabarito |
+| As duas espécies que continuam stub nas duas configurações, `field` e `identity` | Trocar o `impl` de `modules.field` pela implementação sobre `src/models/line_tracking/`, rodar `xvision run --all --config config/pipeline.models.toml` e conferir que os quadros passam a carregar `pitch_xy`, hoje nulo por falta de homografia. O `identity` não bloqueia nenhuma das sete métricas declaradas e ficou de fora de propósito |
+| As cinco métricas de `config/labels.toml` que não têm feature | Declarar cada uma em `[features.*]`, rodar `xvision run --all` seguido de `xvision eval`, e exigir que a acurácia bata a linha de base de maioria com margem maior que o grão do gabarito. A `marked` é a mais próxima: a lógica já existe em `edge/participants/marking.py` e falta a `Feature` que a liga ao pipeline |
+| A dobra reservada para as duas features que já medem | Os números de `body_part` e `type_of_play` saíram da dobra de ajuste, que é a que guiou a escolha dos limiares. Rodar `xvision eval` sobre a dobra reservada é o que separa regra que generaliza de regra ajustada ao conjunto |
+| O tempo de um clipe com modelo de verdade | Todo número de latência desta página saiu da configuração sem peso. Repetir a medida com `config/pipeline.models.toml` sobre clipe de partida é o que fixa o teto da fila e o `Retry-After` do serviço |
 | Imagem para a Jetson | Construir na placa a partir de `nvcr.io/nvidia/l4t-jetpack`, com `uv venv --system-site-packages`, e comparar ms por clipe contra o número da estação registrado aqui |
 | Transporte da borda para a nuvem | Enviar o evento e validar do outro lado contra o mesmo `shot_event.v1.json`, depois repetir o envio e conferir que o `shot_id` mantém um único registro |
 | Visualização do quadro no resultado | O campo `frame` já existe no contrato e responde `null`; o teste é a tela do frontend exibir o quadro do contato sem mudança de contrato |
 | PostgreSQL em produção | A topologia em `infra/` declara o armazenamento sem amarrar provedor, e a decisão depende de escolha que o time ainda não tomou |
 
 Os portões internos, rodados em 28/08/2026 nesta base: `ruff check` responde `All checks passed!`,
-`ruff format --check` responde `147 files already formatted`, `pyright` em modo estrito responde
-`0 errors`, e `pytest --cov` responde `864 passed` com cobertura de linha de 85,62% contra um piso
-de 80%. A cobertura caiu de 96,90% para cá, e a queda não é de teste apagado: `[tool.coverage.run]`
-passou a incluir `src/models`, que são scripts de operador sem suíte, e os seis arquivos deles
-sozinhos somam 434 linhas não executadas. Medindo só as cinco áreas do backend, com
-`--cov=src/api --cov=src/cli --cov=src/contracts --cov=src/edge --cov=src/mlops`, a cobertura é
-96,65%. O tempo de parede da suíte fica de fora de propósito: ele varia por máquina e
-não é resultado de portão nenhum. O que esses números provam, e principalmente o que eles não
-provam, está em [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+`ruff format --check` responde `216 files already formatted`, `pyright` em modo estrito responde
+`0 errors, 0 warnings, 0 informations`, e `pytest --cov` responde `1205 passed, 1 skipped` com
+cobertura de linha de 91,17% contra um piso de 80%. O `[tool.coverage.run]` mede exatamente as
+cinco áreas do backend, e `src/models`, que são scripts de operador sem suíte, fica de fora da
+conta. As linhas não cobertas se concentram em `cli/__init__.py`, o ponto de entrada de terminal,
+com 217 delas, e no código de percepção que chegou nesta sprint. O tempo de parede da suíte fica de
+fora de propósito: ele varia por máquina e não é resultado de portão nenhum. O que esses números
+provam, e principalmente o que eles não provam, está em
+[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
 ## Referências
 

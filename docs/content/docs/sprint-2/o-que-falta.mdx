@@ -1,0 +1,130 @@
+---
+title: O que fica para a próxima sprint
+description: O que a Sprint 2 entregou, o que ficou pelo caminho e como cada hipótese pendente será testada
+---
+
+Esta página existe para que a parcialidade seja lida, e não descoberta. Cada página desta sprint já
+tem a própria seção "Ainda não implementado", com o detalhe de quem escreveu aquele componente;
+aqui está o quadro inteiro, numa tabela só, para quem precisa saber onde a entrega para sem abrir
+oito páginas.
+
+A regra que separa as três colunas é a mesma em toda a documentação: **fato é o que foi medido,
+hipótese é o que se acredita e ainda não foi medido, e experimento é o que decide entre as duas.**
+Nada aqui é estimativa apresentada como número.
+
+## O que a sprint entregou
+
+O fluxo de ponta a ponta existe e roda: um clipe entra pela tela, o serviço enfileira, a borda
+processa e o resultado volta com o vídeo anotado. As três frentes que a rubrica cobra estão de pé,
+com responsabilidades separadas.
+
+| frente | estado |
+| --- | --- |
+| interface | quatro telas, envio do binário cru, consulta do andamento e exibição do resultado |
+| serviço | oito rotas sob `/v1`, autenticação por conta, fila com teto, posse do vídeo e recuperação de queda |
+| percepção | cinco dos sete módulos com implementação real, duas features medidas contra o gabarito do parceiro |
+
+## Os módulos de percepção
+
+São sete espécies, e o que muda entre as duas configurações é quais delas usam modelo de verdade.
+`config/pipeline.toml` é a que roda em qualquer clone, sem peso nenhum;
+`config/pipeline.models.toml` é a que exige os pesos em `var/models` e produz o número real.
+
+| espécie | `pipeline.toml` | `pipeline.models.toml` |
+| --- | --- | --- |
+| `shot` | `BallBreakShot` | `BallBreakShot` |
+| `players` | stub | `YoloPlayers` |
+| `ball` | stub | `YoloBall` |
+| `tracking` | stub | `GreedyTracking` |
+| `pose` | stub | `YoloPose` |
+| `field` | stub | **stub** |
+| `identity` | stub | **stub** |
+
+**Faltam duas.** O `field` depende do modelo de keypoints do campo, que existe e está treinado, e o
+que falta é ligá-lo no lugar do stub. O `identity` não bloqueia nenhuma das sete métricas
+declaradas e ficou deliberadamente de fora.
+
+O experimento que fecha o `field`: trocar o `impl` de `modules.field` pela implementação sobre
+`src/models/line_tracking/`, rodar `xvision run --all --config config/pipeline.models.toml` e
+conferir que os quadros passam a carregar `pitch_xy`, que hoje sai nulo por falta de homografia.
+
+## As métricas
+
+`config/labels.toml` declara sete métricas com gabarito do parceiro. Duas têm implementação.
+
+| métrica | gabarito | estado | o que falta |
+| --- | --- | --- | --- |
+| `body_part` | `body_part_3` | **medida** | refinamento, ver abaixo |
+| `type_of_play` | `type_of_play` | **medida** | refinamento, ver abaixo |
+| `marked` | `marked` | metade | a lógica existe em `edge/participants/marking.py`; falta a `Feature` que a liga ao pipeline |
+| `goalkeeper_position` | `goalkeeper_position` | não existe | depende de detecção do goleiro, que o `players` já distingue por papel |
+| `occupied_area` | `occupied_area` | não existe | depende da homografia, porque a área ocupada é medida em metros de gramado |
+| `looked_before` | `looked_before` | não existe | depende do estimador de pose, que já existe em `edge/modules/pose/` |
+| `assist` | `assist` | não existe | depende de rastrear o toque anterior, que o `tracking` sustenta e nenhuma feature consome |
+
+**A `marked` é a mais próxima, e é uma ponte, não um módulo.** O que falta é uma `Feature` em
+`edge/features/` que leia a equipe de cada `PlayerDetection` e responda se o finalizador estava
+marcado no quadro do contato. Ela tropeça em duas decisões que ainda não foram tomadas: o que fazer
+quando `team` vem nulo, que é o caso enquanto `identity` for stub, e em que unidade comparar o raio
+de marcação, porque ele é declarado em metros e sem homografia a posição sai em pixel. Comparar
+metro com pixel produziria número errado em silêncio, então a feature depende do `field`.
+
+O experimento, quando as duas decisões estiverem tomadas: declarar `[features.marked]`, rodar
+`xvision eval` sobre a dobra de ajuste e comparar com a linha de base de maioria, que para uma
+métrica booleana é o que separa medir de acertar por sorte.
+
+## O refinamento do que já existe
+
+As duas métricas medidas não estão prontas, estão medidas. O que cada uma precisa:
+
+| o que | como será testado |
+| --- | --- |
+| `body_part` sobre a dobra reservada | O número atual saiu da dobra de ajuste. A dobra reservada de 14 clipes nunca guiou escolha, e é ela que diz se a regra generaliza |
+| `type_of_play` com o qualificador de bola parada | Hoje ele decide por movimento da bola antes do contato. Os qualificadores 22 a 26 do parceiro distinguem falta de escanteio, e a hipótese é que a distinção não sai de vídeo |
+| A percepção da bola sobre clipe de partida | O ganho de 0,214 para 0,929 foi medido sobre os 38 clipes anotados à mão. Repetir sobre um recorte novo, anotado por outra pessoa, é o que separa a correção do ajuste ao conjunto |
+| O tempo real de um clipe | Todo número de latência desta sprint saiu da fixture sintética, que atravessa em dezenas de milissegundos. Com modelo de verdade sobre clipe de partida o número muda de ordem, e é ele que fixa o teto da fila e o `Retry-After` |
+
+## Duas implementações esperando medição
+
+A integração de duas frentes escritas em paralelo deixou duas implementações da mesma espécie
+convivendo, de propósito e por tempo limitado.
+
+**`players` e `tracking`.** Existem `edge.modules.players:YoloPlayers` com
+`edge.modules.tracking:GreedyTracking`, e `edge.participants.module:PlayersModule` com
+`:TrackingModule`. Nenhuma das duas frentes pôde medir a outra na época, porque foram escritas ao
+mesmo tempo. Escolher por argumento seria escolher por quem fala mais alto, e o mecanismo de
+decisão já existe: `config/pipeline.players-pacote.toml` troca só essas duas linhas, e o comando
+
+```bash
+xvision eval-ball --config config/pipeline.models.toml         --dobra ajuste
+xvision eval-ball --config config/pipeline.players-pacote.toml --dobra ajuste
+```
+
+mede a distância da bola detectada até a caixa de jogador mais próxima no quadro do contato, que
+responde de fato sobre `players`: detector que perde gente, ou que conta árbitro como jogador, move
+o número. O que falta é rodar os dois e comparar.
+
+## Fora do código
+
+| o que falta | como será testado |
+| --- | --- |
+| Imagem para a Jetson | Construir sobre `l4t-jetpack` na própria placa e conferir que existe uma só OpenCV no contêiner, que foi o que já quebrou o CI uma vez |
+| Transporte da borda para a nuvem | O contrato do evento existe e é validado dos dois lados contra o mesmo `shot_event.v1.json`; falta o meio, e o teste é o mesmo evento sair de uma máquina e chegar íntegro na outra |
+| Mais de uma instância | Trocar SQLite por PostgreSQL e a fila em processo por uma externa; subir duas instâncias sobre o mesmo estado e conferir que nenhum vídeo é processado duas vezes |
+| Peso do campo publicado | Seis dos sete manifestos apontam para um peso obtenível; o do campo não tem origem publicada, então quem clona não consegue rodar a homografia |
+| Download automático do artefato | Dois manifestos declaram o campo `download` e `edge/artifacts.py` nunca o lê. Enquanto isso, os pesos existem em uma máquina só |
+
+## Riscos que continuam abertos
+
+**O gabarito do parceiro tem grão grosso.** A distância vem em faixas de 5 m e o tempo em segundos,
+então há um teto para o que a comparação consegue verificar, e ele não é o teto do modelo. Isso já
+está registrado em [dados e avaliação](./backend/dados-e-avaliacao) e continua valendo.
+
+**O gabarito manual do instante existe numa máquina só.** São 38 anotações feitas quadro a quadro,
+em `var/labels/`, fora do Git por serem derivadas de material restrito. Refazer significa reanotar.
+A hipótese de mitigação é uma cópia acordada com o parceiro; o experimento é combinar onde ela pode
+morar sem violar a restrição.
+
+**Duas métricas medidas não sustentam a promessa de sete.** O `config/labels.toml` declara sete, e
+essa distância é o principal risco de escopo desta entrega. A mitigação é a ordem: `field` primeiro,
+porque ele desbloqueia `occupied_area` e `marked` de uma vez.

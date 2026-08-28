@@ -46,7 +46,7 @@ deles, e não o desenho do backend, que está na
 | --- | --- | --- |
 | `ruff check` e `ruff format --check` | que o código respeita as seis famílias de regra selecionadas e sai formatado igual na mão de todo mundo | nada sobre comportamento: um módulo inteiro errado passa formatado |
 | `pyright` em modo estrito | que os tipos fecham em todo o `src/`, sem `Any` implícito, verificado no piso 3.10 | que o tipo descreve a intenção: um `float` bem tipado continua podendo trazer pixel onde a feature espera metro |
-| `pytest --cov` | que os 864 testes de Python passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
+| `pytest --cov` | que os 1205 testes de Python passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
 | `uv pip compile` para `aarch64` | que existe roda binária de cada dependência de execução para a arquitetura da placa, no piso 3.10 | que roda na Jetson: resolução não é instalação, e ninguém do grupo tem a placa nesta sprint |
 | meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e a correspondência entre o CI e os portões locais continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
 | `conftest.py` da suíte | que nenhum teste escreve no `var/` de quem roda, que o segredo de assinatura existe e que o dump do parceiro está escondido | não impede um teste de criar estado dentro do próprio `tmp_path` e depender dele |
@@ -69,36 +69,39 @@ uv run --all-extras pyright
 uv run --all-extras pytest --cov -q
 ```
 
-A saída medida no dia 28/08/2026, no worktree da branch `feat/frontend`, num Apple M5 com
-Python 3.10.20:
+A saída medida no dia 28/08/2026, no worktree da branch `docs/o-que-fica-para-a-proxima-sprint`,
+num Apple M5 com Python 3.10.20:
 
 ```text
 All checks passed!
-147 files already formatted
+216 files already formatted
 0 errors, 0 warnings, 0 informations
-TOTAL                                   4548    654    86%
-Required test coverage of 80.0% reached. Total coverage: 85.62%
-864 passed in 11.36s
+TOTAL                                   6260    553    91%
+Required test coverage of 80.0% reached. Total coverage: 91.17%
+1205 passed, 1 skipped in 12.58s
 ```
 
-A cobertura desceu de 96,90% para 85,62% entre a sprint e esta branch, e nenhum teste foi apagado
-no caminho: `[tool.coverage.run]` passou a incluir `src/models`, que são scripts de operador sem
-suíte, e eles somam 434 linhas nunca executadas. Medindo só as cinco áreas do backend a cobertura
-é 96,65%. Deixar `src/models` no denominador é decisão, e não descuido: esconder da medida o código
-que ninguém testa transformaria o número num elogio.
+A cobertura de hoje é 91,17% sobre 6260 linhas, e ela não é comparável com os 85,62% que esta
+página registrava antes, porque o denominador mudou. `[tool.coverage.run]` declara cinco áreas,
+`api`, `cli`, `contracts`, `edge` e `mlops`, e os scripts de operador de `src/models`, que só rodam
+com peso, GPU ou dado local na máquina, ficaram fora dessa lista. O que impede a escolha de virar
+elogio é um teste: ele lê a lista do próprio `pyproject.toml` e cobra que todo módulo de dentro de
+uma área apareça no relatório, mesmo a zero, para que código sem teste puxe o total para baixo em
+vez de sumir da medida. O caso visível hoje é `mlops/zoom.py`, 27 linhas a 0% dentro do relatório.
 
-Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 6 segundos sem
-cobertura e 8 com ela. Esse é o piso, e não uma constante: em dez execuções seguidas na mesma
-árvore os tempos foram de 5,9 a 8,3 segundos sem cobertura e de 7,8 a 15,7 com ela, porque parte
-da suíte sobe threads e disputa CPU com o que mais estiver rodando. A primeira execução depois de
-um `uv sync` limpo levou 21 segundos, e é essa a ordem de grandeza que o runner vê, porque lá o
-cache começa frio a cada job.
+Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 9 segundos sem
+cobertura e 12 com ela. Esse é o piso, e não uma constante: em cinco execuções seguidas na mesma
+árvore os tempos foram de 9,18 a 9,70 segundos sem cobertura e de 12,20 a 12,88 com ela, porque
+parte da suíte sobe threads e disputa CPU com o que mais estiver rodando. A primeira execução
+depois de um `uv sync` limpo levou 21 segundos, número medido quando a suíte tinha 864 testes e
+não refeito aqui; é essa a ordem de grandeza que o runner vê, porque lá o cache começa frio a cada
+job.
 
 O teste pulado tem nome e motivo, e o motivo é ele mesmo se recusando a depender de arquivo que o
 CI não tem:
 
 ```text
-SKIPPED [1] src/tests/test_ci_gates.py:268: pipeline.config.json nao e versionado
+SKIPPED [1] tests/test_ci_gates.py:270: pipeline.config.json nao e versionado
 e nao existe neste ambiente
 ```
 
@@ -183,7 +186,7 @@ dele passa aqui e quebra lá.
 **O CI e os portões locais são conferidos um contra o outro por teste.** A alternativa descartada
 era revisão humana, e ela já falhou aqui. Sem a conferência automática, os dois envelhecem
 separados: alguém esvazia o script de um job e a MR passa verde num portão que ninguém está mais
-rodando. Os 105 testes que moram na raiz de `src/tests/` guardam o repositório, e os 27 de
+rodando. Os 130 testes que moram na raiz de `src/tests/` guardam o repositório, e os 45 de
 `test_ci_gates.py`, o arquivo mais longo do conjunto, são os que fazem essa conferência: eles
 resolvem a herança dos jobs do YAML e afirmam coisas concretas, como o job `python:arm64` exigir
 `--only-binary :all:`. Sem essa flag o portão aceita distribuição de código-fonte e não prova nada
@@ -213,7 +216,7 @@ vermelha, o que é a melhora possível, e não conserta o problema de fundo: gua
 aproximação da propriedade que interessa, e vale exatamente enquanto o nome e o formato ficarem
 parados.
 
-A terceira é que 117 dos 864 testes, cerca de 13%, testam o repositório e não o produto. Eles
+A terceira é que 130 dos 1205 testes, cerca de 11%, testam o repositório e não o produto. Eles
 pagam manutenção quando a estrutura muda, e já quebraram duas vezes pelo mesmo motivo que existem
 para impedir, que é depender do ambiente de quem escreve. A segunda dessas quebras virou um teste
 que varre a própria suíte procurando caminho construído a partir da raiz do repositório e cobra
@@ -246,33 +249,49 @@ sim uma chamada que alcançava o dump por dentro, e por isso a cura foi esconder
 `conftest.py` em vez de procurar quem depende dele. A quarta vez vai parecer diferente das outras
 três.
 
-**Os números da suíte são sobre a fixture sintética, e não sobre vídeo.** Os sete módulos
-respondem do gabarito da fixture, então 864 testes verdes provam que a plataforma liga, e não que
-alguma coisa detecta jogador. Ler a cobertura como se fosse indicador de qualidade do produto seria
-o erro mais fácil de cometer com esta página aberta.
+**Os números da suíte são sobre a fixture sintética, e não sobre vídeo.** Cinco das sete espécies
+de módulo já têm implementação real, e nenhuma delas roda com peso aqui: os pesos moram em
+`var/models`, que está fora do git e fora do runner, então os testes dos adaptadores reais
+exercitam a travessia contra um Ultralytics falso, e a configuração padrão, `config/pipeline.toml`,
+continua respondendo do gabarito da fixture em seis das sete espécies. Assim, 1205 testes verdes
+provam que a plataforma liga, e não que alguma coisa detecta jogador. Ler a cobertura como se fosse
+indicador de qualidade do produto seria o erro mais fácil de cometer com esta página aberta.
 
 ## Ainda não implementado
 
-**Os sete módulos de percepção continuam stubs.** Eles respondem do gabarito da fixture sintética,
-declarados em `config/pipeline.toml` apontando para `edge.modules.stubs`. A hipótese a testar é
-que trocar um stub por um modelo de verdade custa uma linha de configuração e nada mais. O
-experimento da sprint 3 é o mais simples possível: um dono pega o molde em
-`src/edge/testing/example_module.py`, troca o `impl` da seção do módulo dele, e a suíte de
-conformidade, que são sete testes herdados em três linhas, roda contra o modelo novo sem ninguém
-escrever teste. Se algum dos sete falhar, a hipótese estava errada e o contrato do módulo precisa
-mudar antes dos modelos.
+**Duas das sete espécies de módulo continuam stubs, `field` e `identity`.** As outras cinco já têm
+implementação real, e qual delas roda depende da configuração. `config/pipeline.toml` é a que roda
+em qualquer clone, sem peso nenhum, e ali só o `shot` é real, com
+`edge.modules.shot:BallBreakShot`. `config/pipeline.models.toml` exige os pesos em `var/models` e
+declara também `edge.modules.players:YoloPlayers`, `edge.modules.ball:YoloBall`,
+`edge.modules.tracking:GreedyTracking` e `edge.modules.pose:YoloPose`. A hipótese que esta página
+registrava, de que trocar um stub por um modelo de verdade custa uma linha de configuração e nada
+mais, foi confirmada em parte: a suíte de conformidade, que são sete testes herdados em três
+linhas, passou a rodar contra os cinco adaptadores reais sem nenhum ajuste no contrato do módulo, e
+nenhum dos sete falhou. O que ela não previa é que cada adaptador ainda precisa dos próprios testes
+de travessia até a API do Ultralytics, escritos à mão, porque a conformidade cobra o contrato e
+nunca a acurácia. Falta o `field`, que depende do modelo de keypoints do campo, e o `identity`, que
+ficou de fora de propósito por não bloquear nenhuma das sete métricas declaradas; o experimento que
+fecha cada um está em [o que fica para a próxima sprint](../o-que-falta).
 
-**Nenhuma feature está declarada, e a cobertura sai 0% no `eval`.** Isto é fato conferido em dois
-arquivos: `config/pipeline.toml` tem zero seções `[features.*]`, e `config/labels.toml` declara
-sete entradas `[[metric]]`. Como o relatório é montado a partir das métricas declaradas e não das
-predições, cada uma das sete aparece hoje com `n_predicted` igual a zero e `coverage` igual a
-zero, em vez de sumir da tabela. Esse comportamento é deliberado, e é o que impede a saída dar a
-impressão de que ninguém prometeu nada. A hipótese a testar na sprint 3 é que a primeira feature
-de nível 1 declarada faz a cobertura de uma das sete linhas sair de zero, e o experimento é rodar
-`xvision eval` antes e depois da declaração e comparar as duas linhas da mesma métrica. O critério
-não é o valor da acurácia, é a cobertura deixar de ser zero com a linha de base de maioria
-aparecendo ao lado, como descrito em
-[o dado do parceiro, e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao).
+**Duas das sete métricas têm feature, e as outras cinco continuam saindo com cobertura zero no
+`eval`.** Isto é fato conferido em dois arquivos: `config/labels.toml` declara sete entradas
+`[[metric]]`, e `config/pipeline.toml` e `config/pipeline.models.toml` declaram as mesmas duas
+seções `[features.*]`,
+`edge.features.body_part:BodyPart` e `edge.features.type_of_play:TypeOfPlay`. Como o relatório é
+montado a partir das métricas declaradas e não das predições, e `coverage` é a fração das
+finalizações em que a feature respondeu, as cinco sem feature (`marked`, `goalkeeper_position`,
+`occupied_area`, `looked_before` e `assist`) aparecem com `n_predicted` igual a zero, em vez de
+sumir da tabela. Esse comportamento é deliberado, e é o que impede a saída dar a impressão de que
+ninguém prometeu nada. A mais próxima das cinco é a `marked`: a lógica já existe em
+`edge/participants/marking.py` e falta a `Feature` que a liga ao pipeline. A hipótese a testar na
+sprint 3 é que declarar `[features.marked]` faz a cobertura daquela linha sair de zero, e o
+experimento é rodar `xvision eval` antes e depois da declaração e comparar as duas linhas da mesma
+métrica. O critério não é o valor da acurácia, é a cobertura deixar de ser zero com a linha de base
+de maioria aparecendo ao lado, como descrito em
+[o dado do parceiro, e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao). O quadro
+inteiro das sete métricas, com o que falta em cada uma, está em
+[o que fica para a próxima sprint](../o-que-falta).
 
 **A imagem da Jetson não existe.** O `Dockerfile` atual constrói para a estação, com base fixada
 por digest, e a imagem da placa foi adiada porque ninguém do grupo tem a Jetson nesta sprint, e

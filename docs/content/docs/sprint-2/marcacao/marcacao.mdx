@@ -97,8 +97,8 @@ Com todos os jogadores posicionados no campo e divididos em times, falta a regra
 partes:
 
 A dupla tem que ser mútua. O jogador A só é considerado marcador de B se B é o adversário mais
-próximo de A *e* A é o adversário mais próximo de B. A alternativa — considerar marcado todo par de
-adversários próximos — falha no caso mais comum do futebol: numa disputa de área, um zagueiro fica
+próximo de A *e* A é o adversário mais próximo de B. A alternativa, considerar marcado todo par de
+adversários próximos, falha no caso mais comum do futebol: numa disputa de área, um zagueiro fica
 perto de quatro atacantes ao mesmo tempo, e a resposta seria que ele marca os quatro. Com a regra
 mútua, cada jogador entra em no máximo uma dupla.
 
@@ -144,7 +144,7 @@ mesmo quando a resposta desejada é sobre um só. Existem dois modos:
 
 A janela só funciona porque ela usa todas as medições de cor que colhe, em vez das cinco
 melhores. Com apenas cinco, um atacante em disputa de área foi para o time errado e a dupla dele
-desapareceu do resultado — o modo janela chegava a uma resposta diferente da do clipe inteiro. Com
+desapareceu do resultado: o modo janela chegava a uma resposta diferente da do clipe inteiro. Com
 mais medições o erro desaparece, sem custo extra, porque as cores já são medidas de qualquer jeito
 enquanto os quadros passam.
 
@@ -177,6 +177,24 @@ O número está coerente com a entrada que a etapa recebeu. A entrada é que nã
 Aqui os dois uniformes se distinguem principalmente pelo brilho, e a separação por cor compara
 matiz, não luminosidade. Em partidas com matizes distintos, como verde contra amarelo, a separação
 funcionou em todos os jogadores conferidos.
+
+## Ainda não implementado
+
+A lógica de quem marca quem existe, é determinística e tem teste. O que não existe é o caminho dela
+até o resultado que o sistema entrega: ela não é uma `Feature`, então não aparece em
+`[features.*]`, não roda no pipeline e não passa pelo `xvision eval`. O único consumidor hoje é
+`src/models/marcacao/detect_marking.py`, script de operador rodado à mão.
+
+Isso importa porque `config/labels.toml` já declara a métrica `marked`, com a coluna de gabarito do
+parceiro esperando. A distância entre a lógica pronta e a métrica medida são as duas decisões
+abaixo.
+
+| O que falta | Como a hipótese será testada na próxima sprint |
+| --- | --- |
+| A `Feature` que liga a lógica ao pipeline | Escrever `edge/features/marked.py` lendo a equipe de cada `PlayerDetection`, declarar `[features.marked]` e conferir que a métrica aparece no resultado da rota |
+| O que fazer quando a equipe é desconhecida | `modules.identity` é stub nas duas configurações, então `team` vem nulo e nenhuma dupla se forma. A decisão é entre devolver `unavailable` com motivo ou não emitir a métrica, e ela precisa ser tomada antes da feature |
+| A unidade da comparação | O raio de 5 m só faz sentido com homografia. Sem `field`, a posição sai em pixel, e comparar metro com pixel produz número errado em silêncio. A feature depende do `field` estar de pé |
+| O número contra o gabarito | Com a feature declarada, rodar `xvision eval` sobre a dobra de ajuste e comparar com a linha de base de maioria, que para métrica booleana é o que separa medir de acertar por sorte |
 
 ## Referências
 

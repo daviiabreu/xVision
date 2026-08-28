@@ -91,7 +91,21 @@
 
 ## Descrição
 
-<!-- TODO: descrição do projeto -->
+O xVision extrai automaticamente as características de uma finalização a partir de um clipe de
+vídeo, com o processamento acontecendo na borda, perto de onde o vídeo nasce.
+
+O problema vem da Footstats, que hoje marca esses lances à mão. Centralizar o vídeo numa nuvem
+esbarra em duas paredes ao mesmo tempo: o material é confidencial e não pode circular abertamente,
+e mover a transmissão inteira de cada jogo consome exatamente a banda que se quer economizar. O
+recorte do projeto é, então, produzir o evento estruturado sem tirar o vídeo bruto do lugar.
+
+O sistema recebe um clipe que já contém uma finalização, encontra o instante do contato, extrai as
+características do lance e devolve um evento validado contra um contrato versionado, mais um vídeo
+anotado com a visão superior do campo. A interface permite enviar o clipe, acompanhar o andamento e
+inspecionar o resultado por etapa.
+
+A documentação completa, com o problema, a pesquisa, a arquitetura e as decisões de cada sprint,
+está publicada no GitLab Pages e é o artefato principal do projeto.
 
 ## Estrutura de Pastas
 

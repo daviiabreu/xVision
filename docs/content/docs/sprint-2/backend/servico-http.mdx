@@ -90,25 +90,42 @@ E o resultado traz uma linha por etapa, na ordem em que o grafo as executou:
   "resultados": [
     { "nome_processo": "ball", "status": true, "frame": null, "metricas": [] },
     { "nome_processo": "field", "status": true, "frame": null, "metricas": [] },
-    { "nome_processo": "players", "status": true, "frame": null, "metricas": [] },
-    { "nome_processo": "shot", "status": true, "frame": null, "metricas": [] },
     { "nome_processo": "identity", "status": true, "frame": null, "metricas": [] },
+    { "nome_processo": "players", "status": true, "frame": null, "metricas": [] },
     { "nome_processo": "pose", "status": true, "frame": null, "metricas": [] },
-    { "nome_processo": "tracking", "status": true, "frame": null, "metricas": [] }
+    { "nome_processo": "tracking", "status": true, "frame": null, "metricas": [] },
+    {
+      "nome_processo": "shot",
+      "status": true,
+      "frame": null,
+      "metricas": [
+        { "nome": "body_part", "unidade_de_medida": "classe", "tipo": null, "valor": null, "status": "unavailable" },
+        { "nome": "type_of_play", "unidade_de_medida": "classe", "tipo": "text", "valor": "individual", "status": "ok" }
+      ]
+    }
   ],
   "motivo": null,
   "render_url": "/v1/videos/5/render"
 }
 ```
 
-Duas coisas nesse corpo vêm vazias hoje, e vêm vazias de propósito. `metricas` só é preenchida na
-etapa `shot`, e só quando existe feature declarada: o `config/pipeline.toml` que vai para produção
-não tem nenhuma seção `[features.*]`, então em toda execução real a lista sai vazia. `frame` é a
-imagem de demonstração e responde `null` porque a visualização não entra nesta sprint.
+`metricas` só é preenchida na etapa `shot`, que é a que ancora o instante do contato, e o
+`config/pipeline.toml` que vai para produção declara duas features: `[features.body_part]` e
+`[features.type_of_play]`. A lista deixou de sair vazia, e o que ela traz precisa ser lido com
+cuidado, porque declarada e medida não são a mesma coisa. Nesta execução `type_of_play` respondeu
+`individual` com `status: "ok"` e `body_part` respondeu `unavailable`, e nenhum dos dois valores é
+inferência: o `pipeline.toml` roda seis das sete espécies em stub, e stub responde a partir do
+gabarito da fixture e nunca dos pixels. O número que sai de modelo exige o
+`config/pipeline.models.toml`, que troca `players`, `ball`, `tracking` e `pose` pelas
+implementações reais e depende dos pesos em `var/models`. Quais espécies e quais métricas existem
+de cada lado está em [o que fica para a próxima sprint](../o-que-falta). `frame` continua `null`,
+e por outro motivo: é a imagem de demonstração, e a visualização não entra nesta sprint.
 
-A tradução para métrica existe e é exercitada. Com três features declaradas numa cópia da
-configuração, uma que mede um número, uma que não consegue medir e uma que mede uma categoria, a
-mesma rota devolve:
+A tradução de feature em métrica é exercitada nos três casos que importam. O
+`src/tests/api/test_metricas.py` acrescenta, a uma cópia da configuração de produção, uma feature
+que mede um número, uma que não consegue medir e uma que mede uma categoria. As duas features
+reais vêm junto, porque a cópia parte de onde elas já estão declaradas, e a mesma rota devolve
+cinco métricas na etapa `shot`:
 
 ```json
 {
@@ -116,6 +133,8 @@ mesma rota devolve:
   "status": true,
   "frame": null,
   "metricas": [
+    { "nome": "body_part", "unidade_de_medida": "classe", "tipo": null, "valor": null, "status": "unavailable" },
+    { "nome": "type_of_play", "unidade_de_medida": "classe", "tipo": "text", "valor": "individual", "status": "ok" },
     { "nome": "distancia_falsa", "unidade_de_medida": "m", "tipo": "float", "valor": 11.5, "status": "ok" },
     { "nome": "sem_leitura", "unidade_de_medida": "m", "tipo": null, "valor": null, "status": "unavailable" },
     { "nome": "parte_do_corpo", "unidade_de_medida": "", "tipo": "text", "valor": "PERNA_ESQUERDA", "status": "ok" }
@@ -175,10 +194,10 @@ código que o contrato não declara.
 
 ### O vídeo anotado que a interface mostra
 
-Até aqui o resultado era só número, e com as sete espécies em stub ele era número nenhum: a tela
-dizia que a análise tinha rodado e não mostrava nada. O serviço passa a produzir, por clipe, o
-vídeo da visão superior, com o quadro anotado à esquerda e a posição projetada no gramado à
-direita, e a interface o exibe acima das métricas.
+Até aqui o resultado era só número, e enquanto a percepção inteira era stub ele era número nenhum:
+a tela dizia que a análise tinha rodado e não mostrava nada. O serviço passa a produzir, por
+clipe, o vídeo da visão superior, com o quadro anotado à esquerda e a posição projetada no gramado
+à direita, e a interface o exibe acima das métricas.
 
 Quem desenha é `src/models/top_view/create_top_view.py`, que já existia. O `src/api/render.py`
 importa `process_video` e chama, em vez de reimplementar o desenho, e assim existe uma
@@ -190,10 +209,11 @@ caminho relativo ao diretório de quem treinou; o arquivo termina em `var/api/re
 em vez de exceção, porque ilustração ausente não é falha de análise.
 
 O render não depende do desfecho da análise, e isso foi medido antes de ser decidido: num clipe
-real de partida com o `config/pipeline.toml` de hoje, a espécie `shot` não aponta instante de
-contato, `process_clip` levanta `NoShotDetected` e o vídeo terminava em `Falhou` sem nada na tela.
-Agora clipe que não abre continua sendo recusa do arquivo, e falha de pipeline vira `Falhou` com
-motivo e com o vídeo gravado do mesmo jeito. A tela mostra os dois: o motivo e o vídeo.
+real de partida com o `config/pipeline.toml` padrão, em que a bola é stub e responde pelo gabarito
+da fixture, a espécie `shot` não aponta instante de contato, `process_clip` levanta
+`NoShotDetected` e o vídeo terminava em `Falhou` sem nada na tela. Agora clipe que não abre
+continua sendo recusa do arquivo, e falha de pipeline vira `Falhou` com motivo e com o vídeo
+gravado do mesmo jeito. A tela mostra os dois: o motivo e o vídeo.
 
 O custo é assimétrico e é o principal preço desta escolha. Medido num clipe da Footstats de 4 s a
 59,94 fps, 240 quadros, em CPU: 2 s de análise contra 84 s de render, porque o script roda dois
@@ -206,10 +226,11 @@ com 4,5 MB em H.264, que é o formato que navegador toca.
 identificador na hora e consulta depois. *Alternativa descartada:* devolver o resultado na mesma
 requisição, que foi a primeira versão. Ela amarra a duração do pipeline à duração de uma conexão
 HTTP, e obriga o corpo inteiro a existir em memória. É preciso separar o que é fato do que é
-projeção: com os módulos de percepção ainda em stub, a fixture sintética atravessa o pipeline em
-14 ms no melhor caso e 81 ms no pior (13 execuções medidas hoje, mediana de 38 ms). O clipe que
-leva segundos é o clipe com modelo de verdade sobre vídeo de partida, e esse número ainda não
-existe. A decisão é para o segundo caso, e ela custa pouco no primeiro.
+projeção: com o `config/pipeline.toml` padrão, em que seis das sete espécies são stub, a fixture
+sintética atravessa o pipeline em 14 ms no melhor caso e 81 ms no pior (13 execuções medidas hoje,
+mediana de 38 ms). O clipe que leva segundos é o clipe com modelo de verdade sobre vídeo de
+partida, e esse número ainda não existe. A decisão é para o segundo caso, e ela custa pouco no
+primeiro.
 
 **O envio é um caminho só: reserva o endereço e manda o binário cru por `PUT`.** Por uma sprint
 foram dois, porque chegaram duas especificações do time do frontend e elas não coincidiam nem no
@@ -371,11 +392,12 @@ do serviço em `uvicorn`, nesta máquina, com `curl` e amostragem de RSS por `ps
 reproduzíveis e valem para este hardware, não para a Jetson. Os números marcados como medidos no
 serviço anterior vêm das docstrings e dos testes que guardam cada correção, e descrevem um código
 que não existe mais: eles justificam a decisão, e não descrevem o comportamento atual. O que não
-tem medição está escrito como projeção. A suíte da API tem 194 testes e cobre 96,48% das linhas
+tem medição está escrito como projeção. A suíte da API tem 195 testes e cobre 96,59% das linhas
 de `src/api`, medidos em 28/08/2026 com `cd src && uv run pytest tests/api --cov=api`; a mesma
 execução sem a medição de cobertura leva 4,3 s nesta máquina. O número caiu de 203 para 194 quando
 a rota de envio em base64 saiu: dez testes eram sobre a codificação e morreram com ela, e três
-entraram no lugar cobrindo o mesmo risco pelo caminho do `PUT`.
+entraram no lugar cobrindo o mesmo risco pelo caminho do `PUT`. O 195º é o do teto por pedaço, que
+guardava um comportamento sem teste nenhum.
 
 ## Trade-offs
 
@@ -454,10 +476,10 @@ a imagem do frontend e o serviço em pé, feita à mão.
 | O que falta | Como a hipótese será testada na próxima sprint |
 | --- | --- |
 | O 413 do middleware declarado nas rotas que não são o `PUT` | O middleware é global e o contrato declara 413 só no `PUT`. O teste é baixar `XVISION_API_MAX_UPLOAD_MB`, provocar 413 em `login`, `register` e `upload-url`, e exigir que `test_contrato_real.py` reprove enquanto o `openapi.json` não declarar o código nessas rotas |
-| `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir, na tela, que a unidade que chega é a mesma que a `FeatureSpec` declara, e que uma feature sem leitura aparece com `status` diferente de `ok` |
+| `metricas` com valor medido, e não simulado | As duas features já estão declaradas em `config/pipeline.toml` e o valor delas já chega à tela, com a unidade da `FeatureSpec` e com `status` distinguindo leitura ausente de leitura feita. O que falta é a origem do valor: no `pipeline.toml` padrão seis das sete espécies são stub, então o número sai do gabarito da fixture. O teste é subir o serviço sobre `config/pipeline.models.toml`, com os pesos em `var/models`, e conferir que o valor muda quando o clipe muda, que é o que separa inferência de gabarito. O quadro por métrica está em [o que fica para a próxima sprint](../o-que-falta) |
 | `frame` de demonstração | Desenhar a caixa do atirador no quadro do contato e comparar com o gabarito da fixture sintética, que é conhecido pixel a pixel |
 | O tempo real de um clipe | Medir o pipeline com o primeiro modelo de verdade sobre um clipe da Footstats, e só então fixar o teto da fila e o `Retry-After` com base no número |
-| O vídeo anotado dentro da imagem | Os dois manifestos de `src/models/manifests/` passaram a entrar na imagem, e o que falta é o resto: o render exige `torch`, `ultralytics` e os dois pesos, o que leva a imagem de 932 MB para alguns GB, e essa decisão é do time. Hoje o extra `topview` liga isso fora da imagem; o teste é medir a imagem com os extras e o tempo de subida antes de escolher |
+| O vídeo anotado dentro da imagem | Os dois manifestos que o render declara entram na imagem junto com o resto de `src/`, e o que falta é o resto: o render exige `torch`, `ultralytics` e os dois pesos, o que leva a imagem de 932 MB para alguns GB, e essa decisão é do time. Hoje o extra `topview` liga isso fora da imagem; o teste é medir a imagem com os extras e o tempo de subida antes de escolher |
 | Mais de uma instância | Trocar SQLite por PostgreSQL e a fila em processo por uma externa; o teste é subir duas instâncias sobre o mesmo estado e conferir que nenhum vídeo é processado duas vezes |
 | Limite de taxa por chamador | Medir requisições por minuto de um cliente real antes de escolher o teto, para não inventar um número |
 | Transporte da borda para a nuvem | O contrato do evento já existe; falta a frente de serviços decidir o meio, e o teste é o mesmo evento sair de uma máquina e chegar íntegro na outra |

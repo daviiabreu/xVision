@@ -17,7 +17,7 @@ Os scripts do modelo estão em `src/models/line_tracking/` e são três:
 
 ---
 
-## Primeira Abordagem — Dataset Roboflow
+## Primeira abordagem: dataset Roboflow
 
 ### Descrição
 
@@ -40,22 +40,22 @@ A primeira abordagem utilizou o dataset público `football-field-detection-f07vi
 
 Ao testar o modelo em frames reais de jogos, os keypoints detectados apresentaram comportamento de alucinação: os pontos eram distribuídos aleatoriamente pelo frame, sem correspondência com as linhas reais do campo. As métricas de validação confirmaram o problema:
 
-* **Box mAP50:** ~0.979 — detecção do campo como objeto funcionou bem
-* **Pose mAP50:** ~0.000 — detecção dos keypoints não convergiu
+* **Box mAP50:** ~0.979, detecção do campo como objeto funcionou bem
+* **Pose mAP50:** ~0.000, detecção dos keypoints não convergiu
 
 ### Hipóteses para o Insucesso
 
-### Hipótese 1 — Dataset muito pequeno
+### Hipótese 1: dataset muito pequeno
 
 O dataset continha apenas 255 imagens de treino, insuficientes para que um modelo de pose estimation com 32 keypoints consiga generalizar. Modelos YOLO-pose de grande porte tendem a overfitar o bounding box e nunca chegam a aprender a localização dos keypoints com dados tão escassos.
 
-### Hipótese 2 — Ângulo de câmera único e específico
+### Hipótese 2: ângulo de câmera único e específico
 
 As imagens do Roboflow foram capturadas predominantemente de um único ângulo de câmera (visão lateral e elevada do campo). Em partidas reais, a câmera muda de posição, zoom e perspectiva constantemente. O modelo, treinado em apenas um tipo de enquadramento, não conseguiu generalizar para os diferentes ângulos presentes nos vídeos de teste.
 
 ---
 
-## Segunda Abordagem — Dataset SoccerNet
+## Segunda abordagem: dataset SoccerNet
 
 ### Descrição
 
@@ -141,7 +141,7 @@ cd src/models/line_tracking
 pip install ultralytics SoccerNet huggingface_hub
 ```
 
-### 1. Download do Dataset — `dataset.py`
+### 1. Download do dataset, em `dataset.py`
 
 O script baixa as imagens do SoccerNet Calibration 2023 e as labels do Hugging Face (`Adit-jain/Soccana_Keypoint_detection_v1`), e organiza tudo em um único diretório pronto para o treino.
 
@@ -173,7 +173,7 @@ dataset/
     └── test/
 ```
 
-### 2. Treinamento — `train.py`
+### 2. Treinamento, em `train.py`
 
 ```bash
 python train.py --data ./dataset/dataset.yaml
@@ -191,7 +191,7 @@ O melhor modelo é salvo automaticamente em `runs/pose/<name>/weights/best.pt`.
 | `--name` | `soccernet_keypoints` | Nome do experimento em `runs/pose/` |
 | `--device` | auto | `"0"` para GPU 0, `"cpu"` para CPU |
 
-### 3. Validação — `validate.py`
+### 3. Validação, em `validate.py`
 
 O script roda inferência sobre uma fonte qualquer, imagem, pasta, vídeo ou webcam , e salva os resultados anotados em `runs/pose/predict*/`. Com `--show_labels`, imprime no terminal o nome e a coordenada de pixel de cada keypoint detectado.
 
@@ -234,8 +234,22 @@ A segunda abordagem, utilizando as labels do SoccerNet com mais de 16.000 imagen
 
 ---
 
+## Ainda não implementado
+
+O modelo converge e detecta os keypoints, e é isso que esta página mostra. O que ele ainda não faz
+é chegar ao pipeline: `config/pipeline.toml` e `config/pipeline.models.toml` declaram
+`modules.field` como `edge.modules.stubs:StubField` nas duas, então nenhum quadro que o sistema
+processa hoje carrega homografia, e `pitch_xy` sai nulo.
+
+| O que falta | Como a hipótese será testada na próxima sprint |
+| --- | --- |
+| O módulo `field` de verdade no lugar do stub | Trocar o `impl` de `modules.field`, rodar `xvision run --all --config config/pipeline.models.toml` e conferir que os quadros passam a carregar `pitch_xy`, que hoje sai nulo |
+| O peso publicado onde o time alcança | Ele saiu do Git na MR !56 e virou artefato declarado, mas o manifesto não tem campo `download`: quem clona não consegue obter o arquivo. O teste é `xvision artifact get` resolvendo numa árvore limpa |
+| A métrica que depende dele | `occupied_area` é medida em metros de gramado, então ela não existe enquanto não houver homografia. O experimento é declarar a feature e comparar com a coluna do parceiro |
+| O erro de reprojeção medido em clipe de partida | Os números desta página vêm do conjunto de validação do SoccerNet. A hipótese é que eles se sustentam no vídeo da Footstats, e o experimento é medir o erro de reprojeção sobre os clipes anotados |
+
 ## Referências
 
-* [SoccerNet — Camera Calibration Dataset (imagens)](https://www.soccer-net.org/data#h.x37itu81rnoh)
-* [Adit-jain/Soccana\_Keypoint\_detection\_v1 — Labels dos keypoints (Hugging Face)](https://huggingface.co/datasets/Adit-jain/Soccana_Keypoint_detection_v1#dataset-details)
-* [Roboflow — Camera Calibration in Sports Computer Vision (primeira abordagem)](https://blog.roboflow.com/camera-calibration-sports-computer-vision/)
+* [SoccerNet, Camera Calibration Dataset (imagens)](https://www.soccer-net.org/data#h.x37itu81rnoh)
+* [Adit-jain/Soccana\_Keypoint\_detection\_v1, Labels dos keypoints (Hugging Face)](https://huggingface.co/datasets/Adit-jain/Soccana_Keypoint_detection_v1#dataset-details)
+* [Roboflow, Camera Calibration in Sports Computer Vision (primeira abordagem)](https://blog.roboflow.com/camera-calibration-sports-computer-vision/)

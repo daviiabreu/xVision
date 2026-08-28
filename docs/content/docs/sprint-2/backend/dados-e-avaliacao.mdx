@@ -8,8 +8,12 @@ da Footstats vira população avaliável, como os rótulos são declarados, e po
 acurácia sai sozinho no relatório.
 
 Nada do dado do parceiro aparece aqui: o que segue é formato, grão e estatística agregada, como o
-contrato de conteúdo restrito exige. Os números foram medidos rodando os comandos sobre o dump
-real em 25/08/2026, e o que for derivação ou estimativa está marcado como tal.
+contrato de conteúdo restrito exige. Os números do conjunto e da partição foram medidos rodando os
+comandos sobre o dump real em 25/08/2026, os portões desta área em 28/08/2026, e o que for derivação
+ou estimativa está marcado como tal. A acurácia das duas features que hoje têm implementação foi
+medida por quem as escreveu e mora em
+[detecção do instante da finalização](../97-deteccao-do-instante-da-finalizacao); aqui elas aparecem
+só como o que a avaliação faz com elas.
 
 ## Onde se encaixa no fluxo
 
@@ -41,8 +45,10 @@ real em 25/08/2026, e o que for derivação ou estimativa está marcado como tal
       var/runs/ID/run.json     mlops.run: procedencia da execucao
 ```
 
-A borda fica de fora deste desenho de propósito. `edge` nunca lê CSV e não conhece o parceiro,
-`mlops` nunca abre vídeo, e quem junta os dois é `cli`.
+A borda fica de fora deste desenho de propósito. `edge` nunca lê CSV e não conhece o parceiro, nada
+neste caminho decodifica quadro, e quem junta os dois é `cli`. A exceção mora fora do desenho:
+`mlops.sheets`, a ferramenta que monta a folha de contato para uma pessoa anotar o instante à mão,
+precisa do quadro e o pede ao `FrameProvider` da borda, em vez de abrir o arquivo por conta própria.
 
 ## Componentes e responsabilidades
 
@@ -120,7 +126,8 @@ Do outro lado, a avaliação lê o `events.jsonl` de uma execução e casa com o
 xvision eval var/runs/synthetic
 ```
 
-A saída de hoje, com o pipeline rodando só com módulos stub e nenhuma feature declarada:
+A saída de uma execução em que nenhuma feature produziu valor, medida em 25/08/2026, que continua
+sendo a forma da tabela e hoje descreve cinco das sete linhas:
 
 ```text
   feature                      n  cobertura  acuracia   maioria
@@ -133,6 +140,10 @@ A saída de hoje, com o pipeline rodando só com módulos stub e nenhuma feature
   type_of_play               604      0.0%         -     0.662
   var/runs/synthetic/report.json
 ```
+
+As outras duas linhas mudaram. `body_part` e `type_of_play` estão declaradas nas duas configurações
+de pipeline, `config/pipeline.toml` e `config/pipeline.models.toml`, e com a cadeia de percepção
+completa sobre os 604 clipes elas saem com cobertura de 97,4% e 87,7% em vez de zero.
 
 O artefato que outra pessoa lê é o `report.json`, e nele uma métrica ocupa este bloco:
 
@@ -152,6 +163,9 @@ O artefato que outra pessoa lê é o `report.json`, e nele uma métrica ocupa es
   "macro_f1": 0.46690203000882613,
   "n": 604
  },
+ "baseline_majority_covered": null,
+ "baseline_metadata": null,
+ "mcnemar": null,
  "threshold": null,
  "label_grain": null
 }
@@ -274,10 +288,19 @@ medido no subconjunto que o modelo cobriu. A alternativa descartada é medir os 
 assim, um modelo que responde só onde a classe é óbvia infla a própria linha de base e depois se
 compara favoravelmente contra ela, que é exatamente o viés que o campo existe para expor.
 
+Há ainda uma terceira linha de base, e ela é mais dura que a maioria. O campo opcional
+`baseline_metadata` de uma entrada `[[metric]]` guarda o que a marcação do parceiro já alcança sem
+olhar o vídeo: para `body_part` ele vale 1,0, porque a coluna `foot` dos metadados do corte reproduz
+o rótulo em 633 de 633; para `type_of_play` vale 0,7964, que é o melhor mapa possível da coluna
+`origin_of_move`, com 485 acertos em 609. Ler a acurácia de uma feature só contra a maioria responde
+metade da pergunta: a maioria diz se o modelo aprendeu alguma coisa, e este campo diz se vale a pena
+extrair do vídeo o que já está na planilha.
+
 **As métricas saem das entradas `[[metric]]`, e não das predições.** Uma métrica declarada e sem
-nenhuma predição aparece com cobertura 0%, que é o estado real do projeto hoje, em vez de sumir da
-tabela. A alternativa descartada é iterar as predições, que hoje produziria uma tabela vazia e a
-impressão de que ninguém prometeu nada, quando sete pessoas prometeram. `coverage` e
+nenhuma predição aparece com cobertura 0%, que é o estado de cinco das sete métricas hoje, em vez de
+sumir da tabela. A alternativa descartada é iterar as predições, que hoje produziria uma tabela com
+duas linhas e a impressão de que ninguém prometeu mais do que isso, quando sete pessoas prometeram.
+`coverage` e
 `n_unavailable` são a forma em número de declarar entrega parcial, e indisponível vira categoria
 própria em vez de erro ou acerto calado.
 
@@ -293,24 +316,28 @@ entre eles numpy, pandas, scipy, scikit-learn, SQLAlchemy, Flask e gunicorn, que
 que esta área evita para caber na Jetson. Para um JSON de doze campos o custo não se paga nesta
 sprint.
 
-**Nada em `mlops` importa pandas, numpy ou scikit-learn.** A leitura das duas tabelas usa o módulo
-`csv` da biblioteca padrão e as métricas são aritmética sobre listas. A alternativa descartada é
+**Nada no caminho da avaliação importa pandas, numpy ou scikit-learn.** A leitura das duas tabelas
+usa o módulo `csv` da biblioteca padrão e as métricas são aritmética sobre listas. A alternativa descartada é
 pandas para a junção e scikit-learn para as métricas, que resolveriam em bem menos linhas. O alvo
 é uma Jetson com JetPack 6, cujo Python é 3.10, e cada dependência nova precisa de roda ARM64 para
 uma junção de duas tabelas de 2680 e 2557 linhas. O extra `mlops` do `pyproject.toml` é uma lista
-vazia, e essa é a forma verificável da afirmação. numpy é o caso de fronteira: ele já está na
-árvore por causa do OpenCV, que é da borda, e mesmo assim `mlops` não o importa, porque a
-fronteira que interessa aqui é o que este pacote precisa para rodar, e não o que a imagem já
-carrega. O mesmo piso de 3.10 obriga o backport `tomli`, porque `tomllib` só entrou na biblioteca
-padrão no 3.11.
+vazia, e essa é a forma verificável da afirmação. numpy e OpenCV são o caso de fronteira, e a
+fronteira se moveu nesta sprint: `mlops.scrub` e `mlops.sheets`, as duas ferramentas com que uma
+pessoa anota o instante do contato à mão, importam `cv2`, e a segunda importa numpy para montar a
+imagem da folha. Nenhuma das duas roda no caminho da avaliação, e as duas dependências já estavam na
+árvore por causa da borda, então o extra continua vazio. O que a lista vazia verifica é que `mlops`
+não acrescenta dependência, e não que nenhum módulo dele importe uma que a imagem já carrega. O
+mesmo piso de 3.10 obriga o backport `tomli`, porque `tomllib` só entrou na biblioteca padrão no
+3.11.
 
 ## Trade-offs
 
-O que se ganha é um caminho curto e auditável: 342 linhas executáveis no pacote `mlops`, sem
-serviço, sem banco e sem dependência que a placa carregue à toa. A configuração que decide a
-população, o gabarito e a partição cabe em dois arquivos TOML de 137 e 4 linhas, que aparecem no
-diff da revisão, e o `compose.yaml` monta `config/` como volume, então quem opera troca a tabela
-de rótulos sem tocar em código.
+O que se ganha é um caminho curto e auditável: 852 linhas executáveis no pacote `mlops`, das quais
+382 são o catálogo, os rótulos, a partição, a avaliação e a procedência, e 470 são as ferramentas de
+anotação e diagnóstico que chegaram nesta sprint. Nenhuma delas traz serviço, banco ou dependência
+que a placa carregue à toa. A configuração que decide a população, o gabarito e a partição cabe em
+dois arquivos TOML de 137 e 4 linhas, que aparecem no diff da revisão, e o `compose.yaml` monta
+`config/` como volume, então quem opera troca a tabela de rótulos sem tocar em código.
 
 **A desvantagem principal é que a aritmética das métricas é nossa, e é ela que pode estar errada
 sem ninguém notar.** O comando roda, imprime uma tabela bem formatada, e a decisão de aceitar ou
@@ -362,17 +389,23 @@ mapeamento por força bruta em segundos, porque SHA-256 é rápido de propósito
 documentação do `hashlib` diz isso ao recomendar `pbkdf2_hmac` para qualquer uso que precise
 resistir a busca exaustiva. Tratar o sal como segredo seria erro de leitura desta decisão.
 
-**A cobertura é 0% hoje, e a tabela impressa é fácil de ler errado.** Não há nenhuma feature
-declarada em `config/pipeline.toml`, então o evento sai com `features` vazio e a avaliação não tem
-o que casar. O `report.json` é honesto sobre isso, com `n_predicted` em zero e `n_unavailable` em
-604, mas a coluna `n` da tabela mostra 604 em toda linha, e esse é o `n` do gabarito, não o da
-medida.
+**A tabela impressa mistura dois `n`, e ficou mais fácil de ler errado.** Cinco das sete métricas
+continuam com cobertura 0%, porque nenhuma feature as prediz, e as outras duas saem com cobertura
+alta. O `report.json` é honesto nos dois casos, com `n_predicted`, `n_unavailable` e `coverage`
+separados, mas a coluna `n` da tabela mostra 604 em toda linha, e esse é o `n` do gabarito, não o da
+medida. Enquanto todas as linhas estavam em zero, ler a tabela errado não mudava conclusão nenhuma;
+com duas linhas cobertas e cinco vazias, comparar acurácia de uma linha com maioria de outra passou
+a ser um erro possível.
 
-**Os módulos de percepção ainda não funcionam sobre vídeo real.** Medido: `xvision run --all
---limit 6` sobre o catálogo produziu 0 eventos e 6 falhas, todas com a mesma mensagem, a espécie
-`shot` rodando sem apontar instante de contato em nenhum quadro. Os stubs respondem do gabarito da
-fixture sintética, não de vídeo. A avaliação está pronta e não tem o que avaliar, e enquanto isso
-não mudar nenhum número desta área diz respeito a qualidade de modelo.
+**A avaliação passou a ter o que avaliar, e o que ela diz é que as duas features perdem para a
+linha de base.** Cinco das sete espécies de módulo têm implementação real em
+`config/pipeline.models.toml`, e a cadeia completa processou os 604 clipes sem uma falha. Medido
+sobre essa população, `body_part` fica em 0,339 de acurácia contra maioria de 0,522, e
+`type_of_play` em 0,391 contra 0,667: as duas perdem em acurácia, ganham em macro F1, e o teste
+pareado diz que a perda não é ruído. A medição e as causas estão em
+[detecção do instante da finalização](../97-deteccao-do-instante-da-finalizacao). É exatamente o
+caso que o campo `baseline_majority` existe para tornar visível, e ele apareceu na primeira execução
+em que houve número para comparar.
 
 **A população não é amostra aleatória do conjunto.** Medido: 633 das 2680 finalizações têm clipe,
 2557 das 2680 têm linha de xG, e as 28 partidas com clipe são 28 das 104 presentes na tabela. Quem
@@ -391,42 +424,65 @@ não a evita.
 
 ## Ainda não implementado
 
-**Nenhuma feature declarada.** Falta a primeira seção `[features.NOME]` em `config/pipeline.toml`,
-e sem ela o evento sai com a lista de features vazia. A hipótese será testada assim: declarar a
-primeira feature, rodar `xvision run --all` e depois `xvision eval` sobre o diretório da execução,
-e ler a linha correspondente. O critério de aceite não é acurácia alta, é bater a linha de base de
-maioria daquele rótulo por margem maior que o ruído do fold. Para `looked_before`, cuja linha de
-base é 0,894 e cujo fold mais pobre tem 10 positivos, uma diferença abaixo de 0,08 no F1 da classe
-positiva não distingue melhora de sorte.
+**Duas features declaradas contra sete métricas com gabarito.** `config/labels.toml` declara sete
+entradas `[[metric]]` e `edge.features` implementa duas delas, `body_part` e `type_of_play`, as
+mesmas nas duas configurações de pipeline. As outras cinco não existem, e `marked` é a mais próxima:
+a lógica de marcação já está escrita em `edge/participants/marking.py` e falta a `Feature` que a
+liga ao pipeline. Essa distância entre sete declaradas e duas medidas é o principal risco de escopo
+desta entrega, e o quadro inteiro, com o que falta em cada métrica e como cada hipótese será
+testada, está em [o que fica para a próxima sprint](../o-que-falta).
 
-**O fold existe e ninguém o consome.** Cada `ShotRecord` carrega o campo `fold` e `fold_of` é
-determinístico, mas a avaliação reporta sobre a população inteira. Falta a opção que restringe a
-avaliação a um fold e o laço que roda os cinco. O experimento da próxima sprint é rodar a mesma
-feature nos cinco folds e publicar média e dispersão, porque a diferença entre um número único e
-um número com dispersão é o que separa uma medida de uma impressão.
+O critério de aceite de cada uma continua sendo o mesmo, e não é acurácia alta: é bater a linha de
+base de maioria daquele rótulo por margem maior que o ruído do fold. Para `looked_before`, cuja
+linha de base é 0,894 e cujo fold mais pobre tem 10 positivos, uma diferença abaixo de 0,08 no F1 da
+classe positiva não distingue melhora de sorte. As duas features que já existem ainda não passaram
+nesse critério.
+
+**O fold já é consumido, mas não por `xvision eval`.** O comando `xvision eval-ball` recebe
+`--dobra` e separa as dobras 0 a 2, onde se calibra, das dobras 3 e 4, que nenhuma decisão de peso
+ou limiar viu; sobre os 38 clipes com instante anotado à mão isso dá 24 para ajustar e 14 para
+medir, e foi essa separação que sustentou o número da percepção da bola. O `xvision eval` continua
+reportando sobre a população inteira: falta a opção que restringe a avaliação a um fold e o laço que
+roda os cinco. O experimento da próxima sprint é rodar a mesma feature nos cinco folds e publicar
+média e dispersão, porque a diferença entre um número único e um número com dispersão é o que separa
+uma medida de uma impressão.
 
 **Resultado por cenário.** O RNF-03 pede a quebra por rebote, corte de plano e câmera lenta, e
 nada no catálogo marca esses casos hoje. A hipótese a testar é se essas marcações existem no lado
 do parceiro. Se não existirem, elas precisam ser rotuladas à mão sobre uma amostra dos 604, e o
 custo dessa rotulagem ainda não foi medido.
 
-**Tolerância temporal.** Associar evento automático e marcação histórica exige uma tolerância
-declarada, e ela é pendente do parceiro. O grão de 1 segundo do recorte é o piso conhecido:
-nenhuma tolerância menor que isso é verificável com este gabarito, e essa é a informação que
-precisa entrar na conversa antes de qualquer acordo de número.
+**Tolerância temporal.** Duas tolerâncias diferentes se escondiam sob este nome, e só uma continua
+pendente. A interna já está declarada e medida: `mlops.instant` fixa 30 quadros como alvo, que é o
+erro que ainda preserva dois terços do contexto anterior da janela, e 90 como limite, acima do qual
+a janela perde esse contexto inteiro. Os dois saem da janela de extração de `config/pipeline.toml`,
+que com `before_s = 1.5` e `after_s = 0.5` a 59,94 fps são 90 quadros antes e 30 depois do instante,
+e `xvision eval-instant` mede o detector contra um gabarito anotado à mão.
+
+A externa continua pendente do parceiro, e a razão ficou concreta. Pousar
+`match_events.time_play_in_seconds` dentro do clipe exige o offset da transmissão, e o resíduo dele
+em torno da mediana por partida e tempo de jogo tem p50 de 2,0 s e p90 de 7,5 s; somado ao grão de 1
+segundo da própria marcação, isso põe a incerteza entre 180 e 510 quadros, contra clipes de 240 a
+420. A marcação do parceiro não serve de gabarito do instante, e foi por isso que o gabarito manual
+precisou existir. Qual tolerância vale para casar evento automático com marcação histórica continua
+sendo a informação que precisa entrar na conversa antes de qualquer acordo de número.
 
 **Varredura de limiar sobre dado real.** O relatório já traz, para feature booleana que emite
 número, o melhor F1 da varredura e o limiar que o atinge, para quem ainda não tem curva não ser
-obrigado a chutar um. Como não há feature, essa varredura nunca rodou sobre dado do parceiro: o
-comportamento está coberto por teste sintético, e isso é cobertura de código, não evidência de
-qualidade.
+obrigado a chutar um. O campo `threshold` só é calculado quando o rótulo tem `type = "bool"`, e as
+duas features implementadas medem rótulos `enum`, então a varredura continua sem nunca ter rodado
+sobre dado do parceiro. Quem vai exercê-la é a primeira feature booleana a existir, provavelmente
+`marked`; até lá o comportamento está coberto por teste sintético, e isso é cobertura de código, não
+evidência de qualidade.
 
-O estado dos portões desta área, medido em 25/08/2026: 57 testes em `src/tests/mlops`, todos
-passando, em menos de um segundo. A suíte inteira do backend fecha em 743 testes passando e 1
-pulado, e é ela que leva a cobertura do pacote `mlops` a 96%, com 12 linhas não executadas de 342.
-Rodando só `src/tests/mlops`, a mesma medida dá 95% e 17 linhas: a diferença são os caminhos de
-`run.py` que só o CLI exercita, e vale registrar qual das duas contas está sendo citada. O que
-esses números provam e o que eles não provam está em
+O estado dos portões desta área, medido em 28/08/2026: 142 testes em `src/tests/mlops`, todos
+passando, em menos de um segundo. A suíte inteira do backend fecha em 1205 testes passando e 1
+pulado, e é ela que leva a cobertura do pacote `mlops` a 91,3%, com 74 linhas não executadas de 852.
+Rodando só `src/tests/mlops`, a mesma medida dá 90,7% e 79 linhas: a diferença são os caminhos de
+`run.py` que só o CLI exercita, e vale registrar qual das duas contas está sendo citada. A queda em
+relação aos 96% da medição anterior não é regressão de teste: são as ferramentas de anotação que
+chegaram nesta sprint, e `mlops/zoom.py`, que tem 27 linhas e nenhum teste próprio, responde sozinho
+por mais de um terço do que falta. O que esses números provam e o que eles não provam está em
 [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
 ## Referências
