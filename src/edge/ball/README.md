@@ -109,9 +109,9 @@ lógica com detecções de mentira, sem GPU.
 ## Testes
 
 ```bash
-uv run pytest apps/edge          # inclui os testes do rastreador e do filtro de forma
-uv run ruff check apps/edge
-uv run pyright apps/edge
+uv run pytest src/tests/edge     # inclui os testes do rastreador e do filtro de forma
+uv run ruff check src/edge
+uv run pyright src/edge
 ```
 
 ## Notas

@@ -4,9 +4,9 @@ from collections.abc import Mapping
 
 import numpy as np
 import pytest
+
 from edge.modules.base import ModuleNotLoaded, PreprocessSpec
 from edge.modules.conformance import ModuleConformance, make_batch
-
 from xvision_players_yolo.detector import Frame, RawDetection
 from xvision_players_yolo.module import PREPROCESS, PlayersModule, TrackingModule, to_source_box
 from xvision_players_yolo.types import Box, Role

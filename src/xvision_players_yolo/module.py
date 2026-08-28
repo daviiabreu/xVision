@@ -22,6 +22,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
+
 from edge.modules.base import (
     FrameBatch,
     ModuleInputs,
@@ -31,7 +32,6 @@ from edge.modules.base import (
     PreprocessSpec,
     check_preprocess,
 )
-
 from xvision_players_yolo.detector import DetectionBackend, Frame, UltralyticsBackend
 from xvision_players_yolo.tracking import TrackingBackend, UltralyticsTrackingBackend
 from xvision_players_yolo.types import Box, clip_box

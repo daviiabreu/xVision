@@ -98,12 +98,29 @@
 ```text
 .
 ├── .gitlab/            # templates de issue/MR e componentes de CI
+├── config/             # pipeline.toml, labels.toml e split.toml, lidos em tempo de execução
+├── data/               # dado de entrada; não é versionado, e o README de dentro diz o que vai ali
 ├── docs/               # site de documentação (Fumadocs/Next.js), publicado no GitLab Pages
 │   ├── content/docs/   # conteúdo em MDX, uma pasta por sprint
 │   └── public/         # imagens referenciadas na documentação
+├── infra/              # Terraform da infraestrutura
+├── models/             # manifesto de cada peso, uma pasta por espécie: o registro do artefato
 ├── releases/           # notas de release; um arquivo novo aqui gera tag + release no GitLab
-└── src/                # código-fonte do projeto
+└── src/                # todo o código, e nada além de código
+    ├── api/            # serviço HTTP que a interface consome
+    ├── cli/            # o comando `xvision`
+    ├── contracts/      # o esquema do evento que a borda produz
+    ├── edge/           # o pipeline de percepção que roda na borda
+    ├── interface/      # a interface em React
+    ├── mlops/          # avaliação e divisão de dataset
+    ├── models/         # o código que treina e avalia cada modelo, uma pasta por modelo
+    ├── tests/          # a suíte de testes
+    └── xvision_players_yolo/   # detecção e tracking de jogadores
 ```
+
+Na raiz ficam só metadados e configuração. `pyproject.toml`, `uv.lock` e `.python-version` moram
+ali porque é o que define a raiz do projeto para o uv: o `.python-version` é o que prende o
+interpretador ao piso de 3.10, e sem ele o uv escolheria a versão mais nova instalada na máquina.
 
 ## Execução do Projeto
 

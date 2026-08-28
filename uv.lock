@@ -14,10 +14,6 @@ resolution-markers = [
 ]
 
 [manifest]
-members = [
-    "xvision",
-    "xvision-players-yolo",
-]
 overrides = [{ name = "opencv-python", marker = "sys_platform == 'nunca'" }]
 
 [[package]]
@@ -3887,10 +3883,10 @@ players = [
 ]
 topview = [
     { name = "imageio-ffmpeg" },
+    { name = "lap" },
     { name = "torch" },
     { name = "ultralytics", version = "8.4.123", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'darwin'" },
     { name = "ultralytics", version = "8.4.129", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
-    { name = "xvision-players-yolo" },
 ]
 training = [
     { name = "soccernet" },
@@ -3917,6 +3913,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "lap", marker = "extra == 'ball'", specifier = ">=0.5.12" },
     { name = "lap", marker = "extra == 'players'", specifier = ">=0.5.12" },
+    { name = "lap", marker = "extra == 'topview'", specifier = ">=0.5.12" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pydantic", marker = "extra == 'api'", specifier = ">=2.9" },
@@ -3931,7 +3928,6 @@ requires-dist = [
     { name = "ultralytics", marker = "extra == 'topview'", specifier = ">=8.3,<9" },
     { name = "ultralytics", marker = "extra == 'training'", specifier = ">=8.3,<9" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.32" },
-    { name = "xvision-players-yolo", marker = "extra == 'topview'", editable = "packages/xvision-players-yolo" },
 ]
 provides-extras = ["conformance", "players", "topview", "ball", "training", "field", "tracking", "identity", "pose", "shot", "mlops", "api"]
 
@@ -3944,28 +3940,4 @@ dev = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.8" },
     { name = "tomli", specifier = ">=2.0" },
-]
-
-[[package]]
-name = "xvision-players-yolo"
-version = "0.1.0"
-source = { editable = "packages/xvision-players-yolo" }
-dependencies = [
-    { name = "lap" },
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "opencv-python-headless" },
-    { name = "ultralytics", version = "8.4.123", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and sys_platform == 'darwin'" },
-    { name = "ultralytics", version = "8.4.129", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or sys_platform != 'darwin'" },
-    { name = "xvision" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "lap", specifier = ">=0.5.12" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "opencv-python-headless", specifier = ">=4.10" },
-    { name = "ultralytics", specifier = ">=8.3,<9" },
-    { name = "xvision", editable = "." },
 ]
