@@ -7,7 +7,7 @@ cada conf (rapido) e roda com um comando curto — util em terminal de celular.
 Descobre sozinho o `best.pt` mais recente em `runs/` e o clipe em `src/edge/ball/`,
 entao normalmente basta:
 
-    uv run python scripts/sweep_conf.py
+    uv run python src/models/ball/sweep_conf.py
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import cv2
 from ultralytics import YOLO  # pyright: ignore[reportMissingImports]  # extra opcional detector
 
 _HERE = Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parents[1] / "src"))
+sys.path.insert(0, str(_HERE.parents[2]))
 
 from contracts.perception import BallDetection, Box  # noqa: E402
 from edge.ball.tracking import (  # noqa: E402
@@ -41,7 +41,7 @@ def _find_best() -> str | None:
 
 
 def _find_clip() -> str | None:
-    folder = _HERE.parents[1] / "src" / "edge" / "ball"
+    folder = _HERE.parents[2] / "edge" / "ball"
     preferred = folder / "clipe.mp4"
     if preferred.exists():
         return str(preferred)

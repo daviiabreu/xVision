@@ -78,7 +78,6 @@ source = [
     "src/contracts",
     "src/edge",
     "src/mlops",
-    "src/models",
     "packages/xvision-players-yolo/src/xvision_players_yolo",
 ]
 

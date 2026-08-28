@@ -10,7 +10,7 @@ como `data/soccernet` (ver .gitignore).
 
 Exemplo:
 
-    python training/download_soccernet.py --out data/soccernet --split train test
+    python src/models/ball/download_soccernet.py --out data/soccernet --split train test
 """
 
 from __future__ import annotations

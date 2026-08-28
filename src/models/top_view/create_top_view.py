@@ -7,7 +7,15 @@ import cv2
 import imageio_ffmpeg
 import torch
 
+from xvision_players_yolo.identification import load_tracking, process_identification
 from xvision_players_yolo.tracking import PlayerTracker
+from xvision_players_yolo.video import (
+    TEAM_COLORS,
+    annotate_frame,
+)
+from xvision_players_yolo.video import (
+    process_video as process_tracking_video,
+)
 
 MODELS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODELS_DIR))
@@ -49,6 +57,10 @@ def color_for_id(track_id):
     )
 
 
+def color_for_player(track_id, teams):
+    return TEAM_COLORS.get(teams.get(track_id), color_for_id(track_id))
+
+
 def create_writer(output_folder, video_path, fps, size):
     temporary_path = output_folder / f"{video_path.stem}_temporario.mp4"
     output_path = output_folder / f"{video_path.stem}_tracking_visao_superior.mp4"
@@ -83,7 +95,48 @@ def convert_to_h264(temporary_path, output_path):
     temporary_path.unlink()
 
 
+def remove_intermediate_videos(tracking_dir):
+    files = [
+        tracking_dir / "annotated.mp4",
+        tracking_dir / "identification" / "identified.mp4",
+    ]
+
+    for file in files:
+        file.unlink(missing_ok=True)
+
+
 def process_video(tracker, video_path, input_dir, homography_model):
+    """O render da API importa esta funcao e chama posicionalmente, e por isso a ordem e fixa.
+
+    `src/api/render.py` nao sabe rastrear nem identificar: ele passa o tracker e espera o video
+    pronto. Entao as tres etapas moram aqui, e nao no `main`, senao o render desenharia sem time
+    e a assinatura mudaria a cada etapa nova. Quem cobra essa ligacao, que nenhum type checker
+    enxerga, e `src/tests/api/test_render.py`.
+    """
+    output_folder = OUTPUT_DIR / video_path.relative_to(input_dir).parent
+    output_folder.mkdir(parents=True, exist_ok=True)
+    tracking_dir = output_folder / "tracking"
+
+    process_tracking_video(video_path, tracking_dir, tracker)
+    tracking = load_tracking(tracking_dir / "detections.json")
+    identification = process_identification(
+        video_path,
+        tracking_dir / "detections.json",
+        tracking_dir / "identification",
+    )
+    teams = {
+        track["track_id"]: track["team"]
+        for track in identification["tracks"]
+        if track["team"] is not None
+    }
+
+    try:
+        build_top_view_video(video_path, input_dir, homography_model, tracking, teams)
+    finally:
+        remove_intermediate_videos(tracking_dir)
+
+
+def build_top_view_video(video_path, input_dir, homography_model, tracking, teams):
     relative_folder = video_path.relative_to(input_dir).parent
     output_folder = OUTPUT_DIR / relative_folder
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -118,27 +171,18 @@ def process_video(tracker, video_path, input_dir, homography_model):
             if not ok:
                 break
 
-            annotated = frame.copy()
+            detections = tracking.frames[frame_number].players
+            annotated = annotate_frame(frame, detections, trajectories, teams)
             boxes = []
             ids = []
 
-            for detection in tracker.track(frame):
+            for detection in detections:
                 if detection.track_id is None:
                     continue
 
                 box = detection.box
                 boxes.append([box.x1, box.y1, box.x2, box.y2])
                 ids.append(detection.track_id)
-                x1, y1, x2, y2 = map(int, boxes[-1])
-                color = color_for_id(detection.track_id)
-                center = ((x1 + x2) // 2, (y1 + y2) // 2)
-
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                trajectories[detection.track_id].append(center)
-
-                points = list(trajectories[detection.track_id])
-                for point_a, point_b in zip(points, points[1:], strict=False):
-                    cv2.line(annotated, point_a, point_b, color, 2)
 
             keypoints, confidence = detect_keypoints(
                 homography_model,
@@ -164,7 +208,12 @@ def process_video(tracker, video_path, input_dir, homography_model):
             positions = project_players(matrix, boxes, ids)
             positions = smooth_positions(positions, previous_positions)
             mirror = select_half(positions, mirror)
-            top_view = draw_top_view(height, positions, color_for_id, mirror)
+            top_view = draw_top_view(
+                height,
+                positions,
+                lambda track_id: color_for_player(track_id, teams),
+                mirror,
+            )
             writer.write(cv2.hconcat([annotated, top_view]))
             frame_number += 1
 

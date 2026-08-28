@@ -18,7 +18,7 @@ dos diretorios e a escrita do dataset.
 
 Exemplo:
 
-    python training/soccernet_to_yolo.py \
+    python src/models/ball/soccernet_to_yolo.py \
       --src data/soccernet/tracking --out data/ball-yolo --train train --val test
 """
 
@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 _HERE = Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parents[1] / "src"))
+sys.path.insert(0, str(_HERE.parents[2]))
 
 from edge.ball.dataset import (  # noqa: E402
     build_ball_labels,

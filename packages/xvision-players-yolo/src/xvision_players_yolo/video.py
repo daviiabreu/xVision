@@ -21,14 +21,15 @@ from xvision_players_yolo.types import (
 
 UNKNOWN_COLOR = (200, 200, 200)
 COLORS: Mapping[str, tuple[int, int, int]] = {
-    "player": (255, 120, 0),
+    "player": (235, 235, 235),
     "goalkeeper": (0, 215, 255),
     "referee": (255, 0, 180),
 }
 TEAM_COLORS: Mapping[str, tuple[int, int, int]] = {
-    "team_a": (255, 90, 40),
-    "team_b": (40, 210, 255),
+    "team_a": (50, 50, 235),
+    "team_b": (235, 235, 235),
 }
+BADGE_COLOR = (235, 235, 235)
 SCHEMA_VERSION = "player-tracking.v1"
 TRAIL_LENGTH = 35
 Trajectories = dict[int, deque[tuple[int, int]]]
@@ -78,7 +79,6 @@ def _draw_badge(
     frame: Frame,
     center: tuple[int, int],
     label: str,
-    color: tuple[int, int, int],
     ellipse_height: int,
 ) -> None:
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -97,7 +97,7 @@ def _draw_badge(
     right = min(left + badge_width, frame_width - 1)
     bottom = min(top + badge_height, frame_height - 1)
 
-    cv2.rectangle(frame, (left, top), (right, bottom), color, -1)
+    cv2.rectangle(frame, (left, top), (right, bottom), BADGE_COLOR, -1)
     cv2.putText(
         frame,
         label,
@@ -153,10 +153,7 @@ def annotate_frame(
             cv2.LINE_AA,
         )
         identifier = "?" if detection.track_id is None else str(detection.track_id)
-        team_label = f" {team}" if team is not None else ""
-        role_label = detection.role or "?"
-        label = f"#{identifier} {role_label}{team_label} {detection.confidence:.2f}"
-        _draw_badge(annotated, center, label, color, axes[1])
+        _draw_badge(annotated, center, identifier, axes[1])
     return annotated
 
 

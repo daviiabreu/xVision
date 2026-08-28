@@ -32,10 +32,10 @@ inviável; então rode as duas primeiras etapas localmente e o treino numa GPU:
 
 ```bash
 uv sync --extra training
-python training/run.py --stages download,convert   # local
-python training/run.py --stages train --device 0   # numa GPU (Colab/Kaggle/servidor)
+python src/models/ball/run.py --stages download,convert   # local
+python src/models/ball/run.py --stages train --device 0   # numa GPU (Colab/Kaggle/servidor)
 # ou tudo de uma vez numa GPU:
-python training/run.py --epochs 100 --device 0
+python src/models/ball/run.py --epochs 100 --device 0
 ```
 
 As etapas individuais continuam disponíveis (abaixo), úteis para reexecutar ou depurar cada parte.
@@ -69,14 +69,14 @@ uv sync --extra training
 ### 1. Baixar (precisa da senha do SoccerNet)
 
 ```bash
-python training/download_soccernet.py --out data/soccernet --split train test
+python src/models/ball/download_soccernet.py --out data/soccernet --split train test
 # tracking baixa sem senha; use --password so se algum split retornar 403 (ai preencha o NDA)
 ```
 
 ### 2. Converter MOTChallenge → YOLO
 
 ```bash
-python training/soccernet_to_yolo.py \
+python src/models/ball/soccernet_to_yolo.py \
   --src data/soccernet/tracking --out data/ball-yolo --train train --val test
 ```
 
@@ -86,7 +86,7 @@ só quadros com bola; `--keep-background` inclui quadros sem bola como negativos
 ### 3. Treinar (GPU)
 
 ```bash
-python training/train_ball.py --data data/ball-yolo/data.yaml --epochs 100 --device 0
+python src/models/ball/train_ball.py --data data/ball-yolo/data.yaml --epochs 100 --device 0
 ```
 
 Sai um `best.pt` em `runs/ball/...`. Para usá-lo no rastreamento, aponte `DetectorConfig(weights=...)`
@@ -98,7 +98,7 @@ Rode o script de avaliação da frente de rastreamento com os pesos novos e comp
 baseline sem ajuste fino:
 
 ```bash
-python scripts/track_ball_clip.py entrada.mkv saida.mp4 \
+python src/models/ball/track_ball_clip.py entrada.mkv saida.mp4 \
   --weights runs/ball/yolov8n-ball/weights/best.pt --start 2 --end 15 --imgsz 1280
 ```
 

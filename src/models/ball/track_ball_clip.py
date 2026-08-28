@@ -11,7 +11,7 @@ candidatos reprovados pelo filtro em cinza fino (para ver a marca do penalti sen
 
 Requer o extra opcional `detector` (ultralytics) e opencv. Exemplo:
 
-    python scripts/track_ball_clip.py entrada.mkv saida.mp4 --start 25 --end 50 --imgsz 1280
+    python src/models/ball/track_ball_clip.py entrada.mkv saida.mp4 --start 25 --end 50 --imgsz 1280
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from ultralytics import YOLO  # pyright: ignore[reportMissingImports]  # extra o
 
 # A ferramenta roda fora de um ambiente instalado; ela mesma poe o src no sys.path.
 _HERE = Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parents[1] / "src"))
+sys.path.insert(0, str(_HERE.parents[2]))
 
 from contracts.perception import BallDetection, Box  # noqa: E402
 from edge.ball.tracking import (  # noqa: E402

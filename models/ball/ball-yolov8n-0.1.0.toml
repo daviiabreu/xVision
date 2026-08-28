@@ -11,7 +11,7 @@ bytes = 6312874
 
 [source]
 repository = "https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/merge_requests/42"
-training = "training/run.py"
+training = "src/models/ball/run.py"
 dataset = "https://www.soccer-net.org/tasks/tracking"
 base = "yolov8n.pt"
 download = "https://git.inteli.edu.br/api/v4/projects/29510/packages/generic/ball-yolov8n/0.1.0/ball_yolov8n.pt"

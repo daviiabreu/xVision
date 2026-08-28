@@ -10,10 +10,10 @@ servidor). Os dados e os pesos ficam em diretorios ignorados pelo git (`data/`, 
 Exemplos:
 
     # local (so baixa e converte)
-    python training/run.py --stages download,convert
+    python src/models/ball/run.py --stages download,convert
 
     # numa GPU (tudo)
-    python training/run.py --epochs 100 --device 0
+    python src/models/ball/run.py --epochs 100 --device 0
 """
 
 from __future__ import annotations

@@ -9,7 +9,7 @@ Colab ou no Kaggle. Pesos e resultados (`runs/`, `*.pt`) nao entram no repositor
 
 Exemplo:
 
-    python training/train_ball.py --data data/ball-yolo/data.yaml --epochs 100 --device 0
+    python src/models/ball/train_ball.py --data data/ball-yolo/data.yaml --epochs 100 --device 0
 """
 
 from __future__ import annotations

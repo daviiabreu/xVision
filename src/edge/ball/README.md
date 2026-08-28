@@ -56,11 +56,11 @@ baixar: é ele que confere o sha256 do que chegou.
 
 ## Rodar no vídeo (script de avaliação)
 
-O script `scripts/track_ball_clip.py` roda o detector + a `BallTracker` num clipe e grava um
+O script `src/models/ball/track_ball_clip.py` roda o detector + a `BallTracker` num clipe e grava um
 vídeo anotado (bola em vermelho, posição interpolada em círculo, candidatos reprovados em cinza):
 
 ```bash
-python scripts/track_ball_clip.py \
+python src/models/ball/track_ball_clip.py \
   "entrada.mkv" "saida_anotada.mp4" \
   --start 35 --end 50 --imgsz 1280 --conf 0.15 --weights yolov8n.pt
 ```
