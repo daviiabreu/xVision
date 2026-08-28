@@ -36,11 +36,6 @@ MODULO_HOMOGRAFIA = "top_view.homography_view"
 
 logger = logging.getLogger("xvision.api")
 
-# O script guarda `OUTPUT_DIR` num atributo de modulo e a barra de progresso dele e calada por
-# `redirect_stdout`, que troca `sys.stdout` do processo: os dois sao estado global, e a fila aceita
-# mais de um worker por `XVISION_API_WORKERS`. Dois desenhos ao mesmo tempo trocariam a pasta um do
-# outro e devolveriam `sys.stdout` fora de ordem, deixando o log de acesso do uvicorn escrevendo
-# num buffer que ninguem le. Desenhar um de cada vez custa espera na fila e nao custa correcao.
 _desenho = threading.Lock()
 
 
@@ -109,6 +104,12 @@ def render(video_id: int, clipe: Path, config: RenderConfig) -> Path:
     onde `os.replace` e atomico. `shutil.move` entre dispositivos copia, e a copia interrompida
     deixava um mp4 truncado com o nome final, que `_endereco_do_render` anunciava e a rota servia
     com 200.
+
+    O desenho acontece sob `_desenho` porque as duas coisas que ele mexe sao globais: `OUTPUT_DIR`
+    e atributo do modulo do script, e `redirect_stdout`, que cala a barra de progresso que o script
+    imprime com `\r`, troca o `sys.stdout` do processo. Com mais de um worker, dois desenhos
+    simultaneos trocariam a pasta um do outro e devolveriam o stdout fora de ordem, deixando o log
+    de acesso do uvicorn escrevendo num buffer que ninguem le. Esperar na fila custa menos.
     """
     jogadores = _weights(config.players, "players")
     campo = _weights(config.field, "field")
@@ -123,7 +124,6 @@ def render(video_id: int, clipe: Path, config: RenderConfig) -> Path:
             shutil.rmtree(oficina, ignore_errors=True)
             oficina.mkdir(parents=True)
             script.OUTPUT_DIR = oficina
-            # O script imprime barra de progresso com `\r`, que num log de servico e ruido.
             with contextlib.redirect_stdout(io.StringIO()):
                 script.process_video(
                     script.PlayerTracker(

@@ -32,7 +32,6 @@ services:
       XVISION_PIPELINE: ${XVISION_PIPELINE:-pipeline.toml}
     volumes:
       - ./config:/app/config:ro
-      # Os manifestos que `[render.top_view]` cita: dois TOML, resolvidos relativos a /app.
       - ./models:/app/models:ro
       - ./var:/var/xvision
     healthcheck:

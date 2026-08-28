@@ -1,6 +1,3 @@
-# O endereco da API entra no pacote no build, porque o Vite substitui `import.meta.env` ali.
-# Ele e declarado uma vez antes do primeiro `FROM` para valer nos dois estagios: o de build assa
-# o valor no JavaScript, e o de execucao precisa dele para a `connect-src` da CSP.
 ARG VITE_API_URL=http://localhost:8080
 
 FROM node:22-alpine AS build
@@ -20,10 +17,6 @@ FROM nginx:1.27-alpine AS runtime
 
 ARG VITE_API_URL
 
-# `add_header` de um nivel so vale enquanto o nivel de baixo nao declara nenhum, e sem `always`
-# ele fica de fora de resposta que nao seja 2xx ou 3xx. Por isso `default_type` no /health, e nao
-# outro `add_header`. A CSP e a mitigacao que faltava ao token guardado em `localStorage`, e a
-# `connect-src` precisa da origem da API, que so se conhece no build.
 RUN printf '%s\n' \
     'server {' \
     '  listen 3000;' \

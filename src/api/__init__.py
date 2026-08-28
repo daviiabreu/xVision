@@ -99,17 +99,8 @@ TENTATIVAS_ENV = "XVISION_LOGIN_TENTATIVAS"
 REGISTROS_ENV = "XVISION_REGISTRO_TENTATIVAS"
 JANELA_ENV = "XVISION_LOGIN_JANELA_S"
 TENTATIVAS_PADRAO = 20
-
-# O teto do registro e outro porque ele conta chamada, e nao erro: cadastrar direito tambem gasta
-# um `scrypt`. Ele existe para limitar trabalho, e o trabalho tem preco medido, 17 ms de CPU por
-# derivacao nesta maquina. Cem chamadas em 300 s sao 1,7 s de CPU por origem na janela, menos de
-# 1% de um nucleo, e cabem duas turmas se cadastrando ao mesmo tempo atras do mesmo NAT, que e o
-# caso concreto que um teto de 20 quebraria na primeira demonstracao.
 REGISTROS_PADRAO = 100
 JANELA_PADRAO = 300
-
-# Cada entrada e uma chave de texto e uma lista curta de carimbos: dez mil delas cabem em poucos
-# megabytes, que e o preco maximo que a contagem pode custar num dispositivo de borda.
 CHAVES_MAXIMAS = 10_000
 
 _erradas: dict[str, list[float]] = {}
@@ -344,8 +335,10 @@ def _rota_registro(pedido: RegistroRequest, request: Request) -> PrincipalRespon
     aceitava trabalho ate o pool de threads do Starlette encher.
 
     A contagem inclui o cadastro que deu certo, porque ele custa o mesmo `scrypt` do que falhou, e
-    por isso o teto e o de `REGISTROS_ENV` e nao o do login: atras de um NAT a origem e uma so para
-    a turma inteira, e vinte cadastros em cinco minutos trancariam a demonstracao.
+    por isso o teto e o de `REGISTROS_ENV` e nao o do login. `REGISTROS_PADRAO` sai do preco medido
+    do trabalho, 17 ms de CPU por derivacao nesta maquina: cem chamadas em 300 s sao 1,7 s de CPU
+    por origem na janela, menos de 1% de um nucleo. O numero e alto porque atras de um NAT a origem
+    e uma so para a turma inteira, e vinte cadastros em cinco minutos trancariam a demonstracao.
     """
     chave = f"registro|{_origem(request)}"
     _cobrar_tentativa(chave, REGISTROS_ENV, REGISTROS_PADRAO)
@@ -375,7 +368,9 @@ def _varrer(agora: float, janela: int) -> None:
     Sem teto de tamanho, uma rajada de emails distintos vindos de uma rota sem credencial deixa
     uma entrada por email, para sempre: podar os carimbos de uma chave nao devolve as outras. A
     varredura so roda quando o dicionario passa do tamanho declarado, entao o caso normal nao
-    paga nada.
+    paga nada. `CHAVES_MAXIMAS` e o teto de memoria: cada entrada e uma chave de texto e uma lista
+    curta de carimbos, entao dez mil delas cabem em poucos megabytes, que e o maximo que a contagem
+    pode custar num dispositivo de borda.
 
     Quando ainda sobra gente dentro da janela, sai primeiro quem tem menos carimbos, e nao quem
     entrou antes. A ordem importa porque ela decide quem paga a conta da inundacao: despejando
@@ -704,7 +699,6 @@ def create_app(config: Path | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["*"],
-        # Sem isto o `Retry-After` que 429 e 503 prometem no contrato nao chega ao `fetch`.
         expose_headers=["Retry-After"],
     )
     app.add_exception_handler(RequestValidationError, _validacao)

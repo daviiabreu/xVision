@@ -4,8 +4,6 @@
   extends:
     - .actions-rules:frontend
   variables:
-    # O Vite substitui `import.meta.env` no build, entao sem isto o pacote sai com `undefined`
-    # no lugar do endereco da API e nenhum portao repara. O valor e o mesmo default do Dockerfile.
     VITE_API_URL: "http://localhost:8080"
   cache: &frontend-cache
     key:
@@ -78,9 +76,7 @@ frontend:image:
     - docker run -d --name fe -p 3000:3000 "$CI_PROJECT_NAME-frontend:$CI_COMMIT_SHORT_SHA"
     - sleep 3
     - docker run --rm --network host curlimages/curl:8.11.1 -sf http://localhost:3000/health
-    # Caminho que so existe dentro do roteador do navegador: prova o `try_files` da imagem.
     - docker run --rm --network host curlimages/curl:8.11.1 -sf -o /dev/null http://localhost:3000/results/7
-    # O favicon relativo resolvia para /results/favicon.svg e voltava o index.html com 200.
     - >
       docker run --rm --network host curlimages/curl:8.11.1 -sf -o /dev/null
       -w "%{content_type}" http://localhost:3000/favicon.svg | grep -q "image/svg"

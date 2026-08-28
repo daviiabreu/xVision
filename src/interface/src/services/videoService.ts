@@ -10,7 +10,6 @@ export function terminou(status: VideoStatus | null): boolean {
 
 export type MetricStatus = "ok" | "low_confidence" | "unavailable";
 
-// `null` quando a feature nao produziu leitura: o tipo sai do valor, e sem valor nao ha tipo.
 export type MetricType = "boolean" | "float" | "text" | null;
 
 interface MetricaResponse {

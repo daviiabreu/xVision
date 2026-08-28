@@ -10,8 +10,6 @@ import {
 
 const fetchMock = vi.fn();
 
-// O corpo abaixo foi copiado de uma resposta real do servico, com a configuracao de exemplo que
-// `src/tests/api/test_metricas.py` monta: uma feature que mede, uma sem leitura e uma categorica.
 const RESULTADO = {
   status: 200,
   video_status: "Finalizado",

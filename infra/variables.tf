@@ -19,10 +19,7 @@ variable "services" {
     health_path = string
     public      = bool
     needs       = list(string)
-    # Argumento de build => servico cujo endereco o preenche. Quem tem pacote estatico resolve o
-    # endereco da dependencia na construcao da imagem, e nao no ambiente de execucao: declarar
-    # `API_URL` como variavel de ambiente para o frontend seria descrever algo que ninguem le.
-    build_args = optional(map(string), {})
+    build_args  = optional(map(string), {})
   }))
 
   default = {
