@@ -1,0 +1,241 @@
+---
+title: Line Tracking
+description: Desenvolvimento do modelo de visão computacional para identificação dos pontos característicos do campo de futebol, utilizado na calibração de câmera e cálculo de homografia
+---
+
+## Introdução
+
+O modelo de detecção de keypoints do campo tem como objetivo identificar, em cada frame de vídeo de uma partida de futebol, os pontos característicos das linhas e marcações do gramado como cantos da área, linha do meio-campo, semicírculos e centro do campo.
+
+A partir desses pontos detectados, será possível calcular uma matriz de homografia que transforma coordenadas de pixel do frame para coordenadas reais em metros sobre o campo (plano 2D), permitindo determinar a posição aproximada de jogadores e da bola, além de calcular distância e ângulo do chute para entrada no modelo de xG.
+
+Os scripts do modelo estão em `src/models/line_tracking/` e são três:
+
+* `dataset.py`: download e organização do dataset
+* `train.py`: treinamento do modelo
+* `validate.py`: validação do treinamento do modelo
+
+---
+
+## Primeira Abordagem — Dataset Roboflow
+
+### Descrição
+
+A primeira abordagem utilizou o dataset público `football-field-detection-f07vi`, disponível no Roboflow Universe no formato `yolov8` pose. O modelo base escolhido foi o **YOLO11x-pose**, com 32 keypoints por frame cobrindo os principais pontos do campo segundo o esquema do Roboflow.
+
+### Configuração
+
+| Parâmetro | Valor |
+| --------- | ----- |
+| Modelo base | `yolo11x-pose.pt` |
+| Dataset | football-field-detection-f07vi v18 (Roboflow) |
+| Imagens | 255 treino / 34 validação |
+| Keypoints | 32 |
+| Épocas | 100 |
+| Batch | 14 |
+| Resolução | 640 × 640 px |
+| GPU | NVIDIA RTX A4000 (16 GB) |
+
+### Resultado
+
+Ao testar o modelo em frames reais de jogos, os keypoints detectados apresentaram comportamento de alucinação: os pontos eram distribuídos aleatoriamente pelo frame, sem correspondência com as linhas reais do campo. As métricas de validação confirmaram o problema:
+
+* **Box mAP50:** ~0.979 — detecção do campo como objeto funcionou bem
+* **Pose mAP50:** ~0.000 — detecção dos keypoints não convergiu
+
+### Hipóteses para o Insucesso
+
+### Hipótese 1 — Dataset muito pequeno
+
+O dataset continha apenas 255 imagens de treino, insuficientes para que um modelo de pose estimation com 32 keypoints consiga generalizar. Modelos YOLO-pose de grande porte tendem a overfitar o bounding box e nunca chegam a aprender a localização dos keypoints com dados tão escassos.
+
+### Hipótese 2 — Ângulo de câmera único e específico
+
+As imagens do Roboflow foram capturadas predominantemente de um único ângulo de câmera (visão lateral e elevada do campo). Em partidas reais, a câmera muda de posição, zoom e perspectiva constantemente. O modelo, treinado em apenas um tipo de enquadramento, não conseguiu generalizar para os diferentes ângulos presentes nos vídeos de teste.
+
+---
+
+## Segunda Abordagem — Dataset SoccerNet
+
+### Descrição
+
+Diante dos problemas identificados, a segunda abordagem combinou duas fontes de dados distintas: as imagens do SoccerNet Calibration 2023, que contém frames de múltiplos jogos, câmeras e perspectivas diferentes, e as labels do Hugging Face (`Adit-jain/Soccana_Keypoint_detection_v1`), que trazem as anotações de keypoints no formato YOLO pose já compatíveis com o treinamento. Essa combinação resolve diretamente as duas hipóteses levantadas na abordagem anterior, o volume de dados e diversidade de ângulos de câmera.
+
+O schema adotado possui 29 keypoints por frame, baseados no padrão SoccerNet, cobrindo cantos de área, semicírculos, linha do meio-campo e centro do campo. As labels estão no formato YOLO pose (.txt), organizadas nas pastas yolo_labels/train/, yolo_labels/valid/ e yolo_labels/test/, e são combinadas com as imagens do SoccerNet pelo script `dataset.py`.
+
+### Configuração
+
+| Parâmetro | Valor |
+| --------- | ----- |
+| Modelo base | `yolo11l-pose.pt` |
+| Dataset | SoccerNet Calibration (via Hugging Face) |
+| Imagens | ~16.465 treino / 3.214 validação / 3.142 teste |
+| Keypoints | 29 (SoccerNet schema) |
+| Épocas | 100 |
+| Batch | 16 |
+| Resolução | 960 x 540 px |
+| GPU | NVIDIA RTX A4000 (16 GB) |
+
+### Resultado
+
+Com o dataset maior e mais diverso, o modelo convergiu nos keypoints, apresentando Pose mAP50 crescente ao longo do treinamento. Em inferência sobre frames reais, os pontos do campo passaram a ser detectados de forma coerente com a geometria visível na imagem.
+
+<Diagram
+  dark="/sprint2/line-tracking/resultado.jpeg"
+  width={1456}
+  height={816}
+  alt="Resultado da segunda abordagem com keypoints detectados corretamente sobre as linhas do campo."
+/>
+
+<video controls width="100%">
+  <source src="/sprint2/line-tracking/resultado.mp4" type="video/mp4" />
+</video>
+
+### Mapeamento dos 29 Keypoints
+
+A tabela abaixo relaciona o índice de cada keypoint no label YOLO com o nome do ponto e suas coordenadas reais no campo FIFA padrão (105 m × 68 m), com origem no canto superior esquerdo.
+
+| Idx | Nome do Keypoint | X (m) | Y (m) |
+| --- | ---------------- | ----- | ----- |
+| 0 | sideline_top_left | 0.0 | 0.0 |
+| 1 | big_rect_left_top_pt1 | 0.0 | 13.84 |
+| 2 | big_rect_left_top_pt2 | 0.0 | 54.16 |
+| 3 | big_rect_left_bottom_pt1 | 0.0 | 13.84 |
+| 4 | big_rect_left_bottom_pt2 | 0.0 | 54.16 |
+| 5 | small_rect_left_top_pt1 | 0.0 | 24.85 |
+| 6 | small_rect_left_top_pt2 | 0.0 | 43.15 |
+| 7 | small_rect_left_bottom_pt1 | 0.0 | 24.85 |
+| 8 | small_rect_left_bottom_pt2 | 0.0 | 43.15 |
+| 9 | sideline_bottom_left | 0.0 | 68.0 |
+| 10 | left_semicircle_right | 16.5 | 34.0 |
+| 11 | center_line_top | 52.5 | 0.0 |
+| 12 | center_line_bottom | 52.5 | 68.0 |
+| 13 | center_circle_top | 52.5 | 22.15 |
+| 14 | center_circle_bottom | 52.5 | 45.85 |
+| 15 | field_center | 52.5 | 34.0 |
+| 16 | sideline_top_right | 105.0 | 0.0 |
+| 17 | big_rect_right_top_pt1 | 105.0 | 13.84 |
+| 18 | big_rect_right_top_pt2 | 105.0 | 54.16 |
+| 19 | big_rect_right_bottom_pt1 | 105.0 | 13.84 |
+| 20 | big_rect_right_bottom_pt2 | 105.0 | 54.16 |
+| 21 | small_rect_right_top_pt1 | 105.0 | 24.85 |
+| 22 | small_rect_right_top_pt2 | 105.0 | 43.15 |
+| 23 | small_rect_right_bottom_pt1 | 105.0 | 24.85 |
+| 24 | small_rect_right_bottom_pt2 | 105.0 | 43.15 |
+| 25 | sideline_bottom_right | 105.0 | 68.0 |
+| 26 | right_semicircle_left | 88.5 | 34.0 |
+| 27 | center_circle_left | 52.5 | 34.0 |
+| 28 | center_circle_right | 52.5 | 34.0 |
+
+---
+
+## Como Executar
+
+Os scripts estão em `src/models/line_tracking/`. Execute-os na ordem abaixo.
+
+### Pré-requisitos
+
+```bash
+cd src/models/line_tracking
+
+pip install ultralytics SoccerNet huggingface_hub
+```
+
+### 1. Download do Dataset — `dataset.py`
+
+O script baixa as imagens do SoccerNet Calibration 2023 e as labels do Hugging Face (`Adit-jain/Soccana_Keypoint_detection_v1`), e organiza tudo em um único diretório pronto para o treino.
+
+```bash
+# Baixa imagens + labels e organiza em ./dataset
+python dataset.py --output ./dataset
+```
+
+Se os arquivos já tiverem sido baixados anteriormente, é possível pular os downloads e apenas reorganizar:
+
+```bash
+python dataset.py --output ./dataset --skip_images --skip_labels \
+    --images_cache ./downloads/images \
+    --labels_cache ./downloads/labels
+```
+
+O resultado final tem a seguinte estrutura:
+
+```text
+dataset/
+├── dataset.yaml
+├── images/
+│   ├── train/
+│   ├── valid/
+│   └── test/
+└── labels/
+    ├── train/
+    ├── valid/
+    └── test/
+```
+
+### 2. Treinamento — `train.py`
+
+```bash
+python train.py --data ./dataset/dataset.yaml
+```
+
+O melhor modelo é salvo automaticamente em `runs/pose/<name>/weights/best.pt`.
+
+| Parâmetro | Padrão | Descrição |
+| --------- | ------ | --------- |
+| `--data` | obrigatório | Caminho para o `dataset.yaml` gerado pelo passo anterior |
+| `--model` | `yolo11n-pose.pt` | Checkpoint base (ex: `yolo11l-pose.pt`, `yolo11x-pose.pt`) |
+| `--epochs` | `100` | Número de épocas de treinamento |
+| `--imgsz` | `960` | Resolução de entrada (imagens originais são 960×540) |
+| `--batch` | `16` | Tamanho do batch |
+| `--name` | `soccernet_keypoints` | Nome do experimento em `runs/pose/` |
+| `--device` | auto | `"0"` para GPU 0, `"cpu"` para CPU |
+
+### 3. Validação — `validate.py`
+
+O script roda inferência sobre uma fonte qualquer, imagem, pasta, vídeo ou webcam , e salva os resultados anotados em `runs/pose/predict*/`. Com `--show_labels`, imprime no terminal o nome e a coordenada de pixel de cada keypoint detectado.
+
+```bash
+# Uma imagem
+python validate.py --weights ./best.pt --source foto.jpg
+
+# Pasta de imagens
+python validate.py --weights ./best.pt --source ./pasta_de_fotos/
+
+# Vídeo
+python validate.py --weights ./best.pt --source video.mp4
+
+# Webcam
+python validate.py --weights ./best.pt --source 0
+
+# Imprimir keypoints no terminal
+python validate.py --weights ./best.pt --source foto.jpg --show_labels
+```
+
+| Parâmetro | Padrão | Descrição |
+| --------- | ------ | --------- |
+| `--weights` | obrigatório | Caminho para o `.pt` treinado |
+| `--source` | obrigatório | Imagem, pasta, vídeo ou índice de webcam |
+| `--conf` | `0.25` | Confiança mínima para detecção do campo |
+| `--kpt_conf` | `0.50` | Confiança mínima para exibir um keypoint no terminal |
+| `--imgsz` | `960` | Resolução de inferência |
+| `--show_labels` | `False` | Imprime nome e coordenada de cada keypoint |
+| `--save_txt` | `False` | Salva keypoints em `.txt` por arquivo processado |
+| `--project` | `runs/pose` | Pasta onde salvar os resultados |
+| `--name` | `predict` | Nome da subpasta de resultados |
+
+---
+
+## Conclusão
+
+A primeira abordagem, baseada no dataset do Roboflow com 255 imagens e ângulo de câmera restrito, não foi suficiente para que o modelo aprendesse a localizar os keypoints do campo. A Pose mAP50 permaneceu em zero durante todo o treinamento, com os pontos detectados de forma aleatória nos frames de teste.
+
+A segunda abordagem, utilizando as labels do SoccerNet com mais de 16.000 imagens capturadas em múltiplos ângulos e perspectivas, resolveu os dois problemas identificados. O modelo convergiu corretamente e passou a detectar os keypoints de forma coerente com a geometria real do campo, habilitando o cálculo de homografia necessário para os demais componentes da solução.
+
+---
+
+## Referências
+
+* [SoccerNet — Camera Calibration Dataset (imagens)](https://www.soccer-net.org/data#h.x37itu81rnoh)
+* [Adit-jain/Soccana\_Keypoint\_detection\_v1 — Labels dos keypoints (Hugging Face)](https://huggingface.co/datasets/Adit-jain/Soccana_Keypoint_detection_v1#dataset-details)
+* [Roboflow — Camera Calibration in Sports Computer Vision (primeira abordagem)](https://blog.roboflow.com/camera-calibration-sports-computer-vision/)
