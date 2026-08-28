@@ -1,0 +1,135 @@
+---
+title: Jogadores
+description: Visão geral da detecção, do tracking e da identificação por equipe desenvolvidos na Sprint 2
+---
+
+A frente de jogadores transforma cada frame do clipe em participantes localizados e associados ao
+longo do tempo. A saída reúne a caixa de cada pessoa, a confiança da detecção, sua função no jogo,
+um identificador de trajetória e, quando houver evidência suficiente, a equipe estimada.
+
+O trabalho foi dividido em três responsabilidades porque cada uma responde a uma pergunta
+diferente:
+
+| Etapa | Pergunta respondida | Saída principal |
+| --- | --- | --- |
+| Detecção | Quem aparece neste frame e onde está? | caixa, confiança e função |
+| Tracking | Qual detecção corresponde à mesma pessoa nos frames seguintes? | `track_id` |
+| Identificação | A qual equipe pertence cada trajetória? | `team_a`, `team_b` ou indisponível |
+
+<Callout type="idea" title="Escopo desta entrega">
+
+Identificação por equipe não significa reconhecer o nome ou o número da camisa. A v0 separa os
+dois padrões de uniforme como `team_a` e `team_b`. Árbitros e goleiros continuam identificados pela
+função, mas não recebem equipe nesta versão.
+
+</Callout>
+
+## Fluxo desenvolvido
+
+```text
+clipe de vídeo
+      │
+      ▼
+YOLO multiclasse
+      │ caixas, confiança e função
+      ▼
+ByteTrack
+      │ caixas + track_id por frame
+      ▼
+amostras da região da camisa
+      │ cores representativas por trajetória
+      ▼
+agrupamento em duas equipes
+      │
+      ├──► detections.json + annotated.mp4
+      └──► identities.json + identified.mp4
+```
+
+A detecção e o tracking compartilham o peso multiclasse utilizado no projeto de referência
+[Roboflow Sports](https://github.com/roboflow/sports). Esse peso reconhece bola, goleiro, jogador e
+árbitro. O módulo de jogadores descarta a bola porque ela pertence a outra frente do pipeline.
+
+O tracking desenvolvido por Yasmim foi incorporado à baseline de detecção desenvolvida por Daniel.
+Foram preservados o uso do ByteTrack, a continuidade do estado dentro de cada clipe, os scripts de
+treinamento e a avaliação do modelo treinado no repositório. A identificação por equipe foi
+desenvolvida depois, sobre o JSON do tracking, sem executar novamente o detector.
+
+## Contrato compartilhado
+
+O contrato de percepção do projeto já reserva os campos necessários para essa evolução:
+
+| Campo | Origem | Uso |
+| --- | --- | --- |
+| `box` | detecção | localização `xyxy` em pixels do frame original |
+| `confidence` | detecção | confiança retornada pelo modelo |
+| `role` | detecção e estabilização temporal | `player`, `goalkeeper` ou `referee` |
+| `track_id` | tracking | ligação da mesma trajetória entre frames |
+| `team` | identificação | `team_a`, `team_b` ou `null` |
+| `pitch_xy` | homografia, em outra frente | posição no campo a partir do ponto inferior central da caixa |
+
+`frame_index` e `timestamp_s` permitem combinar essas saídas com bola, campo e instante da
+finalização. A homografia poderá acrescentar `pitch_xy` depois, sem alterar a detecção original.
+
+## Integração com a visão superior
+
+A integração preserva uma única referência por quadro. O tracking fornece a caixa e o
+`track_id`, a identificação associa a equipe à trajetória e a homografia projeta o centro inferior
+da caixa no campo. A visão superior pode, assim, representar as equipes com cores diferentes sem
+executar uma segunda lógica de identificação.
+
+Essa composição também mantém as responsabilidades separadas: a classificação por cor não decide
+se uma pessoa está dentro do gramado, enquanto a homografia não tenta inferir a equipe pelo lugar
+ocupado. Quando a matriz é válida, a geometria poderá ser usada posteriormente para retirar
+participantes fora do campo e apoiar as métricas espaciais.
+
+## Organização da documentação
+
+<Cards>
+  <Card title="Detecção e tracking" href="./deteccao-e-tracking">
+    Registra modelo, ByteTrack, contratos, comandos, resultados observados e limitações.
+  </Card>
+  <Card title="Identificação por equipe" href="./identificacao-por-equipe">
+    Explica a extração de cor da camisa, a estabilização temporal e a separação entre equipes.
+  </Card>
+</Cards>
+
+## Estado ao final do desenvolvimento
+
+| Componente | Situação | Evidência |
+| --- | --- | --- |
+| Detecção offline | executa um clipe ou um diretório | JSON por frame e vídeo anotado |
+| Tracking offline | integrado à detecção | IDs, papéis e caixas no mesmo artefato |
+| Execução em lote | retomável e isolada por clipe | `summary.json` com processados, ignorados e falhas |
+| Identificação por equipe | integrada ao contrato do tracking | `identities.json` e `identified.mp4` |
+| Visão superior | consome tracking, equipes e homografia | vídeo com quadro original e projeção do campo |
+| Adaptação ao pipeline central | adaptadores criados | módulos `players-yolo` e `tracking-yolo` registrados no pacote |
+| Ativação no pipeline central | pendente | configuração ainda usa stubs até receber corretamente a resolução original |
+
+<Callout type="warning" title="Limite de integração conhecido">
+
+Os adaptadores de detecção e tracking não devem devolver caixas no espaço da imagem redimensionada.
+Enquanto o lote de frames não fornecer a resolução original do clipe, eles permanecem desativados
+na configuração central. A execução offline continua disponível e preserva as coordenadas do vídeo
+de origem.
+
+</Callout>
+
+## O que foi verificado
+
+A suíte completa do pacote apresentou `66 passed` sem baixar pesos nem acessar os vídeos locais.
+Ela verifica contratos, serialização, erros de entrada, retomada do lote, reinício do tracker,
+extração de cor e agrupamento determinístico das equipes.
+
+Esse resultado mede o comportamento do software, não a qualidade dos modelos. Ainda não existe uma
+amostra anotada suficiente para calcular precisão e recall da detecção, continuidade de identidade
+do tracking ou acurácia da identificação por equipe. As capturas desta seção servem como evidência
+qualitativa de funcionamento e não substituem essas métricas.
+
+## Relação com a pesquisa
+
+As escolhas desta sprint aplicam a sequência descrita na
+[pesquisa de modelos de visão computacional](/docs/sprint-1/pesquisa/modelos-visao-computacional):
+detectar, acompanhar no tempo, separar as equipes e preparar os pontos que serão projetados no
+campo. A implementação ainda não mede precisão contra um subconjunto anotado, portanto os
+resultados visuais apresentados nas páginas seguintes são evidências de funcionamento, não uma
+métrica de acurácia.

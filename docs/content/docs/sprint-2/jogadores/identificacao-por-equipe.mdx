@@ -1,0 +1,205 @@
+---
+title: Identificação por equipe
+description: Classificação temporal de jogadores em team_a e team_b pela cor dos uniformes
+---
+
+A identificação por equipe é executada depois do tracking. Ela reutiliza o vídeo original e o
+`detections.json`, escolhe amostras da camisa para cada `track_id` e separa as cores predominantes
+em dois grupos. Dessa forma, o detector e o ByteTrack não precisam ser executados novamente.
+
+<Callout type="info" title="O que a identificação representa">
+
+`team_a` e `team_b` são nomes técnicos e determinísticos para os dois grupos de uniforme. Eles não
+indicam mandante, visitante, seleção ou nome oficial. Essa associação deverá ser feita por outra
+fonte caso o produto precise exibir o nome das equipes.
+
+</Callout>
+
+## Processo de identificação
+
+```text
+detections.json + vídeo original
+              │
+              ▼
+observações agrupadas por track_id
+              │
+              ├──► votação temporal da função
+              │
+              ▼
+até 5 recortes de maior qualidade por trajetória
+              │
+              ▼
+região do torso em espaço de cor Lab
+              │
+              ▼
+K-Means local: camisa x fundo
+              │
+              ▼
+mediana das cores da trajetória
+              │
+              ▼
+K-Means global: team_a x team_b
+```
+
+### 1. Estabilização da função
+
+Uma trajetória pode alternar entre `player`, `goalkeeper` e `referee` em frames isolados. Para
+reduzir essa oscilação, a função estável soma a confiança de todas as observações do `track_id` e
+seleciona a classe com maior evidência acumulada.
+
+O resultado mantém duas informações:
+
+- `stable_role`, obtida pela votação temporal;
+- `resolved_role`, que pode receber auxílio da cor quando existe conflito entre jogador e árbitro.
+
+### 2. Seleção das amostras
+
+São escolhidas até cinco observações por trajetória. A seleção prioriza maior confiança e maior área
+da caixa, pois jogadores pequenos ou parcialmente visíveis fornecem menos pixels úteis para a
+camisa. A configuração exige pelo menos duas amostras válidas para classificar a equipe.
+
+### 3. Extração da cor da camisa
+
+O recorte usa a região central superior da caixa, onde normalmente aparece o torso. A imagem é
+convertida de BGR para Lab, espaço que separa luminosidade dos canais de cor.
+
+Dentro de cada recorte, um K-Means de dois grupos separa cores dominantes. O grupo mais frequente
+nos quatro cantos é tratado como fundo, geralmente o gramado, e a mediana do outro grupo representa
+a camisa. A mediana entre os frames reduz o efeito de uma amostra com sombra, oclusão ou compressão.
+
+### 4. Separação entre equipes
+
+As cores representativas das trajetórias inicialmente classificadas como jogadores são agrupadas
+novamente em dois centroides. A ordenação dos centroides torna os nomes `team_a` e `team_b`
+reproduzíveis mesmo quando a ordem de leitura das trajetórias muda.
+
+A cor também auxilia a corrigir casos em que uma trajetória compatível com o uniforme de uma
+equipe recebeu o papel de árbitro, ou quando houve evidência de árbitro em apenas parte dos frames.
+Goleiros permanecem fora dessa correção, pois seus uniformes são diferentes dos jogadores de linha.
+
+## Execução e saídas
+
+O comando de identificação recebe o vídeo, o JSON produzido pelo tracking e um diretório de saída:
+
+```bash
+PLAYER_CLIP="data/local/videos/finalizacoes/seu-conjunto/raw/seu-clipe.mp4"
+PLAYER_TRACKING="runs/player-tracking-v0/seu-conjunto/seu-clipe/detections.json"
+PLAYER_IDENTITY_OUTPUT="runs/player-identification-v0/seu-conjunto/seu-clipe"
+
+uv run --package xvision-players-yolo xvision-player-detection identify \
+  --input "$PLAYER_CLIP" \
+  --tracking "$PLAYER_TRACKING" \
+  --output-dir "$PLAYER_IDENTITY_OUTPUT"
+```
+
+Os limites podem ser alterados com `--max-samples` e `--minimum-samples`. Os valores padrão são
+cinco amostras selecionadas e no mínimo duas cores válidas.
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `identities.json` | configuração, centroides das equipes e resultado consolidado por `track_id` |
+| `identified.mp4` | vídeo anotado com ID e cor da equipe associada à trajetória |
+
+Cada trajetória recebe um dos estados abaixo:
+
+| Estado | Significado |
+| --- | --- |
+| `available` | há amostras e contraste suficientes para atribuir uma equipe |
+| `unavailable` | não há amostras válidas ou separação de cor suficiente |
+| `not_applicable` | a função resolvida não é jogador de linha |
+
+```json
+{
+  "track_id": 4,
+  "stable_role": "player",
+  "stable_role_confidence": 1.0,
+  "resolved_role": "player",
+  "role_source": "temporal_vote",
+  "team": "team_b",
+  "sample_count": 5,
+  "status": "available",
+  "reason": null
+}
+```
+
+## Resultado visual
+
+![Frame real com jogadores separados visualmente entre team_a e team_b](/sprint2/jogadores/identificacao-equipes.jpg)
+
+*Figura 2. Resultado diagnóstico da identificação em um clipe real. Azul representa `team_a`, amarelo representa `team_b`, magenta representa arbitragem e o goleiro permanece identificado pela função. Os rótulos detalhados apoiaram a revisão da v0; a renderização final mantém apenas o ID e comunica a equipe pela cor.*
+
+O resultado separa corretamente a maior parte dos uniformes visíveis no frame. A imagem também
+registra limitações da v0: jogadores distantes podem ficar sem equipe, funções podem oscilar em
+trechos curtos e rótulos ainda podem se sobrepor em aglomerações.
+
+## Verificação realizada
+
+A suíte completa do pacote apresentou `66 passed`. Os casos relacionados à identificação cobrem:
+
+- votação temporal da função pela confiança acumulada;
+- seleção das melhores observações por confiança e tamanho;
+- remoção do fundo a partir dos cantos do recorte;
+- indisponibilidade quando não existe contraste de cor;
+- uso da mediana contra amostras discrepantes;
+- agrupamento determinístico das duas equipes;
+- correção de conflitos entre jogador e árbitro com auxílio da cor;
+- remoção de detecções sobrepostas com funções diferentes;
+- validação de que vídeo e tracking pertencem ao mesmo clipe;
+- geração de `identities.json` e `identified.mp4` sem nova inferência do detector.
+
+### Como a qualidade deverá ser medida
+
+O K-Means não produz automaticamente métricas equivalentes a precision, recall ou mAP do YOLO.
+Ele apenas separa as cores em dois grupos. Nesta sprint, os testes confirmam que o agrupamento é
+determinístico e que os estados `available`, `unavailable` e `not_applicable` são gerados
+corretamente, mas ainda não medem se `team_a` e `team_b` correspondem ao gabarito humano.
+
+A avaliação deverá separar três medidas:
+
+| Medida | O que responde | Como calcular |
+| --- | --- | --- |
+| Cobertura | quantas trajetórias elegíveis receberam equipe | `available / (available + unavailable)` para jogadores de linha |
+| Separação dos grupos | quão distintas são as cores agrupadas | Silhouette sobre as cores representativas das trajetórias |
+| Correção da equipe | quantas trajetórias receberam o grupo correto | acurácia e macro F1 sobre uma amostra anotada, alinhando os nomes arbitrários dos clusters ao gabarito |
+
+Silhouette alta não prova que a equipe está correta: ela indica separação entre cores, mas um grupo
+pode conter árbitros, goleiros ou jogadores classificados incorretamente. Por isso, a entrega não
+publica uma acurácia sem anotação de referência. A amostra visual atual também é pequena demais
+para sustentar uma conclusão quantitativa.
+
+## Limites e próximos passos
+
+| Limite | Consequência | Evolução prevista |
+| --- | --- | --- |
+| poucos pixels da camisa | trajetória pode ficar `unavailable` ou aproximar a equipe errada | acumular amostras melhores e avaliar um limite mínimo de área |
+| sombra, luz forte e compressão | deslocamento da cor representativa | comparar amostras ao longo do tempo e testar normalização de iluminação de forma controlada |
+| ID fragmentado | o mesmo jogador pode aparecer como mais de uma trajetória | melhorar a continuidade do tracking antes de unir identidades |
+| árbitro com cor próxima a um uniforme | risco de correção incorreta da função | manter evidência temporal e validar o limite de distância por clipe |
+| goleiro sem equipe | métricas não sabem diretamente qual gol ele defende | combinar função, equipe adversária e posição no campo após a homografia |
+| pessoas fora do campo | uniforme de reserva ou comissão pode entrar no agrupamento | filtrar o ponto dos pés pelo polígono do campo após a homografia |
+
+A homografia não substitui a classificação por cor. Ela complementa o resultado ao indicar quem
+está dentro do campo e onde cada trajetória está posicionada. Essa combinação será especialmente
+útil para reduzir falsos participantes e apoiar a métrica de posicionamento do goleiro.
+
+<Callout type="warning" title="Integração parcial">
+
+A identificação já consome o contrato offline do tracking e pode alimentar a visão superior. Sua
+ativação como implementação real da espécie `identity` no pipeline central ainda está pendente; a
+configuração principal continua usando o módulo stub enquanto essa adaptação não é concluída.
+
+</Callout>
+
+## Trade-offs
+
+| Decisão | Benefício | Custo assumido |
+| --- | --- | --- |
+| classificação por trajetória | reduz mudanças de equipe entre frames | depende da estabilidade do `track_id` |
+| espaço Lab | reduz a dependência direta da luminosidade | não elimina sombra e reflexo |
+| K-Means determinístico | não exige rótulos de equipe para cada partida | sempre procura dois grupos, mesmo com poucas amostras |
+| estado `unavailable` | evita inventar equipe sem evidência | algumas trajetórias permanecem sem classificação |
+
+## Referências relacionadas
+
+- [Detecção e tracking de jogadores](./deteccao-e-tracking), etapa que fornece caixas, funções e IDs.
+- [Modelos de visão computacional](/docs/sprint-1/pesquisa/modelos-visao-computacional), pesquisa que orientou a sequência entre detecção, tracking, identificação e homografia.

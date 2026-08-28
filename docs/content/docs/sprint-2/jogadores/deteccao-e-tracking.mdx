@@ -1,0 +1,179 @@
+---
+title: Detecção e tracking de jogadores
+description: Implementação do YOLO multiclasse, associação temporal com ByteTrack e contrato dos resultados
+---
+
+A detecção localiza os participantes em cada frame e o tracking associa essas observações ao longo
+do clipe. As duas etapas foram reunidas em um pacote próprio para evitar pipelines concorrentes e
+oferecer uma única saída para as métricas posteriores.
+
+## Decisão de modelo
+
+A baseline utiliza o peso público `football-player-detection.pt` empregado no exemplo de futebol
+do [Roboflow Sports](https://github.com/roboflow/sports). A inferência é executada pela Ultralytics
+com imagem de entrada de 1280 pixels e limiar inicial de confiança de 0,25.
+
+| Classe do peso | Papel no pacote | Tratamento |
+| --- | --- | --- |
+| `ball` | bola | descartada, pois pertence ao módulo de bola |
+| `goalkeeper` | goleiro | mantida como `goalkeeper` |
+| `player` | jogador de linha | mantida como `player` |
+| `referee` | arbitragem | mantida como `referee` |
+
+O mapeamento usa o nome declarado dentro do peso, não um índice fixo. Essa decisão permite aceitar
+tanto o peso público multiclasse quanto um peso treinado no repositório com a classe `jogador`, sem
+descartar todas as detecções silenciosamente quando a ordem das classes muda.
+
+### Variantes preservadas
+
+O repositório mantém duas possibilidades de evolução:
+
+| Variante | Vantagem | Limite nesta sprint |
+| --- | --- | --- |
+| Peso público multiclasse | já distingue jogador, goleiro e árbitro | ainda precisa ser avaliado nos vídeos do parceiro |
+| Treinamento com o dataset Football Players Detection | permite ajuste específico e avaliação com precision, recall e mAP | a preparação atual reúne jogador e goleiro em uma única classe |
+
+O peso público foi escolhido para a execução da v0 porque as funções são úteis para as métricas e
+para a inspeção visual. Os scripts de treinamento e análise desenvolvidos por Yasmim foram mantidos
+para experimentos posteriores, sem substituir a baseline atual.
+
+## Tracking com ByteTrack
+
+O tracking usa `model.track` com ByteTrack e mantém `persist=True` dentro de cada clipe. O
+algoritmo recebe as caixas produzidas pelo detector e associa um `track_id` às observações que
+provavelmente pertencem à mesma pessoa.
+
+As principais decisões foram:
+
+- rastrear jogadores, goleiros e árbitros com o mesmo modelo;
+- reiniciar o tracker antes de cada clipe, evitando IDs compartilhados entre vídeos;
+- usar supressão agnóstica à classe para reduzir caixas duplicadas com papéis diferentes;
+- preservar caixa, função e confiança da detecção ao acrescentar o `track_id`;
+- oferecer trilhas de até 35 pontos apenas como visualização opcional de depuração.
+
+O ponto usado pelas trilhas e pela futura homografia é o centro inferior da caixa. Ele aproxima o
+contato do participante com o gramado melhor que o centro geométrico do corpo.
+
+## Saídas offline
+
+O comando `run` processa um clipe e grava dois artefatos:
+
+```bash
+PLAYER_CLIP="data/local/videos/finalizacoes/seu-conjunto/raw/seu-clipe.mp4"
+PLAYER_OUTPUT="runs/player-tracking-v0/seu-clipe"
+
+uv run --package xvision-players-yolo xvision-player-detection run \
+  --input "$PLAYER_CLIP" \
+  --weights models/players/football-player-detection.pt \
+  --output-dir "$PLAYER_OUTPUT"
+```
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `detections.json` | metadados do clipe, configuração do modelo, tempo de execução e jogadores por frame |
+| `annotated.mp4` | vídeo com elipse nos pés e identificação compacta pelo `track_id` |
+
+O JSON registra todos os frames decodificados, inclusive aqueles sem jogadores. As caixas usam
+`x1`, `y1`, `x2` e `y2` em pixels absolutos do vídeo original.
+
+```json
+{
+  "frame_index": 7,
+  "timestamp_s": 0.28,
+  "players": [
+    {
+      "box": { "x1": 1, "y1": 2, "x2": 30, "y2": 40 },
+      "confidence": 0.91,
+      "track_id": 12,
+      "team": null,
+      "role": "goalkeeper",
+      "jersey_number": null,
+      "pitch_xy": null
+    }
+  ]
+}
+```
+
+O modo em lote descobre os MP4 em ordem, processa um por vez e registra falhas sem interromper os
+demais:
+
+```bash
+PLAYER_INPUT_DIR="data/local/videos/finalizacoes/seu-conjunto/raw"
+PLAYER_OUTPUT_DIR="runs/player-tracking-v0/seu-conjunto"
+
+uv run --package xvision-players-yolo xvision-player-detection batch \
+  --input-dir "$PLAYER_INPUT_DIR" \
+  --weights models/players/football-player-detection.pt \
+  --output-dir "$PLAYER_OUTPUT_DIR"
+```
+
+Resultados completos são ignorados por padrão. A opção `--overwrite` força o reprocessamento, e
+`--show-trails` adiciona as trajetórias ao vídeo anotado.
+
+## Resultado visual
+
+![Frame real com jogadores e árbitro detectados e associados a IDs de trajetória](/sprint2/jogadores/deteccao-tracking.jpg)
+
+*Figura 1. Saída diagnóstica da v0 em um clipe real. As elipses representam o ponto dos pés e os rótulos detalhados foram usados durante a revisão de IDs, funções e confiança. A renderização final mantém somente o ID no vídeo e preserva os demais campos no JSON.*
+
+O frame evidencia a detecção dos participantes em diferentes escalas e a distinção visual do
+árbitro. Também mostra que um mesmo frame não basta para validar a estabilidade do ID, que precisa
+ser revisada durante toda a sequência.
+
+## Verificação realizada
+
+A suíte completa do pacote executa sem pesos nem vídeos restritos e apresentou `66 passed`. Os
+testes relacionados à detecção e ao tracking cobrem:
+
+- descarte da bola e mapeamento das funções;
+- limitação das caixas às dimensões do frame;
+- rejeição de pesos ausentes e frames inválidos;
+- reinício do tracker a cada clipe;
+- serialização de frames vazios e preenchidos;
+- preservação de resolução, FPS e quantidade de frames no vídeo anotado;
+- execução ordenada, retomada e isolamento de falhas no lote;
+- conformidade dos módulos de detecção e tracking com o contrato da borda.
+
+O `detections.json` registra FPS de processamento e tempo médio de inferência para cada execução.
+Esses valores auxiliam a comparação local de configurações, mas ainda não constituem um benchmark
+do dispositivo embarcado.
+
+### Métricas ainda necessárias
+
+| Etapa | Métrica prevista | Dependência pendente |
+| --- | --- | --- |
+| Detecção | precisão, recall e mAP por função | caixas e papéis anotados em uma amostra representativa |
+| Tracking | continuidade do ID, IDF1 ou HOTA | trajetórias de referência ao longo dos quadros |
+| Execução em borda | latência, FPS, memória e energia | mesma configuração executada no hardware escolhido |
+
+Os testes unitários demonstram que o contrato e as regras implementadas funcionam, mas não devem
+ser apresentados como acurácia do modelo.
+
+## Limites observados
+
+| Situação | Efeito | Tratamento ou próximo passo |
+| --- | --- | --- |
+| aglomeração e oclusão | um jogador pode receber outro ID após desaparecer | revisar parâmetros e medir continuidade em trechos anotados |
+| jogadores pequenos ou nas extremidades | queda de confiança ou função incorreta | avaliar recortes reais e eventual ajuste do detector |
+| caixas sobrepostas de classes diferentes | dois rótulos podem aparecer sobre a mesma pessoa | supressão agnóstica à classe e deduplicação por sobreposição |
+| pessoas fora do campo | podem ser detectadas como participantes | filtrar pelo ponto dos pés depois da integração com a homografia |
+| mudança de câmera | IDs não são identidade permanente entre tomadas | limitar o significado do `track_id` ao clipe e à continuidade visível |
+| papel instável | jogador, goleiro ou árbitro pode alternar entre frames | consolidar a função usando as observações da trajetória |
+
+Não foi calculada precisão, recall ou mAP sobre os clipes usados na demonstração porque eles ainda
+não possuem anotações de referência para essa tarefa.
+
+## Trade-offs
+
+| Decisão | Benefício | Custo assumido |
+| --- | --- | --- |
+| YOLO multiclasse em vez de segmentação com SAM 3 | caixas e papéis com integração direta ao tracking | menor detalhe do contorno do participante |
+| ByteTrack sobre as caixas existentes | adiciona continuidade sem um segundo modelo de aparência | pode fragmentar IDs em oclusões longas |
+| resolução de entrada 1280 | favorece jogadores pequenos no plano aberto | aumenta o tempo de inferência |
+| vídeo anotado com elipses e ID compacto | reduz a obstrução visual em comparação com caixas e rótulos extensos | função, confiança e equipe precisam ser consultadas no JSON |
+
+## Referências principais
+
+- [Roboflow Sports](https://github.com/roboflow/sports), exemplo e peso de detecção de futebol.
+- [ByteTrack: Multi-Object Tracking by Associating Every Detection](https://arxiv.org/abs/2110.06864), método usado para associação temporal.
+- [Ultralytics Track Mode](https://docs.ultralytics.com/modes/track/), interface utilizada para executar o tracker.
