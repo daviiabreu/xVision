@@ -125,6 +125,8 @@ ground-truth/*
 *.weights
 *.h5
 *.pkl
+# Peso empacotado: um .pt do PyTorch e um zip, e handoff de peso chega zipado.
+*.zip
 weights/
 checkpoints/
 runs/

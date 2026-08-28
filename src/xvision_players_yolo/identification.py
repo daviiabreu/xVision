@@ -34,6 +34,8 @@ from xvision_players_yolo.types import (
 from xvision_players_yolo.video import SCHEMA_VERSION, annotate_frame
 
 IDENTIFICATION_SCHEMA_VERSION = "player-identification.v0"
+ACCEPTED_TRACKING_SCHEMAS = frozenset({SCHEMA_VERSION, "player-tracking.v0"})
+"""A `v0` usava `frames[].detections`; a `v1` usa `players`. Artefatos antigos seguem legiveis."""
 IdentityStatus = Literal["available", "unavailable", "not_applicable"]
 RoleSource = Literal["temporal_vote", "color_assisted"]
 
@@ -89,13 +91,23 @@ def _parse_detection(raw: dict[str, Any]) -> PlayerDetection:
     )
 
 
+def _frame_players(raw_frame: dict[str, Any]) -> list[dict[str, Any]]:
+    """Le a lista do quadro pela chave da `v1`, caindo na da `v0`."""
+    bruto = raw_frame["players"] if "players" in raw_frame else raw_frame["detections"]
+    return cast("list[dict[str, Any]]", bruto)
+
+
 def load_tracking(path: Path) -> TrackingInput:
     if not path.is_file():
         raise FileNotFoundError(f"JSON de tracking não encontrado: {path}")
     try:
         document = cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
-        if document.get("schema_version") != SCHEMA_VERSION:
-            raise ValueError(f"schema de tracking incompatível: {document.get('schema_version')}")
+        if document.get("schema_version") not in ACCEPTED_TRACKING_SCHEMAS:
+            aceitos = ", ".join(sorted(ACCEPTED_TRACKING_SCHEMAS))
+            raise ValueError(
+                f"schema de tracking incompatível: {document.get('schema_version')}. "
+                f"A identificação lê {aceitos}"
+            )
         raw_clip = cast(dict[str, Any], document["clip"])
         raw_frames = cast(list[dict[str, Any]], document["frames"])
         frames = tuple(
@@ -103,8 +115,7 @@ def load_tracking(path: Path) -> TrackingInput:
                 frame_index=int(raw_frame["frame_index"]),
                 timestamp_s=float(raw_frame["timestamp_s"]),
                 players=tuple(
-                    _parse_detection(raw_player)
-                    for raw_player in cast(list[dict[str, Any]], raw_frame["players"])
+                    _parse_detection(raw_player) for raw_player in _frame_players(raw_frame)
                 ),
             )
             for raw_frame in raw_frames

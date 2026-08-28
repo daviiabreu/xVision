@@ -8,6 +8,7 @@ import pytest
 from xvision_players_yolo import Box, Role
 from xvision_players_yolo.identification import (
     deduplicate_detections,
+    load_tracking,
     process_identification,
     resolve_roles_and_teams,
 )
@@ -206,3 +207,37 @@ def test_offset_referee_detections_are_deduplicated() -> None:
     deduplicated = deduplicate_detections(detections)
 
     assert [detection.track_id for detection in deduplicated] == [5]
+
+
+def downgrade_to_v0(path: Path) -> None:
+    """Reescreve o artefato no formato antigo: `detections` em vez de `players`."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["schema_version"] = "player-tracking.v0"
+    for frame in document["frames"]:
+        frame["detections"] = frame.pop("players")
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_le_o_tracking_no_formato_antigo_que_o_grupo_ja_produziu(tmp_path: Path) -> None:
+    """Artefato em `v0` continua legivel, sem reprocessar video."""
+    v1_path = tmp_path / "v1.json"
+    v0_path = tmp_path / "v0.json"
+    make_tracking(v1_path)
+    make_tracking(v0_path)
+    downgrade_to_v0(v0_path)
+
+    antigo = load_tracking(v0_path)
+    novo = load_tracking(v1_path)
+
+    assert antigo == novo
+
+
+def test_schema_desconhecido_diz_o_que_a_identificacao_le(tmp_path: Path) -> None:
+    path = tmp_path / "futuro.json"
+    make_tracking(path)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["schema_version"] = "player-tracking.v99"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="player-tracking.v0, player-tracking.v1"):
+        load_tracking(path)

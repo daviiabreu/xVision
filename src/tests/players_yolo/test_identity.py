@@ -5,12 +5,14 @@ from numpy.typing import NDArray
 
 from xvision_players_yolo import Box
 from xvision_players_yolo.identity import (
+    LabColor,
     TrackObservation,
     cluster_teams,
     extract_shirt_color,
     representative_shirt_color,
     select_sample_observations,
     stabilize_role,
+    teams_from_color_samples,
 )
 from xvision_players_yolo.types import player
 
@@ -121,3 +123,78 @@ def test_team_clustering_is_deterministic_for_mapping_order() -> None:
 def test_team_clustering_requires_two_distinct_colors() -> None:
     assert cluster_teams({1: (10, 20, 30)}) is None
     assert cluster_teams({1: (10, 20, 30), 2: (10, 20, 30)}) is None
+
+
+# --- equipe a partir de amostras ja em memoria ---------------------------------------------
+
+
+def amostras(
+    track_id: int,
+    cores: list[LabColor],
+    *,
+    confianca: float = 0.9,
+) -> list[tuple[TrackObservation, LabColor]]:
+    return [
+        (observation(indice, "player", confianca, track_id=track_id), cor)
+        for indice, cor in enumerate(cores)
+    ]
+
+
+def test_equipe_sai_das_amostras_em_memoria() -> None:
+    resultado, centroides = teams_from_color_samples(
+        {
+            1: amostras(1, [(150.0, 120.0, 200.0)] * 3),
+            2: amostras(2, [(150.0, 120.0, 130.0)] * 3),
+        }
+    )
+
+    assert resultado[1] != resultado[2]
+    assert set(centroides) == {"team_a", "team_b"}
+
+
+def test_track_com_menos_amostras_que_o_minimo_fica_de_fora() -> None:
+    resultado, _ = teams_from_color_samples(
+        {
+            1: amostras(1, [(150.0, 120.0, 200.0)] * 3),
+            2: amostras(2, [(150.0, 120.0, 130.0)] * 3),
+            3: amostras(3, [(150.0, 120.0, 165.0)]),
+        },
+        minimum=2,
+    )
+
+    assert 3 not in resultado
+
+
+def test_o_limite_de_amostras_muda_a_equipe_de_quem_esta_na_fronteira() -> None:
+    """Com poucas amostras, um recorte ruim de confianca alta leva o jogador para o outro time."""
+    verdes = {tid: amostras(tid, [(150.0, 120.0, 130.0)] * 12) for tid in (1, 2, 3)}
+    amarelos = {tid: amostras(tid, [(150.0, 120.0, 210.0)] * 12) for tid in (4, 5, 6)}
+    # amarelo de verdade, mas os quatro recortes de maior confianca sairam lavados
+    fronteira = [
+        (observation(indice, "player", 0.99, track_id=7), (150.0, 120.0, 140.0))
+        for indice in range(4)
+    ] + [
+        (observation(4 + indice, "player", 0.10, track_id=7), (150.0, 120.0, 210.0))
+        for indice in range(8)
+    ]
+    quadro = {**verdes, **amarelos, 7: fronteira}
+
+    curto, _ = teams_from_color_samples(quadro, limit=4)
+    longo, _ = teams_from_color_samples(quadro, limit=12)
+
+    assert curto[7] == curto[1], "com quatro amostras o atacante vai para o time dos verdes"
+    assert longo[7] == longo[4], "com doze ele volta para o time dos amarelos"
+
+
+def test_sem_contraste_devolve_vazio_em_vez_de_estourar() -> None:
+    resultado, centroides = teams_from_color_samples({1: amostras(1, [(150.0, 120.0, 200.0)] * 3)})
+
+    assert resultado == {}
+    assert centroides == {}
+
+
+def test_limites_de_amostragem_invalidos_sao_erro() -> None:
+    with pytest.raises(ValueError, match="limites de amostragem"):
+        teams_from_color_samples({}, limit=0)
+    with pytest.raises(ValueError, match="limites de amostragem"):
+        teams_from_color_samples({}, limit=2, minimum=3)

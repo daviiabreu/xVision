@@ -161,6 +161,41 @@ def representative_shirt_color(samples: Sequence[LabColor]) -> LabColor | None:
     return float(color[0]), float(color[1]), float(color[2])
 
 
+DEFAULT_SAMPLE_LIMIT = 20
+"""Amostras por trajetoria quando as cores ja estao em memoria e nenhuma custa um seek."""
+
+
+def teams_from_color_samples(
+    samples: Mapping[int, Sequence[tuple[TrackObservation, LabColor]]],
+    *,
+    limit: int = DEFAULT_SAMPLE_LIMIT,
+    minimum: int = 2,
+) -> tuple[dict[int, Team], dict[Team, LabColor]]:
+    """Equipe por trajetoria a partir de amostras ja extraidas. `({}, {})` quando nao separa."""
+    if limit <= 0 or minimum <= 0 or minimum > limit:
+        raise ValueError("limites de amostragem invalidos")
+
+    representativas: dict[int, LabColor] = {}
+    for track_id, itens in samples.items():
+        cor_por_quadro = {observacao.frame_index: cor for observacao, cor in itens}
+        melhores = select_sample_observations(
+            [observacao for observacao, _ in itens], limit=limit, role=None
+        )
+        cores = [
+            cor_por_quadro[observacao.frame_index]
+            for observacao in melhores
+            if observacao.frame_index in cor_por_quadro
+        ]
+        if len(cores) < minimum:
+            continue
+        cor = representative_shirt_color(cores)
+        if cor is not None:
+            representativas[track_id] = cor
+
+    agrupado = cluster_teams(representativas)
+    return agrupado if agrupado is not None else ({}, {})
+
+
 def cluster_teams(
     colors_by_track: Mapping[int, LabColor],
 ) -> tuple[dict[int, Team], dict[Team, LabColor]] | None:

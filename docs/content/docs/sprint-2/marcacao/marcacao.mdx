@@ -1,0 +1,190 @@
+---
+title: Métrica - Marcação
+description: Como o sistema descobre quais jogadores estão marcando quais adversários num lance, a partir do vídeo
+---
+
+Em um lance de finalização, saber se o atacante estava marcado muda a leitura de tudo. Um chute
+livre de marcação e um chute com um zagueiro em cima são eventos diferentes, e o parceiro anota
+essa diferença para cada finalização.
+
+Esta página descreve como o sistema chega a essa resposta partindo do vídeo bruto.
+
+## O que sai no fim
+
+Para um quadro do clipe, o sistema produz duas coisas:
+
+- uma imagem com cada jogador dentro de uma caixa colorida pelo seu time, e uma linha ligando
+  cada dupla que está se marcando, com a distância escrita em cima;
+- um arquivo de dados com a mesma informação em texto: as duplas, a distância de cada uma, e
+  para cada jogador se ele está marcado ou não.
+
+A imagem existe para uma pessoa conferir a olho se o resultado faz sentido, para o fluxo, o arquivo de dados é o
+que alimenta o resto da pipeline.
+
+![Quadro de uma finalização com os jogadores em caixas coloridas por time e duas linhas verdes ligando as duplas que se marcam, uma a 2,2 metros na frente do gol e outra a 4,0 metros](/sprint2/marcacao/duas-duplas.png)
+
+Nesse quadro o sistema encontrou duas duplas: uma a 2,2 m, na frente do gol, e outra a 4,0 m. Cada
+jogador está numerado, a cor da caixa é o time que a etapa anterior atribuiu a ele, e caixa cinza
+é jogador cujo time não foi identificado.
+
+## Fluxograma da métrica de marcação
+
+```text
+   clipe .mp4
+       │
+       ▼
+  ┌─────────────────────────────────────────┐
+  │ 1. Achar as pessoas                     │   caixa em volta de cada jogador,
+  │    modelo de detecção + rastreamento    │   e um número que a segue no tempo
+  └────────────────┬────────────────────────┘
+                   ▼
+  ┌─────────────────────────────────────────┐
+  │ 2. Descobrir de que time cada um é      │   pela cor da camisa
+  └────────────────┬────────────────────────┘
+                   ▼
+  ┌─────────────────────────────────────────┐
+  │ 3. Passar da imagem para o campo        │   pixels  ->  metros de gramado
+  │    linhas do campo como referência      │
+  └────────────────┬────────────────────────┘
+                   ▼
+  ┌─────────────────────────────────────────┐
+  │ 4. Decidir quem marca quem              │   quem está perto de quem,
+  │                                         │   e perto o bastante
+  └────────────────┬────────────────────────┘
+                   ▼
+       imagem anotada + dados
+```
+
+### 1. Modelo de detecção
+
+O modelo de visão computacional olha cada quadro e devolve uma caixa em volta de cada pessoa em
+campo, dizendo se é jogador, goleiro ou árbitro. Um segundo mecanismo, o rastreamento, dá a cada
+pessoa um número que a acompanha ao longo do clipe, é o que permite saber que o jogador do quadro
+100 é o mesmo do quadro 140.
+
+**Goleiros e árbitros ficam de fora da conta.** Goleiro não faz marcação no sentido que interessa
+aqui, e árbitro não é jogador.
+
+### 2. Modelo de identificação
+
+O sistema não sabe de antemão quem joga de verde e quem joga de amarelo. Ele descobre sozinho:
+recorta o pedaço da camisa de cada jogador, mede a cor, e separa todos os jogadores em dois grupos
+por semelhança de cor.
+
+### 3. Converter a imagem para o campo
+
+Na imagem, dois jogadores perto da câmera aparecem muito mais separados do que dois jogadores no
+fundo do campo, mesmo que a distância real entre eles seja a mesma. Medir a distância em pixels,
+portanto, dá respostas diferentes para a mesma situação, só porque o lance aconteceu mais perto ou
+mais longe.
+
+A solução é usar as linhas do campo como referência. Um modelo reconhece pontos conhecidos do
+gramado, quinas da área, círculo central, marcas de linha, e, sabendo as medidas reais de um
+campo de futebol, o sistema calcula como converter qualquer ponto da imagem em uma posição no
+gramado. A partir daí a distância entre dois jogadores sai em metros.
+
+O ponto usado para localizar cada jogador é a base da caixa, onde os pés tocam o chão. Não o
+centro do corpo: o centro sobe quando o jogador salta e desce quando ele se agacha, e marcação se
+mede no chão.
+
+Quando as linhas do campo não aparecem no quadro (um close, ou um enquadramento sem referência)
+o sistema avisa que não conseguiu converter e reporta a distância em pixels, deixando claro na
+saída que aquele número não é em metros. Ele nunca apresenta uma estimativa como se fosse medida.
+
+### 4. Decidir marcação
+
+Com todos os jogadores posicionados no campo e divididos em times, falta a regra. Ela tem duas
+partes:
+
+A dupla tem que ser mútua. O jogador A só é considerado marcador de B se B é o adversário mais
+próximo de A *e* A é o adversário mais próximo de B. A alternativa — considerar marcado todo par de
+adversários próximos — falha no caso mais comum do futebol: numa disputa de área, um zagueiro fica
+perto de quatro atacantes ao mesmo tempo, e a resposta seria que ele marca os quatro. Com a regra
+mútua, cada jogador entra em no máximo uma dupla.
+
+![Outro quadro, com duas duplas de marcação bem apertada, ambas a menos de 1,7 metro](/sprint2/marcacao/duplas-apertadas.png)
+
+Acima, marcação bem mais apertada: duas duplas a menos de 1,7 m cada. Os demais jogadores do
+quadro, embora próximos entre si, não formam dupla, porque o adversário mais próximo de cada um
+deles já está emparelhado com outro ou está longe demais.
+
+A distância tem que estar abaixo de um limite. Hoje esse limite é de 5 metros, escolhido
+depois de medir, em quadros reais, quantos jogadores ficam a cada distância do adversário mais
+próximo:
+
+| Limite | Jogadores considerados marcados |
+| ------ | ------------------------------- |
+| 2 m    | 0%                              |
+| 3 m    | 13%                             |
+| 4 m    | 14%                             |
+| 5 m    | 22%                             |
+| 6 m    | 33%                             |
+| 8 m    | 46%                             |
+
+Empiricamente, decidiu-se que cinco metros é a distância em que um defensor ainda consegue fechar o espaço ou bloquear o chute.
+É uma escolha justificada, não uma escolha calibrada: para saber qual limite acerta mais,
+seria preciso comparar com as anotações do parceiro, que não estão disponíveis no ambiente onde
+isso foi construído. O limite é configurável justamente por isso.
+
+A dupla não diz quem é o defensor e quem é o atacante. Para afirmar isso seria preciso saber
+quem estava com a bola, e essa informação não entra neste cálculo. Inventar a direção produziria
+um dado que parece medido e não é.
+
+## Duas formas de rodar
+
+O passo 2 precisa de várias medições de cor por jogador, o que significa processar vários quadros
+mesmo quando a resposta desejada é sobre um só. Existem dois modos:
+
+- Clipe inteiro: processa todos os quadros. Gera também os arquivos de rastreamento e de
+  identificação de times, reaproveitáveis por outras análises. Custa cerca de 30 minutos por clipe
+  em computador sem placa de vídeo.
+- Janela: processa apenas cerca de 40 quadros em volta do quadro de interesse. Custa cerca de
+  2 minutos, quinze vezes mais rápido, e nos testes chegou às mesmas duplas e às mesmas
+  distâncias que o clipe inteiro.
+
+A janela só funciona porque ela usa todas as medições de cor que colhe, em vez das cinco
+melhores. Com apenas cinco, um atacante em disputa de área foi para o time errado e a dupla dele
+desapareceu do resultado — o modo janela chegava a uma resposta diferente da do clipe inteiro. Com
+mais medições o erro desaparece, sem custo extra, porque as cores já são medidas de qualquer jeito
+enquanto os quadros passam.
+
+## Qualidade da métrica
+
+Vale explicitar uma característica da geração dessa métrica: a marcação é o último passo de uma cadeia, e a
+qualidade dela é herdada. O cálculo de quem marca quem é geométrico e determinístico, dadas as
+posições e os times corretos, ele sempre chega à mesma resposta, e essa parte é verificada por
+testes automatizados. O que ele não consegue fazer é corrigir uma entrada errada.
+
+Isso significa que a precisão final depende de três coisas produzidas antes:
+
+- A detecção dos jogadores. Jogador que o modelo não vê não entra na conta, e uma caixa
+  imprecisa desloca a posição usada na medição.
+- A identificação dos times. Este é o insumo mais sensível. Se dois jogadores adversários
+  forem colocados no mesmo time, a dupla entre eles simplesmente não existe para o cálculo, e o
+  resultado sai como "sem marcação", que é indistinguível de uma marcação que de fato não
+  aconteceu.
+- O reconhecimento das linhas do campo. Sem ele não há conversão para metros, e a distância
+  fica em pixels, que não é comparável entre quadros.
+
+O caso abaixo mostra o efeito disso. É um chute bloqueado, situação em que existe marcação por
+definição, já que há um defensor à frente da bola. Mas todos os jogadores, tanto os de camisa
+branca quanto os de camisa escura, receberam caixas da mesma cor: foram atribuídos ao mesmo time.
+Sem adversários, o cálculo não tem duplas para formar, e a saída registra zero marcações.
+
+![Quadro de um chute bloqueado em que todos os jogadores, de camisa branca e de camisa escura, receberam caixas da mesma cor, indicando que foram atribuídos ao mesmo time](/sprint2/marcacao/times-nao-separados.png)
+
+O número está coerente com a entrada que a etapa recebeu. A entrada é que não descrevia a partida.
+Aqui os dois uniformes se distinguem principalmente pelo brilho, e a separação por cor compara
+matiz, não luminosidade. Em partidas com matizes distintos, como verde contra amarelo, a separação
+funcionou em todos os jogadores conferidos.
+
+## Referências
+
+- [Regras do Jogo da IFAB](https://www.theifab.com/laws-of-the-game-documents/), origem das medidas
+  reais do campo usadas na conversão do passo 3.
+- [Espaço de cor CIELAB](https://en.wikipedia.org/wiki/CIELAB_color_space), o modelo de cor que
+  separa brilho de matiz e permite ignorar sombra na identificação de times do passo 2.
+- [Homografia em visão computacional](https://docs.opencv.org/4.x/d9/dab/tutorial_homography.html),
+  a técnica que converte pontos da imagem em posições no campo.
+- [Roboflow Sports](https://github.com/roboflow/sports), de onde vem o modelo de detecção de
+  jogadores usado no passo 1.
