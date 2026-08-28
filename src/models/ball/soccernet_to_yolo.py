@@ -13,7 +13,7 @@ O prefixo `<seq>_` evita colisao entre sequencias (todas tem `000001.jpg`). Por 
 quadros com bola; `--keep-background` inclui quadros sem bola (rotulo vazio) como negativos. As
 imagens sao ligadas por hardlink quando possivel (sem duplicar GB), com copia como reserva.
 
-A logica de conversao mora em `edge.ball.dataset` (pura e testada); aqui fica so a travessia
+A logica de conversao mora em `edge.modules.ball.dataset` (pura e testada); aqui fica so a travessia
 dos diretorios e a escrita do dataset.
 
 Exemplo:
@@ -33,7 +33,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[2]))
 
-from edge.ball.dataset import (  # noqa: E402
+from edge.modules.ball.dataset import (  # noqa: E402
     build_ball_labels,
     parse_ball_track_ids,
     parse_frame_size,

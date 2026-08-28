@@ -28,7 +28,7 @@ _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[2]))
 
 from contracts.perception import BallDetection, Box  # noqa: E402
-from edge.ball.tracking import (  # noqa: E402
+from edge.modules.ball import (  # noqa: E402
     BallObservation,
     BallTracker,
     DetectorConfig,

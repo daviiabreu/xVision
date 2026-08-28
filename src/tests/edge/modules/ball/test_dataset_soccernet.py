@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edge.ball.dataset import (
+from edge.modules.ball.dataset import (
     build_ball_labels,
     mot_box_to_yolo,
     parse_ball_track_ids,

@@ -221,12 +221,22 @@ def test_the_image_carries_every_file_the_package_metadata_points_at() -> None:
     Medido: com `readme = "README.md"` no `pyproject.toml` e sem o `COPY` correspondente, os quatro
     portoes locais passavam e o `uv sync` dentro do `docker build` morria com
     `OSError: Readme file does not exist`. O mesmo vale para qualquer caminho que a metadata cite.
+
+    Hoje o campo nao existe, e isso e consequencia declarada de o `pyproject.toml` ter ido para
+    `src/`: o PEP 621 exige o readme dentro do diretorio do projeto, e o `README.md` do repositorio
+    mora acima dele. Este teste pulava nesse caso, e pular e a forma de um guarda morrer sem
+    ninguem notar. Agora ele afirma o estado: sem campo, `src/README.md` tem de nao existir, senao
+    ha um arquivo que se parece com o readme do pacote e a metadata o ignora.
     """
     declarado = tomllib.loads((PROJETO / "pyproject.toml").read_text(encoding="utf-8"))
     readme = declarado["project"].get("readme")
 
     if readme is None:
-        pytest.skip("o pacote nao declara readme, entao nao ha o que copiar")
+        assert not (PROJETO / "README.md").is_file(), (
+            "existe `src/README.md` e o `[project] readme` nao o declara: ou declare o campo, "
+            "apontando para ele, ou apague o arquivo. Metadata muda quando o disco muda"
+        )
+        return
 
     assert (REPOSITORIO / readme).is_file(), f"{readme} nao existe no repositorio"
     assert readme in _copiados(), (

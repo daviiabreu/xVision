@@ -106,5 +106,5 @@ python models/ball/track_ball_clip.py entrada.mkv saida.mp4 \
 ## Onde fica a lógica
 
 A conversão MOT→YOLO (descobrir a bola no `gameinfo.ini`, normalizar caixas) está em
-`edge.ball.dataset` — funções puras, cobertas por `src/tests/edge/test_dataset_soccernet.py`.
+`edge.modules.ball.dataset` — funções puras, cobertas por `src/tests/edge/modules/ball/test_dataset_soccernet.py`.
 Os scripts daqui só orquestram download, travessia de diretórios e treino.

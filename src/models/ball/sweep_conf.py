@@ -4,7 +4,7 @@ Roda a inferencia uma vez (conf baixo), guarda as caixas com suas confiancas e d
 limiares em memoria, medindo cobertura e falsos positivos por limiar. Assim nao reprocessa o clipe a
 cada conf (rapido) e roda com um comando curto — util em terminal de celular.
 
-Descobre sozinho o `best.pt` mais recente em `runs/` e o clipe em `src/edge/ball/`,
+Descobre sozinho o `best.pt` mais recente em `runs/` e o clipe em `src/edge/modules/ball/`,
 entao normalmente basta:
 
     uv run python models/ball/sweep_conf.py
@@ -23,7 +23,7 @@ _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[2]))
 
 from contracts.perception import BallDetection, Box  # noqa: E402
-from edge.ball.tracking import (  # noqa: E402
+from edge.modules.ball import (  # noqa: E402
     BallObservation,
     BallTracker,
     DetectorConfig,
