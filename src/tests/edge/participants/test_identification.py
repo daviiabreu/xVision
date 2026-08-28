@@ -5,15 +5,15 @@ import cv2
 import numpy as np
 import pytest
 
-from xvision_players_yolo import Box, Role
-from xvision_players_yolo.identification import (
+from edge.participants import Box, Role
+from edge.participants.identification import (
     deduplicate_detections,
     load_tracking,
     process_identification,
     resolve_roles_and_teams,
 )
-from xvision_players_yolo.identity import LabColor, Team
-from xvision_players_yolo.types import player
+from edge.participants.identity import LabColor, Team
+from edge.participants.types import player
 
 
 def make_source_video(path: Path, frame_count: int = 6) -> None:

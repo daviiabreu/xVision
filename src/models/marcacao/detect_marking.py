@@ -8,22 +8,22 @@ import cv2
 import numpy as np
 import torch
 
-from xvision_players_yolo.identification import load_tracking, process_identification
-from xvision_players_yolo.identity import (
+from edge.participants.identification import load_tracking, process_identification
+from edge.participants.identity import (
     TrackObservation,
     extract_shirt_color,
     stabilize_role,
     teams_from_color_samples,
 )
-from xvision_players_yolo.marking import (
+from edge.participants.marking import (
     DEFAULT_RADIUS_M,
     candidates_from_frame,
     pair_markings,
     teams_from_identities,
 )
-from xvision_players_yolo.tracking import PlayerTracker
-from xvision_players_yolo.types import FramePerception, as_role, ground_point
-from xvision_players_yolo.video import TEAM_COLORS, UNKNOWN_COLOR, process_video
+from edge.participants.tracking import PlayerTracker
+from edge.participants.types import FramePerception, as_role, ground_point
+from edge.participants.video import TEAM_COLORS, UNKNOWN_COLOR, process_video
 
 MODELS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODELS_DIR))

@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from xvision_players_yolo.batch import process_batch
-from xvision_players_yolo.detector import Frame
-from xvision_players_yolo.types import PlayerDetection
-from xvision_players_yolo.video import VideoResult
+from edge.participants.batch import process_batch
+from edge.participants.detector import Frame
+from edge.participants.types import PlayerDetection
+from edge.participants.video import VideoResult
 
 
 class FakeTracker:

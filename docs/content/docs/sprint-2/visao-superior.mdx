@@ -119,18 +119,16 @@ fora das marcações, a limitação está na detecção dos keypoints.
 | `src/models/top_view/create_top_view.py` | coordena tracking, identificação de equipes, homografia e gravação do vídeo final |
 | `src/models/top_view/homography_view.py` | contém o campo virtual, a tabela de keypoints, a matriz de homografia e o desenho do mapa |
 | `src/models/top_view/top_view_config.py` | encontra o peso local do modelo de homografia |
-| `packages/xvision-players-yolo` | fornece tracking, `detections.json` e identificação de equipes |
+| `src/edge/participants/` | fornece tracking, `detections.json` e identificação de equipes |
 
 ## Como executar
 
-Na raiz do projeto, instale o projeto e o pacote de jogadores no ambiente virtual. Isso é necessário
-porque o pacote de tracking é uma dependência local da visão superior.
+Os comandos rodam a partir de `src/`, que é a raiz do projeto Python. O código de participantes
+não é mais uma distribuição à parte: ele vive em `src/edge/participants/` e vem junto com o projeto.
 
 ```bash
-source venv/bin/activate
-pip install -r requirements.txt
-pip install -e . --no-deps
-pip install -e packages/xvision-players-yolo --no-deps
+cd src
+uv sync --extra topview
 ```
 
 Em seguida, execute sobre um vídeo ou uma pasta de vídeos:

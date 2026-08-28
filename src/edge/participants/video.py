@@ -11,8 +11,8 @@ from typing import Protocol, TypedDict, cast
 
 import cv2
 
-from xvision_players_yolo.detector import Frame
-from xvision_players_yolo.types import (
+from edge.participants.detector import Frame
+from edge.participants.types import (
     FramePerception,
     PlayerDetection,
     frame_to_dict,

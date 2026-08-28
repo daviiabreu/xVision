@@ -7,13 +7,13 @@ import cv2
 import imageio_ffmpeg
 import torch
 
-from xvision_players_yolo.identification import load_tracking, process_identification
-from xvision_players_yolo.tracking import PlayerTracker
-from xvision_players_yolo.video import (
+from edge.participants.identification import load_tracking, process_identification
+from edge.participants.tracking import PlayerTracker
+from edge.participants.video import (
     TEAM_COLORS,
     annotate_frame,
 )
-from xvision_players_yolo.video import (
+from edge.participants.video import (
     process_video as process_tracking_video,
 )
 

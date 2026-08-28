@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from xvision_players_yolo.marking import (
+from edge.participants.marking import (
     MarkingCandidate,
     MarkingError,
     candidates_from_frame,
@@ -12,7 +12,7 @@ from xvision_players_yolo.marking import (
     pair_markings,
     teams_from_identities,
 )
-from xvision_players_yolo.types import Box, FramePerception, PlayerDetection
+from edge.participants.types import Box, FramePerception, PlayerDetection
 
 
 def candidate(key: int, team: str, x: float, y: float = 0.0) -> MarkingCandidate:

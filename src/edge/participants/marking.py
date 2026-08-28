@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from math import dist
 from typing import Any, cast
 
-from xvision_players_yolo.identity import Team
-from xvision_players_yolo.types import FramePerception, as_role, ground_point
+from edge.participants.identity import Team
+from edge.participants.types import FramePerception, as_role, ground_point
 
 Projection = Callable[[tuple[float, float]], tuple[float, float]]
 

@@ -4,9 +4,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from xvision_players_yolo import PlayerTracker
-from xvision_players_yolo.detector import Frame, RawDetection
-from xvision_players_yolo.types import Box, Role
+from edge.participants import PlayerTracker
+from edge.participants.detector import Frame, RawDetection
+from edge.participants.types import Box, Role
 
 
 class FakeTrackingBackend:

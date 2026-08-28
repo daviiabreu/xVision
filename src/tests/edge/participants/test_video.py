@@ -5,9 +5,9 @@ import cv2
 import numpy as np
 import pytest
 
-from xvision_players_yolo.detector import Frame
-from xvision_players_yolo.types import Box, PlayerDetection, player
-from xvision_players_yolo.video import Trajectories, annotate_frame, process_video
+from edge.participants.detector import Frame
+from edge.participants.types import Box, PlayerDetection, player
+from edge.participants.video import Trajectories, annotate_frame, process_video
 
 
 class FakeTracker:

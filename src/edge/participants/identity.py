@@ -10,8 +10,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from xvision_players_yolo.detector import Frame
-from xvision_players_yolo.types import Box, PlayerDetection, Role, as_role
+from edge.participants.detector import Frame
+from edge.participants.types import Box, PlayerDetection, Role, as_role
 
 Team: TypeAlias = Literal["team_a", "team_b"]
 LabColor: TypeAlias = tuple[float, float, float]

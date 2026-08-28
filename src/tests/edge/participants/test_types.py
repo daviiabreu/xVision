@@ -1,6 +1,6 @@
 import pytest
 
-from xvision_players_yolo.types import (
+from edge.participants.types import (
     Box,
     FramePerception,
     UnknownClassNames,

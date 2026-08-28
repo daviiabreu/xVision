@@ -4,7 +4,7 @@
 # convivem no repositorio depois do merge com o `develop`:
 #
 #   `edge.modules.players:YoloPlayers`      e `edge.modules.tracking:GreedyTracking`
-#   `xvision_players_yolo.module:PlayersModule` e `:TrackingModule`
+#   `edge.participants.module:PlayersModule` e `:TrackingModule`
 #
 # As duas foram escritas em paralelo, por pessoas diferentes, sem que nenhuma pudesse medir a
 # outra. Escolher por argumento seria escolher por quem fala mais alto, e a metrica ja existe:
@@ -40,7 +40,7 @@ after_s  = 0.5
 fps      = "native"
 
 [modules.players]
-impl     = "xvision_players_yolo.module:PlayersModule"
+impl     = "edge.participants.module:PlayersModule"
 artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
 
@@ -62,7 +62,7 @@ impl   = "edge.modules.shot:BallBreakShot"
 frames = "dense"
 
 [modules.tracking]
-impl   = "xvision_players_yolo.module:TrackingModule"
+impl   = "edge.participants.module:TrackingModule"
 frames   = "dense"
 
 [modules.pose]

@@ -171,8 +171,8 @@ def test_o_pacote_de_jogadores_so_difere_da_producao_no_impl_das_duas_especies()
     trocadas = {"players", "tracking"}
 
     assert set(producao) == set(pacote)
-    assert pacote["players"].impl == "xvision_players_yolo.module:PlayersModule"
-    assert pacote["tracking"].impl == "xvision_players_yolo.module:TrackingModule"
+    assert pacote["players"].impl == "edge.participants.module:PlayersModule"
+    assert pacote["tracking"].impl == "edge.participants.module:TrackingModule"
     for kind in sorted(trocadas):
         assert producao[kind].impl != pacote[kind].impl, f"{kind} nao trocou de implementacao"
         assert producao[kind].artifact == pacote[kind].artifact, f"{kind}: peso diferente"

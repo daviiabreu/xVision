@@ -111,13 +111,13 @@
     ├── config/         # pipeline.toml, labels.toml e split.toml
     ├── contracts/      # o esquema do evento que a borda produz
     ├── edge/           # o pipeline de percepção que roda na borda
+    │   └── participants/  # detecção, tracking, identidade, equipe e marcação
     ├── interface/      # a interface em React
     ├── mlops/          # avaliação e divisão de dataset
     ├── models/         # scripts de treino e manifestos versionados dos pesos
     ├── pyproject.toml  # pacote, dependências e ferramentas Python
     ├── tests/          # a suíte de testes
-    ├── uv.lock         # resolução reproduzível das dependências
-    └── xvision_players_yolo/   # detecção e tracking de jogadores
+    └── uv.lock         # resolução reproduzível das dependências
 ```
 
 `src/` é a raiz Python. `pyproject.toml`, `uv.lock`, `.python-version`, os pacotes, os testes, as

@@ -9,9 +9,9 @@ import pytest
 
 from edge.modules.base import ModuleNotLoaded, PreprocessSpec
 from edge.modules.conformance import ModuleConformance, make_batch
-from xvision_players_yolo.detector import Frame, RawDetection
-from xvision_players_yolo.module import PREPROCESS, PlayersModule, TrackingModule, to_source_box
-from xvision_players_yolo.types import Box, Role
+from edge.participants.detector import Frame, RawDetection
+from edge.participants.module import PREPROCESS, PlayersModule, TrackingModule, to_source_box
+from edge.participants.types import Box, Role
 
 SOURCE = (1920, 1080)
 ROLES: Mapping[int, Role] = {1: "goalkeeper", 2: "player", 3: "referee"}

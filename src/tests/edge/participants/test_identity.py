@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from xvision_players_yolo import Box
-from xvision_players_yolo.identity import (
+from edge.participants import Box
+from edge.participants.identity import (
     LabColor,
     TrackObservation,
     cluster_teams,
@@ -14,7 +14,7 @@ from xvision_players_yolo.identity import (
     stabilize_role,
     teams_from_color_samples,
 )
-from xvision_players_yolo.types import player
+from edge.participants.types import player
 
 
 def observation(

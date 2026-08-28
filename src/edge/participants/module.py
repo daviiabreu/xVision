@@ -35,9 +35,9 @@ from edge.modules.base import (
     PreprocessSpec,
     check_preprocess,
 )
-from xvision_players_yolo.detector import DetectionBackend, Frame, UltralyticsBackend
-from xvision_players_yolo.tracking import TrackingBackend, UltralyticsTrackingBackend
-from xvision_players_yolo.types import Box, clip_box
+from edge.participants.detector import DetectionBackend, Frame, UltralyticsBackend
+from edge.participants.tracking import TrackingBackend, UltralyticsTrackingBackend
+from edge.participants.types import Box, clip_box
 
 PREPROCESS = PreprocessSpec(
     width=1280,

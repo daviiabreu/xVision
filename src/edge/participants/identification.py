@@ -12,8 +12,8 @@ from typing import Any, Literal, TypedDict, cast
 
 import cv2
 
-from xvision_players_yolo.detector import Frame
-from xvision_players_yolo.identity import (
+from edge.participants.detector import Frame
+from edge.participants.identity import (
     LabColor,
     Team,
     TrackObservation,
@@ -23,7 +23,7 @@ from xvision_players_yolo.identity import (
     select_sample_observations,
     stabilize_role,
 )
-from xvision_players_yolo.types import (
+from edge.participants.types import (
     Box,
     FramePerception,
     PlayerDetection,
@@ -31,7 +31,7 @@ from xvision_players_yolo.types import (
     as_role,
     player,
 )
-from xvision_players_yolo.video import SCHEMA_VERSION, annotate_frame
+from edge.participants.video import SCHEMA_VERSION, annotate_frame
 
 IDENTIFICATION_SCHEMA_VERSION = "player-identification.v0"
 ACCEPTED_TRACKING_SCHEMAS = frozenset({SCHEMA_VERSION, "player-tracking.v0"})

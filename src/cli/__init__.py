@@ -22,6 +22,7 @@ from typing import Any, cast
 
 import typer
 
+from cli.players import players_app
 from contracts.events import ContractError
 from edge.artifacts import ArtifactError, ArtifactMissing, read_manifest, resolve, sha256_of
 from edge.cache.perception import PerceptionCache
@@ -85,6 +86,7 @@ artifact_app = typer.Typer(help="Pesos de modelo, enderecados pelo conteudo.")
 app.add_typer(artifact_app, name="artifact")
 label_app = typer.Typer(help="Gabarito manual do instante do contato.")
 app.add_typer(label_app, name="label")
+app.add_typer(players_app, name="players")
 
 
 @app.command()

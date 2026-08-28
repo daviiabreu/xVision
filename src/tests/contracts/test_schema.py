@@ -44,7 +44,7 @@ _RAIZES_DO_SDIST = {
     "contracts",
     "edge",
     "mlops",
-    "xvision_players_yolo",
+    "edge.participants",
     ".gitignore",
     "pyproject.toml",
     "PKG-INFO",

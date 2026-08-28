@@ -4,9 +4,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from xvision_players_yolo import PlayerDetector
-from xvision_players_yolo.detector import Frame, RawDetection, read_class_roles
-from xvision_players_yolo.types import Box, Role, UnknownClassNames
+from edge.participants import PlayerDetector
+from edge.participants.detector import Frame, RawDetection, read_class_roles
+from edge.participants.types import Box, Role, UnknownClassNames
 
 ROBOFLOW_ROLES: Mapping[int, Role] = {1: "goalkeeper", 2: "player", 3: "referee"}
 

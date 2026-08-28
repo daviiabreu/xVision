@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypedDict, cast
 
-from xvision_players_yolo.video import SCHEMA_VERSION, FrameTracker, VideoResult, process_video
+from edge.participants.video import SCHEMA_VERSION, FrameTracker, VideoResult, process_video
 
 
 class BatchItem(TypedDict, total=False):
