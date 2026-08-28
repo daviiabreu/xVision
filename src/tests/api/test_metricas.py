@@ -29,7 +29,7 @@ MP4 = "video/mp4"
 
 @pytest.fixture
 def config(tmp_path: Path) -> Path:
-    """A configuracao de producao mais duas features e um modulo que quebra ao carregar."""
+    """A configuracao de producao mais tres features e um modulo que quebra ao carregar."""
     base = Path("config/pipeline.toml").read_text(encoding="utf-8")
     destino = tmp_path / "com-features.toml"
     destino.write_text(
@@ -37,7 +37,9 @@ def config(tmp_path: Path) -> Path:
         + "\n[features.distancia_falsa]\n"
         + 'impl = "edge.testing.example_metric:DistanciaFalsa"\n'
         + "\n[features.sem_leitura]\n"
-        + 'impl = "edge.testing.example_metric:SemLeitura"\n',
+        + 'impl = "edge.testing.example_metric:SemLeitura"\n'
+        + "\n[features.parte_do_corpo]\n"
+        + 'impl = "edge.testing.example_metric:ParteDoCorpo"\n',
         encoding="utf-8",
     )
     return destino
@@ -66,7 +68,7 @@ def test_the_metrics_are_not_empty_in_this_scenario(cliente: TestClient, tmp_pat
     corpo = _resultado(cliente, tmp_path)
 
     metricas = [m for r in corpo["resultados"] for m in r["metricas"]]
-    assert len(metricas) == 2, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    assert len(metricas) == 3, f"o cenario nao produziu metrica: {corpo['resultados']}"
 
 
 def test_a_metric_carries_the_unit_its_feature_declares(
@@ -131,3 +133,34 @@ def test_a_stage_that_failed_is_not_reported_to_the_frontend_as_successful(tmp_p
     assert sum(1 for v in por_etapa.values() if v is False) == 1, (
         "so a etapa quebrada devia falhar: nenhum modulo declara `needs` nesta configuracao"
     )
+
+
+def test_a_feature_de_texto_chega_medida_e_nao_como_indisponivel(
+    cliente: TestClient, tmp_path: Path
+) -> None:
+    """Texto saia como `valor: null` com `status: "ok"`, duas afirmacoes que se contradizem.
+
+    O `isinstance(..., bool | int | float)` da fronteira apagava a string, e `tipo_de` so sabia
+    dizer "float". A tela lia `value === null` e escrevia "indisponivel" para uma medida que deu
+    certo. O contrato do evento aceita texto desde a v1.
+    """
+    corpo = _resultado(cliente, tmp_path)
+
+    metricas = {m["nome"]: m for r in corpo["resultados"] for m in r["metricas"]}
+    categoria = metricas["parte_do_corpo"]
+
+    assert categoria["tipo"] == "text"
+    assert categoria["valor"] == "PERNA_ESQUERDA"
+    assert categoria["status"] == "ok"
+
+
+def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: Path) -> None:
+    corpo = _resultado(cliente, tmp_path)
+
+    tipos = {m["nome"]: m["tipo"] for r in corpo["resultados"] for m in r["metricas"]}
+
+    assert tipos == {
+        "distancia_falsa": "float",
+        "sem_leitura": None,
+        "parte_do_corpo": "text",
+    }, "sem leitura nao ha tipo: dizer `float` inventaria numero para uma feature categorica"

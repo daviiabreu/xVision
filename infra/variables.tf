@@ -19,6 +19,10 @@ variable "services" {
     health_path = string
     public      = bool
     needs       = list(string)
+    # Argumento de build => servico cujo endereco o preenche. Quem tem pacote estatico resolve o
+    # endereco da dependencia na construcao da imagem, e nao no ambiente de execucao: declarar
+    # `API_URL` como variavel de ambiente para o frontend seria descrever algo que ninguem le.
+    build_args = optional(map(string), {})
   }))
 
   default = {
@@ -32,9 +36,10 @@ variable "services" {
     frontend = {
       role        = "web"
       port        = 3000
-      health_path = "/"
+      health_path = "/health"
       public      = true
       needs       = ["api"]
+      build_args  = { VITE_API_URL = "api" }
     }
   }
 
@@ -46,6 +51,11 @@ variable "services" {
   validation {
     condition     = alltrue([for nome, s in var.services : alltrue([for d in s.needs : contains(keys(var.services), d) || contains(keys(var.stores), d)])])
     error_message = "Todo `needs` precisa apontar para um servico ou um armazenamento declarado."
+  }
+
+  validation {
+    condition     = alltrue([for nome, s in var.services : alltrue([for d in values(s.build_args) : contains(s.needs, d)])])
+    error_message = "Todo `build_args` precisa apontar para uma dependencia que o servico declara em `needs`."
   }
 }
 

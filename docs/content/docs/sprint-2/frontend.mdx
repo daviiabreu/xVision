@@ -1,0 +1,503 @@
+---
+title: A interface que envia o clipe e mostra o resultado
+description: Login, envio e resultado no navegador, a sessão guardada em localStorage, a consulta periódica de 5 s e o índice local de vídeos que existe porque falta uma rota
+---
+
+A interface é a ponta que a pessoa vê do fluxo clipe até processamento até resultado. Ela envia o
+vídeo, acompanha o estado da análise e exibe o que a borda produziu, consumindo apenas o contrato
+descrito em [o serviço HTTP](/docs/sprint-2/backend/servico-http), da
+[visão geral do backend](/docs/sprint-2/backend). O código está em `src/interface`, é React com
+TypeScript sobre Vite, e não conhece nem vídeo nem modelo: para ela, a análise é uma sequência de
+chamadas HTTP e quatro estados possíveis.
+
+## Onde se encaixa no fluxo
+
+O desenho abaixo é a posição da interface, não o do sistema todo. Ele mostra a árvore de
+componentes à esquerda e, à direita, a chamada que cada parte faz.
+
+```text
+  navegador                                        servico HTTP em /v1
+  =========                                        ===================
+
+  main.tsx
+   └─ App
+       └─ BrowserRouter
+           └─ SessaoProvider .......... le localStorage["sessao"] na montagem
+               └─ Layout (pular para o conteudo, logo, e o botao Sair)
+                   │
+                   ├─ Login          quando nao ha sessao valida
+                   │    POST /v1/auth/register   201  cria a conta
+                   │    POST /v1/auth/login      200  access_token + expira_em
+                   │    GET  /v1/auth/me         200  id da conta, com o token recem-emitido
+                   │
+                   └─ VideoProvider  so existe com sessao valida
+                       │  GET /v1/videos/status/{id}  a cada 5 s, ate o estado terminal
+                       │
+                       ├─ Home        /
+                       │    POST /v1/videos/upload-url  200  id + uploadUrl
+                       │    PUT  uploadUrl              202  o binario cru do arquivo
+                       │
+                       └─ Results     /results/:id
+                            GET /v1/videos/{id}         200  uma linha por etapa
+                            GET /v1/videos/{id}/render  200  o video anotado, como blob
+```
+
+Duas coisas nesse desenho têm consequência. O `VideoProvider` fica **dentro** do ramo autenticado,
+então a consulta periódica não existe para quem não entrou e para sozinha ao sair. E o `Login` não
+é uma rota: ele substitui a árvore inteira de rotas quando não há sessão, o que preserva o
+endereço que a pessoa abriu.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele **não** faz |
+| --- | --- | --- |
+| `services/api.ts` | a única porta para o `fetch`: monta o alvo, anexa o `Bearer`, traduz status em `ErroHttp` e derruba a sessão no 401 | não conhece vídeo, conta nem tela, e não decide o que aparece para a pessoa |
+| `services/sessao.ts` | guardar, ler, validar a forma, vencer e apagar a sessão em `localStorage`, e avisar a aplicação pelo evento `SESSAO_PERDIDA` | não fala HTTP, não sabe o que é login e não guarda nada sobre vídeo |
+| `services/authService.ts` | registro, login e `quemSou`, e gravar a sessão uma vez só, já com o id da conta | não guarda estado de React e não decide para onde a tela vai depois |
+| `services/videoService.ts` | as quatro chamadas de vídeo e a tradução do corpo em português da API para os tipos da tela | não guarda nada, não consulta em laço e não sabe quais vídeos são desta conta |
+| `services/videoCache.ts` | o índice local dos vídeos enviados, com a conta dentro da chave, e a remoção do que o serviço não conhece mais | não é fonte de verdade sobre estado nem fronteira de segurança: quem sabe se o vídeo terminou, e de quem ele é, é o serviço |
+| `contexts/SessaoProvider` | um booleano, `autenticado`, e o ouvinte de `SESSAO_PERDIDA` que o derruba | não guarda o token, não conhece senha e não faz requisição |
+| `contexts/VideoProvider` | a lista de vídeos com o estado de cada um e o laço de 5 s, que só roda enquanto algum não terminou e não está em erro | não envia vídeo, não abre resultado e não conserta consulta que falhou: marca o erro e oferece as ações à tela |
+| `hooks/useVideoUpload` | validar o arquivo antes de ele sair da máquina e conduzir o envio, com erro já apresentável | não escreve no índice local: isso é da tela, depois de o identificador existir |
+| `hooks/useTituloDaPagina` | escrever o título do documento de cada tela | não sabe em que rota está: quem sabe é a tela que o chama |
+| `pages/Login` | o mesmo formulário para entrar e para criar conta, com a mensagem certa por status | não guarda sessão: chama `authService` e reage ao que voltar |
+| `pages/Home` | escolher o clipe, confirmar o envio e listar os processamentos | não consulta status: quem consulta é o provedor |
+| `pages/Results` | as cinco fases da tela, o vídeo anotado, o resultado principal e as demais etapas em acordeão | não recupera nada sozinha: 409 é nova tentativa, 404 é vídeo ausente, o resto vira mensagem |
+| `utils/` e `components/ui/` | validação do arquivo, mensagens de erro, nomes de etapa em português, botão e estado vazio | não fazem requisição e não conhecem o contrato da API |
+
+A fronteira mais importante é a de `api.ts`. Nenhuma tela chama `fetch` diretamente, e é isso que
+permite que a regra do 401 exista num lugar só: quem escrever a próxima tela ganha o
+comportamento sem saber que ele existe.
+
+## Fluxo de dados
+
+Entra um arquivo de vídeo escolhido no disco de quem usa, com teto de 128 MB, piso de um byte e
+tipo começando em `video/`. Sai uma tela com o vídeo anotado, o resultado da etapa `shot` e as
+outras seis etapas em acordeão. Entre as duas pontas há cinco endereços distintos, um deles
+consultado em laço, e nenhum estado no servidor que pertença à interface.
+
+### Da escolha do arquivo ao identificador
+
+A validação acontece antes de qualquer byte sair da máquina, em `utils/fileValidation.ts`, e é
+deliberadamente a mesma regra que o serviço aplica na porta:
+
+```ts
+const MAX_VIDEO_SIZE = 128 * 1024 * 1024;
+
+export function validateVideoFile(file: File): string | null {
+  if (!file.type.startsWith("video/")) {
+    return ERROR_MESSAGES.VIDEO_INVALID;
+  }
+
+  if (file.size === 0) {
+    return ERROR_MESSAGES.VIDEO_EMPTY;
+  }
+
+  if (file.size > MAX_VIDEO_SIZE) {
+    return ERROR_MESSAGES.VIDEO_TOO_LARGE;
+  }
+
+  return null;
+}
+```
+
+O piso de um byte existe porque o `PUT` do serviço responde 400 para corpo vazio, e recusar aqui
+troca uma viagem de rede por uma mensagem imediata.
+
+Passando na validação, o envio são duas chamadas. A primeira reserva o identificador e recebe o
+endereço; a segunda leva o binário para lá:
+
+```ts
+const reserva = await apiFetch("/v1/videos/upload-url", {
+  method: "POST",
+  body: JSON.stringify({ fileName: arquivo.name, contentType: arquivo.type }),
+});
+
+const { id, uploadUrl } = (await reserva.json()) as UploadUrlResponse;
+
+await apiUpload(uploadUrl, arquivo);
+```
+
+O corpo do `PUT` é o próprio objeto `File`, sem conversão intermediária, e o `Content-Type` é o
+tipo que o navegador reportou para o arquivo. Quem quiser ver a troca capturada contra o serviço
+real, com os identificadores como saíram, ela está em
+[o serviço HTTP](/docs/sprint-2/backend/servico-http#fluxo-de-dados).
+
+Com o identificador na mão, a tela grava `{ id, name }` no índice local e manda o provedor
+recarregar. O nome do arquivo é a única coisa que a interface guarda que o serviço não devolve, e
+é por isso que ela precisa de índice próprio.
+
+### Da consulta periódica ao resultado
+
+O `VideoProvider` consulta `GET /v1/videos/status/{id}` para cada vídeo do índice, com
+`Promise.allSettled`, e traduz cada resposta em uma das três formas que o cartão sabe desenhar: o
+estado que veio, o estado nulo com `statusError` verdadeiro quando a consulta falhou, ou nada
+quando o índice está vazio. O laço só existe enquanto há vídeo que ainda não terminou e cuja
+consulta não falhou:
+
+```ts
+const esperando = videos.some(
+  (video) => !video.statusError && !terminou(video.status),
+);
+```
+
+As duas metades dessa linha importam. `terminou` é verdadeiro em `Finalizado` e `Falhou`, e é a
+mesma tabela de estados que o serviço declara. E `statusError` sai do laço de propósito: sem essa
+condição, um identificador que o serviço não conhece mais, o que acontece quando o banco é
+recriado, mantinha o intervalo vivo para sempre, doze requisições por minuto enquanto a Home
+estivesse aberta. Com ela, um vídeo em erro continua sendo consultado enquanto houver outro
+rodando, na carona do mesmo tique, e o laço para quando só restar erro. O cartão nesse estado
+oferece as duas saídas que faltavam, tentar de novo e remover da lista.
+
+Enquanto o vídeo não terminou, o cartão não é link; quando termina, ele vira um `Link` de verdade,
+alcançável pelo teclado, inclusive quando o desfecho foi `Falhou`, porque é na tela de resultado
+que mora o motivo.
+
+A tela de resultado tem cinco fases, e o que decide entre elas é o status da recusa:
+
+```text
+  entra em /results/3
+        │
+        ├── id nao inteiro ──► fase "ausente", sem chamar o servico
+        ▼
+  GET /v1/videos/3
+        │
+        ├── 200 ────────► render_url e nulo? ── sim ──► fase "pronto"
+        │                        │
+        │                       nao
+        │                        ▼
+        │                 GET .../render como blob ──► fase "pronto", com ou sem o video
+        │
+        ├── 409 ────────► fase "processando": espera 5 s e tenta de novo
+        ├── 404 ────────► fase "ausente"
+        └── outro ──────► fase "erro", com a mensagem do ErroHttp
+```
+
+O 409 é o que permite abrir o endereço de um resultado antes de a análise acabar: o serviço recusa
+a leitura enquanto o vídeo não está em estado terminal, e a tela lê isso como "ainda não", não
+como "não existe". O 404 é ambíguo de propósito no serviço, que responde o mesmo para vídeo
+inexistente e para vídeo de outra conta, então a interface não tem como distinguir os dois e não
+tenta.
+
+A seta que sai do `GET .../render` diz "com ou sem o vídeo" porque o download do vídeo anotado tem
+tratamento próprio: qualquer falha nele vira `render = null` e a tela segue para `pronto`. O vídeo
+é material de apoio, e perder a análise inteira, que já chegou com 200, por causa de um mp4 que
+não baixou seria trocar o essencial pelo acessório.
+
+### A tradução de nomes
+
+O serviço responde em português com `snake_case` e a tela trabalha em inglês com `camelCase`. A
+conversão fica inteira em `videoService.ts`, num lugar só, e é esta:
+
+| Campo da API | Campo da tela | Tipo da tela |
+| --- | --- | --- |
+| `video_status` | `videoStatus` | `ProcessedVideo` |
+| `resultados` | `results` | `ProcessedVideo` |
+| `motivo` | `reason` | `ProcessedVideo` |
+| `render_url` | `renderUrl` | `ProcessedVideo` |
+| `nome_processo` | `name` | `VideoResult` |
+| `status` | `ok` | `VideoResult` |
+| `frame` | `frame` | `VideoResult` |
+| `metricas` | `metrics` | `VideoResult` |
+| `nome` | `name` | `VideoMetric` |
+| `unidade_de_medida` | `unit` | `VideoMetric` |
+| `tipo` | `type` | `VideoMetric` |
+| `valor` | `value` | `VideoMetric` |
+| `status` | `status` | `VideoMetric` |
+
+Duas linhas dessa tabela merecem atenção. O `status` da etapa vira `ok`, um booleano, enquanto o
+`status` da métrica continua `status` e é um dos três valores `ok`, `low_confidence` ou
+`unavailable`: são conceitos diferentes com o mesmo nome no contrato, e separá-los na tradução é o
+que evita que a tela confunda etapa que rodou com medida confiável. E `frame` está declarado dos
+dois lados e sempre chega nulo hoje, porque `api/execution.py` monta cada linha com `frame=None`.
+
+O que a tela faz com uma métrica está em `Metric.tsx` e são quatro regras: booleano vira `Sim` ou
+`Não`, e não `true`; float com casas decimais sai com duas casas, e inteiro sai como está; texto
+atravessa como veio, sem arredondamento, porque categoria não se arredonda; e valor nulo aparece
+como `indisponível`. A quarta é sobre a forma, e não sobre o texto: tanto o valor nulo quanto o
+`status` igual a `unavailable` saem em cinza e sem unidade, porque unidade ao lado de nada sugere
+medida. A regra por trás das quatro é a mesma: número medido, número indisponível, categoria e
+número de baixa confiança não podem chegar à tela com a mesma cara. `low_confidence` ganha a linha
+`Medida de baixa confiança` embaixo do valor.
+
+O campo `tipo` da métrica é nulo quando não houve leitura, e a tela sabe disso, mas não depende
+dele: `Metric.tsx` decide pelo tipo do valor que chegou. É a mesma escolha do lado do serviço, e
+manter as duas pontas assim significa que renomear ou remover o campo não muda o que a tela
+desenha.
+
+## Decisões
+
+**A sessão vive em `localStorage`, e `expira_em` é duração e não instante.** O serviço responde
+`expira_em` em segundos, 28800 por padrão, e `guardarSessao` soma isso ao relógio local para
+gravar o vencimento absoluto. _Alternativa descartada:_ gravar o valor como se fosse epoch, que é
+o defeito que o teste `trata expira_em como duracao, e nao como epoch` guarda: lido como epoch,
+28800 cai em 1970, toda sessão nasceria vencida e a tela voltaria ao login no primeiro clique.
+_Alternativa descartada:_ cookie `HttpOnly`, que é a resposta correta para o risco de roubo de
+token e não funciona no desenho de hoje, em que a página é servida por nginx numa origem e a API
+responde em outra: exigiria `SameSite=None`, `Secure` e um domínio comum, três coisas que o
+ambiente de desenvolvimento não tem. O preço dessa escolha está nomeado em Riscos.
+
+**A sessão é gravada uma vez só, depois de o serviço confirmar quem é.** `autenticar` pega o
+`access_token`, chama `GET /v1/auth/me` passando esse token explicitamente, e só então grava, já
+com o id da conta dentro. _Alternativa descartada:_ gravar primeiro e regravar com o id depois,
+que é o que a primeira versão fazia. Ela abria um estado que ninguém tinha imaginado: se o
+`/auth/me` falhasse por qualquer motivo que não 401, e só o 401 apaga a sessão, a tela dizia que o
+login falhou e o `localStorage` ficava com um token válido por oito horas e `conta` nula. Bastava
+recarregar a página para entrar, porque `SessaoProvider` decide por `lerSessao() !== null`, e o
+índice de vídeos passava a morar numa chave sem conta, que é exatamente o balde compartilhado
+descartado logo abaixo. `lerSessao` também confere a forma do que leu, e não apenas se o JSON
+abre: um objeto sem `expiraEm` atravessava a checagem de validade, porque `NaN < Date.now()` é
+falso, e virava sessão que nunca vence.
+
+**O 401 apaga a sessão e avisa por evento de janela, e não por um `if` em cada tela.**
+`apagarSessao` despacha `SESSAO_PERDIDA`, o `SessaoProvider` escuta e vira `autenticado` para
+falso. _Alternativa descartada:_ cada chamada tratar o próprio 401 e navegar para o login, que
+espalha a regra por toda tela e é esquecida na próxima que alguém escrever. O efeito colateral é
+bom e foi buscado: como o login troca a árvore em vez de navegar, o endereço é preservado, e quem
+tinha `/results/3` aberto volta para `/results/3` depois de entrar.
+
+**`ErroHttp` nasce com a mensagem pronta, e o texto cru do serviço fica em `detalhe`.** A classe
+carrega `status` e escolhe a mensagem por uma tabela: 400 vira arquivo vazio, 413 vira o teto de
+128 MB, 415 vira arquivo que não abriu como vídeo, 422 vira dado recusado, 429 vira tentativas
+demais e 503 vira fila cheia. _Alternativa descartada:_ mostrar o campo `detail` da resposta, que
+é escrito para quem depura e não para quem usa: `o video ainda nao terminou: esta em 'Pendente'` é
+a frase certa num log e a frase errada numa tela. A tabela cobre os seis status que as rotas
+declaram e que o cliente pode encontrar, e não só os quatro da primeira versão: 400 e 422 caíam
+numa frase que culpa o servidor por um problema do que a pessoa mandou. O `status` continua
+público porque a tela precisa distinguir 409 de 404, e é exatamente isso que `Results` faz.
+
+**O envio é o binário cru por `PUT` num endereço reservado, e não base64.** O serviço aceita os
+dois caminhos, e a interface usava o de base64 até o commit `726c93e`. _Alternativa descartada:_
+continuar com `POST /v1/videos/processamento`, cujo teto de corpo é 32 MB contra 128 MB do `PUT`.
+A codificação produz 4 bytes para cada 3 de entrada, então aquele teto de corpo correspondia a
+cerca de 24 MB de vídeo, enquanto a tela prometia 128 MB: um arquivo de 40 MB passava na validação
+local e voltava 413 com a mensagem genérica de falha. Com `body: arquivo`, quem carrega o arquivo
+é o navegador, e os dois números passam a bater. A expansão está na
+[RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648) e os dois tetos, medidos, estão em
+[o serviço HTTP](/docs/sprint-2/backend/servico-http).
+
+**O índice de vídeos vive em `localStorage`, com a conta dentro da chave.** A chave é
+`videos:{conta}`, e cada entrada guarda só `{ id, name }`. _Alternativa descartada:_ pedir a lista
+ao serviço, que é o desenho certo e não existe: as nove rotas publicadas sob `/v1` cobrem
+registro, login, `eu`, reserva de envio, envio binário, envio base64, status, resultado e vídeo
+anotado, e nenhuma delas devolve a lista de vídeos de uma conta. _Alternativa descartada:_ uma
+chave única sem a conta, que numa máquina compartilhada faria quem entra depois ver o nome do
+arquivo de quem entrou antes. Sem conta conhecida o índice não é lido nem escrito, em vez de cair
+numa chave genérica, justamente para essa alternativa não voltar por acidente. A conta na chave é
+fronteira de exibição e não de segurança: quem tem o navegador lê o `localStorage` inteiro, e a
+posse de verdade é cobrada pelo serviço, que responde 404 para vídeo de outra conta. Esta é a
+limitação principal da entrega e está declarada em Ainda não implementado.
+
+**A consulta periódica é de 5 s, mora no provedor e para sozinha.** _Alternativa descartada:_ um
+laço por tela, que duplicaria o intervalo entre a Home e o resultado e continuaria rodando depois
+de a análise acabar. _Alternativa descartada:_ notificação vinda do servidor, por SSE ou
+WebSocket, que resolveria melhor e depende de o serviço publicar algo assim, o que ele não faz. A
+consulta usa `Promise.allSettled` e não `Promise.all` porque um identificador que falha não pode
+derrubar a lista inteira: o cartão daquele vídeo passa a dizer que não foi possível consultar, e
+os outros continuam. Cada rodada carrega um número, e a resposta que chega fora de ordem é
+descartada em vez de sobrescrever a mais nova, porque o tique do relógio e o envio disparam a
+mesma leitura e quem terminasse por último vencia.
+
+**A etapa `shot` é o resultado principal e as outras seis ficam em acordeão fechado.** Isso não é
+escolha de layout: `api/execution.py` só preenche `metricas` na etapa `shot`, e as outras seis
+sempre chegam com a lista vazia. _Alternativa descartada:_ sete blocos iguais e abertos, que
+gastariam a tela repetindo seis vezes que a etapa concluiu e não produziu nada. As seis continuam
+visíveis, e não escondidas, porque é nelas que se vê qual falhou quando a análise falha. O texto
+de cada acordeão vazio depende do que o resultado principal tem: quando `shot` mediu alguma coisa
+ele aponta para lá, e quando não mediu ele diz isso, em vez de mandar procurar numa seção que
+declara não ter nada.
+
+**Nenhum endereço vindo do corpo de uma resposta recebe a credencial sem conferência.** Dois
+campos são endereços que a interface entrega ao `fetch` sem ter escrito, o `uploadUrl` da reserva
+e o `render_url` do resultado. `alvoDe` resolve valor relativo contra `VITE_API_URL` e, quando o
+valor já vem absoluto, compara a origem com a da API e recusa antes de chamar `fetch`.
+_Alternativa descartada:_ confiar no endereço porque ele veio do nosso servidor, que transforma um
+campo do corpo da resposta num lugar para onde o `Bearer` da pessoa pode viajar. O teste
+`recusa endereco de outra origem antes de mandar a credencial` afirma as duas metades: que a
+chamada é recusada e que `fetch` não chegou a ser invocado. A mesma função recusa chamar quando
+`VITE_API_URL` não existe: sem isso, um build sem a variável monta `undefined/v1/auth/login`, que
+o `try_files` do nginx devolve como o próprio `index.html` com 200, e o login quebra ao tentar ler
+JSON de HTML sem dizer o que falta.
+
+**`Content-Type` só é declarado quando existe corpo.** _Alternativa descartada:_ mandar
+`application/json` em toda chamada, inclusive no `GET`, que descreve um corpo que não existe. Vale
+ser preciso sobre o ganho: ele não é evitar o preflight, porque `Authorization` não está na lista
+de cabeçalhos seguros do CORS e toda chamada autenticada já é precedida de um `OPTIONS`, conforme
+a [documentação de CORS da MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS). O ganho é
+o cabeçalho não mentir.
+
+**O estilo é Tailwind, e a única dependência de componente é o acordeão.** O resto da tela é HTML
+com classes utilitárias, sem sistema de design. _Alternativa descartada:_ adotar MUI inteiro, que
+traria consistência de graça e um vocabulário de componentes que este produto de demonstração não
+precisa. _Alternativa descartada:_ escrever o acordeão à mão com `details` e `summary`, que o HTML
+já oferece. O custo medido da escolha de hoje está em Trade-offs, e ele é maior do que parecia
+quando ela foi feita.
+
+**A imagem é nginx servindo estático, com `VITE_API_URL` assado no build.** O `Dockerfile` tem
+dois estágios, `node:22-alpine` para construir e `nginx:1.27-alpine` para servir na porta 3000,
+com `try_files` devolvendo `index.html` para qualquer caminho e quatro cabeçalhos de segurança.
+_Alternativa descartada:_ ler o endereço da API em tempo de execução, que exigiria a página buscar
+um arquivo de configuração na subida, porque o Vite substitui `import.meta.env` no momento do
+build. O preço é que apontar para outra API é reconstruir a imagem. O que mais quebra numa
+aplicação de página única servida por nginx é justamente o `try_files`, e o CI cobra isso: o job
+`frontend:image` sobe o contêiner e faz `curl` em `/health`, em `/results/7`, um caminho que só
+existe dentro do roteador do navegador, e no favicon, conferindo que ele volta como imagem e não
+como o `index.html` de novo.
+
+**Os cabeçalhos de segurança valem em toda resposta, e existe `Content-Security-Policy`.** Os três
+primeiros ganharam `always`, porque sem ele o nginx não os manda em resposta que não seja 2xx ou
+3xx, e o bloco do `/health` deixou de declarar cabeçalho próprio, porque `add_header` de um nível
+só é herdado enquanto o nível de baixo não declara nenhum: aquele bloco declarava um, e com isso
+perdia os três. A política é `default-src 'self'` com quatro aberturas, cada uma com motivo:
+`img-src data:` para o quadro de demonstração que o contrato promete em base64, `media-src blob:`
+para o vídeo anotado, que chega como `Blob` e vira object URL, `style-src 'unsafe-inline'` porque
+o Emotion, que vem com o MUI, injeta `style` em tempo de execução, e `connect-src` com o endereço
+da API, que o build já conhece. _Alternativa descartada:_ deixar sem CSP, que é o estado anterior:
+ela é a mitigação que corresponde ao token guardado em `localStorage`, e sem ela o risco fica
+inteiro.
+
+**O formato tem portão, e a cobertura tem piso.** O lado Python cobra `ruff format --check` no CI
+desde a primeira sprint, e o frontend não tinha verificador nenhum: o `eslint.config.js` era o
+único arquivo com aspas simples e sem ponto e vírgula, e dois arquivos terminavam sem quebra de
+linha, contra o que o `.editorconfig` declara. _Alternativa descartada:_ ligar regras de formato
+no ESLint, que a configuração recomendada do ESLint 10 não traz mais e que o próprio projeto
+ESLint desaconselha. O `.prettierrc` fixa o que o código já fazia, com as mesmas 100 colunas do
+ruff, e o piso de cobertura mora num lugar só, no `vite.config.ts`, como o `fail_under` do
+`pyproject.toml`.
+
+## Trade-offs
+
+O que o desenho compra é concreto. A regra do 401 existe uma vez e vale para toda tela futura. O
+serviço pode renomear um campo sem que nenhuma tela mude, porque a tradução mora inteira em
+`videoService.ts`. A consulta periódica é de um lugar só e morre sozinha. E a suíte roda em
+segundos sem navegador de verdade, com 133 testes em 15 arquivos.
+
+**A desvantagem principal é o tamanho do pacote, e ela tem número.** O build de produção de hoje
+sai com 362,47 kB de JavaScript, 118,64 kB comprimidos, em um único pedaço, mais 14,78 kB de CSS,
+a partir de 387 módulos. Numa cópia da aplicação fora do repositório, trocando o acordeão do MUI
+por um `details` nativo e nada mais, o mesmo build sai com 251,31 kB, 80,44 kB comprimidos, a
+partir de 58 módulos. Ou seja, MUI e Emotion custam 111,16 kB, 38,20 kB comprimidos, e 329 dos 387
+módulos, para um componente. O experimento mede o custo, não propõe a troca: o `details` nativo
+perde a animação e o tratamento de foco que o MUI traz prontos, e a troca também obrigaria a
+reescrever a `style-src` da CSP, já que `unsafe-inline` está lá por causa do Emotion.
+
+**A desvantagem do índice local é que ele não é o sistema.** Quem enviar um clipe no computador da
+faculdade e abrir a aplicação em casa não vê nada, embora os vídeos existam, estejam processados e
+pertençam à mesma conta. Limpar os dados do navegador tem o mesmo efeito. Não há como recuperar a
+lista sem adivinhar identificadores, e adivinhar é exatamente o que o 404 do serviço existe para
+impedir.
+
+**A desvantagem da consulta a cada 5 s é que ela é o tempo de espera.** Com os sete módulos de
+percepção em stub, a análise da fixture sintética termina em dezenas de milissegundos, então o que
+a pessoa espera é o próximo tique do relógio, e não o processamento. Isso se inverte com modelo de
+verdade, e é a razão de não valer a pena ajustar o intervalo agora: o número certo depende de uma
+medição que ainda não existe.
+
+**A desvantagem do endereço assado no build é uma imagem por ambiente.** É barato enquanto há um
+ambiente, e vira incômodo no dia em que houver homologação e produção com a mesma versão de
+código. A CSP herda o mesmo problema, porque a `connect-src` sai do mesmo valor.
+
+**A desvantagem de repetir a regra do serviço na tela é ter duas cópias.** O mínimo de 12
+caracteres da senha e o teto de 128 MB do arquivo existem nos dois lados, e a duplicação é
+deliberada, porque recusar cedo evita subir 128 MB para receber 413. O preço é que mudar um lado
+só produz uma tela que recusa o que o serviço aceitaria, ou pior, que aceita o que ele vai
+recusar.
+
+## Riscos e incertezas
+
+**O token fica em `localStorage`, legível por qualquer script da página.** É o risco conhecido
+dessa escolha, e a CSP reduz a superfície sem eliminá-lo: ela impede que um script de outra origem
+seja carregado e que o token seja enviado para fora, porque `connect-src` só permite a API, mas
+não impede um script injetado no próprio pacote de fazer o que quiser. Enquanto a aplicação for de
+demonstração e as dependências forem as que estão no `package-lock.json`, a superfície é pequena.
+
+**Nenhum teste automático exercita os dois lados juntos.** A prova de que o fluxo fecha é uma
+execução manual, feita em 28/08/2026 contra a imagem do frontend em pé na porta 3000 e o serviço
+em pé na 8080: criar conta, enviar `var/out/synthetic.mp4`, esperar `Finalizado`, abrir o
+resultado e ver o vídeo anotado e as três métricas da configuração de exemplo. Ela cobre o que
+nenhuma das duas suítes cobre, e não roda sozinha.
+
+**Nenhum número desta página fala de vídeo real de partida.** Os tamanhos de pacote e os tempos de
+suíte são medidas da interface; o tempo que a pessoa vai esperar depende dos sete módulos de
+percepção, que hoje são stubs. Nada aqui deve ser lido como evidência sobre o
+[RNF-01](/docs/sprint-1/requisitos/nao-funcionais).
+
+**O campo `frame` está escrito dos dois lados e nunca foi exercido com dado real.** O contrato
+declara `frame` por etapa, `api/execution.py` responde `None` em todas, e `ResultAccordion` sabe
+exibir tanto uma URL `data:` quanto base64 cru, com teste para as duas formas. O que nenhum teste
+prova é que o quadro que o serviço vai mandar um dia é um dos dois.
+
+**O foco não é tratado na troca de rota.** Ao navegar, o elemento focado é desmontado e o foco cai
+no `body`, então o próximo `Tab` recomeça do topo. O link de pular para o conteúdo reduz o
+incômodo, e a correção completa é focar o título de cada tela na mudança de rota, o que não foi
+feito.
+
+**A zona de envio é um `div` com `onClick`, sem papel nem tratador de teclado.** O botão dentro
+dela é focável e funciona, então existe caminho por teclado, e a área grande não é alcançável nem
+anunciada como acionável. É o que a regra `click-events-have-key-events` apontaria, e ela não
+roda, porque a versão atual do
+[eslint-plugin-jsx-a11y](https://www.npmjs.com/package/eslint-plugin-jsx-a11y), a 6.10.2, declara
+como par `eslint` de `^3` a `^9`, e este projeto está no ESLint 10.8.1. A auditoria que roda hoje
+é a do axe, e ela não pega esse caso: nenhuma ferramenta sabe que um `div` deveria ser botão.
+
+## Como sabemos que funciona
+
+Os quatro portões desta parte, mais o formato, rodados em 28/08/2026 nesta base, numa estação de
+trabalho macOS `aarch64` com Node 26.7.0:
+
+```bash
+npm run lint          # eslint, sem nada a reportar
+npm run format:check  # prettier, "All matched files use Prettier code style!"
+npm run types:check   # tsc -b, em silêncio
+npm run test          # vitest, "Test Files 15 passed" e "Tests 133 passed"
+npm run build         # o pacote medido em Trade-offs
+```
+
+A cobertura sai junto do `npm run test`, porque o script liga `--coverage`, e o piso está
+declarado no `vite.config.ts`: 90% de linha, 82% de ramo. A medição de hoje é 96,03% de linha e
+89,84% de ramo, sobre todos os arquivos de `src/` menos os testes e o `main.tsx`, que só chama
+`createRoot`. Cinco jobs do CI rodam esses cinco comandos, e um sexto constrói a imagem e a
+exercita com `curl`.
+
+A acessibilidade tem número desde esta base. Rodando o
+[axe-core](https://github.com/dequelabs/axe-core) 4.13.0 com as regras `wcag2a`, `wcag2aa`,
+`wcag21a` e `wcag21aa` contra a aplicação em pé, nas quatro telas, o resultado é zero violação. A
+medição anterior tinha quatro, todas sérias e todas de contraste, em texto que carrega informação:
+a metade enfatizada dos dois títulos principais a 1,41:1 e 1,67:1 contra um piso de 3:1, os
+rótulos do cabeçalho do resultado e o valor indisponível a 2,53:1 contra 4,5:1, e o cartão que
+ainda processa, que usava `opacity-60` e por isso compunha fundo e texto juntos, a 2,71:1. As
+correções foram de token de cor, sem mexer em layout.
+
+O que a auditoria não prova está dito acima: ela lê o que está na página, e não o que deveria
+estar. A zona de envio continua sendo um `div` clicável, e nenhuma regra automática diz isso.
+
+## Ainda não implementado
+
+| O que falta | Como a hipótese será testada na próxima sprint |
+| --- | --- |
+| Rota que liste os vídeos de uma conta | Publicar a rota no serviço, sobre `store.videos_de`, que já existe e não tem consumidor, e trocar `videoCache` por ela; o teste é entrar na mesma conta num navegador que nunca enviou nada e ver a lista completa |
+| Teste automático dos dois lados juntos | Subir o serviço e a imagem do frontend num job e repetir por script o fluxo que hoje é feito à mão, do registro ao vídeo anotado na tela |
+| `frame` de demonstração por etapa | O serviço passa a preencher o campo; o teste é abrir a etapa no acordeão e ver o quadro, sem mudança de contrato, já que a tela aceita `data:` e base64 cru |
+| `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir na tela que a unidade exibida é a que a `FeatureSpec` declara, que o float sai com duas casas e que leitura ausente aparece como indisponível, e não como zero |
+| Foco tratado na troca de rota | Dar `tabIndex` de menos um ao título de cada tela e focá-lo quando o caminho muda; o teste é navegar e conferir que o próximo `Tab` continua de onde a pessoa está, e não do topo |
+| Zona de envio alcançável pelo teclado | Reavaliar o `eslint-plugin-jsx-a11y` quando ele aceitar o ESLint 10, e enquanto isso dar papel e tratador de teclado à área; o teste é chegar nela por `Tab` e abrir o seletor pelo `Enter` |
+| Progresso ou notificação do processamento | Depende de o serviço publicar etapa corrente ou posição na fila; o teste é a tela dizer em que etapa o clipe está em vez de girar sem número |
+| Intervalo de consulta escolhido por medição | Medir o tempo de um clipe real com o primeiro modelo de verdade e só então mexer nos 5 s, para não trocar um número inventado por outro |
+| Redução do pacote | Decidir entre `details` nativo e importação seletiva do MUI, comparando com os 362,47 kB de hoje e conferindo se a `style-src` da CSP pode fechar junto |
+
+## Referências
+
+- [Documentação do Vite sobre variáveis de ambiente e modos](https://vite.dev/guide/env-and-mode), que descreve a substituição de `import.meta.env` em tempo de build e sustenta a decisão de assar `VITE_API_URL` na imagem em vez de lê-la em execução.
+- [MDN, `Window.localStorage`](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage), base da sessão e do índice de vídeos, e a fonte do risco de o token ser legível por qualquer script da página.
+- [MDN, Cross-Origin Resource Sharing](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS), que lista os cabeçalhos seguros e sustenta a correção de que `Authorization` já obriga o preflight, independentemente do `Content-Type`.
+- [MDN, Content Security Policy](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP), que define as diretivas usadas na política da imagem e o motivo de cada abertura.
+- [MDN, `URL.createObjectURL`](https://developer.mozilla.org/en-US/docs/Web/API/URL/createObjectURL_static), que documenta a necessidade de revogar o endereço criado, exatamente o que a limpeza do efeito de `Results` faz.
+- [MDN, elemento `details`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/details), a alternativa nativa usada no experimento que mediu o custo do acordeão de terceiro.
+- [Documentação do acordeão do MUI](https://mui.com/material-ui/react-accordion/), o componente escolhido e o único motivo de MUI e Emotion estarem no pacote.
+- [RFC 4648](https://datatracker.ietf.org/doc/html/rfc4648), que descreve a expansão de 3 bytes de entrada para 4 de saída e sustenta a troca do envio em base64 pelo binário cru.
+- [Documentação do React Router](https://reactrouter.com/), base das três rotas e do comportamento de preservar o endereço quando a sessão cai.
+- [Prioridade de consultas da Testing Library](https://testing-library.com/docs/queries/about/#priority), que fundamenta os testes afirmarem por papel, como em `getByRole("link")`, e é o que faz o teste do cartão também cobrar acessibilidade.
+- [axe-core](https://github.com/dequelabs/axe-core), a ferramenta que produziu a medição de acessibilidade citada acima, com as regras WCAG 2.0 e 2.1 nos níveis A e AA.
+- [eslint-plugin-jsx-a11y no npm](https://www.npmjs.com/package/eslint-plugin-jsx-a11y), cuja faixa de par declarada é a razão de a verificação de acessibilidade dentro do lint não existir neste projeto.
+- [Documentação do `try_files` do nginx](https://nginx.org/en/docs/http/ngx_http_core_module.html#try_files), que sustenta a devolução de `index.html` para qualquer caminho e o `curl` em `/results/7` no CI.
+- [Documentação do `add_header` do nginx](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header), que define a herança entre níveis e o efeito de `always`, os dois motivos das correções nos cabeçalhos da imagem.

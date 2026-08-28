@@ -1,0 +1,86 @@
+.frontend:
+  stage: test
+  image: node:22-alpine
+  extends:
+    - .actions-rules:frontend
+  variables:
+    # O Vite substitui `import.meta.env` no build, entao sem isto o pacote sai com `undefined`
+    # no lugar do endereco da API e nenhum portao repara. O valor e o mesmo default do Dockerfile.
+    VITE_API_URL: "http://localhost:8080"
+  cache: &frontend-cache
+    key:
+      files:
+        - src/interface/package-lock.json
+    paths:
+      - .npm/
+    policy: pull
+  before_script:
+    - cd src/interface
+    - npm ci --prefer-offline --no-audit --fund=false
+
+frontend:lint:
+  extends: .frontend
+  script:
+    - npm run lint
+
+frontend:format:
+  extends: .frontend
+  script:
+    - npm run format:check
+
+frontend:types:
+  extends: .frontend
+  script:
+    - npm run types:check
+
+frontend:test:
+  extends: .frontend
+  script:
+    - npm run test
+  coverage: '/^Lines\s*:\s*([\d.]+)%/'
+  artifacts:
+    when: always
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: src/interface/coverage/cobertura-coverage.xml
+
+frontend:build:
+  extends: .frontend
+  cache:
+    <<: *frontend-cache
+    policy: pull-push
+  script:
+    - npm run build
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - src/interface/dist/
+
+frontend:image:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  extends:
+    - .actions-rules:frontend
+  needs:
+    - frontend:lint
+    - frontend:format
+    - frontend:types
+    - frontend:test
+    - frontend:build
+  script:
+    - docker build -t "$CI_PROJECT_NAME-frontend:$CI_COMMIT_SHORT_SHA" src/interface
+    - docker run -d --name fe -p 3000:3000 "$CI_PROJECT_NAME-frontend:$CI_COMMIT_SHORT_SHA"
+    - sleep 3
+    - docker run --rm --network host curlimages/curl:8.11.1 -sf http://localhost:3000/health
+    # Caminho que so existe dentro do roteador do navegador: prova o `try_files` da imagem.
+    - docker run --rm --network host curlimages/curl:8.11.1 -sf -o /dev/null http://localhost:3000/results/7
+    # O favicon relativo resolvia para /results/favicon.svg e voltava o index.html com 200.
+    - >
+      docker run --rm --network host curlimages/curl:8.11.1 -sf -o /dev/null
+      -w "%{content_type}" http://localhost:3000/favicon.svg | grep -q "image/svg"

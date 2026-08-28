@@ -11,9 +11,15 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - a borda suporta 3.10, onde tomllib ainda nao existe
+    import tomli as tomllib
 
 REPOSITORIO = Path(__file__).resolve().parents[2]
 
@@ -167,6 +173,70 @@ def test_the_base_image_is_pinned_by_digest() -> None:
     dockerfile = (REPOSITORIO / "Dockerfile").read_text(encoding="utf-8")
 
     assert re.search(r"^FROM \S+@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
+
+
+def test_the_backend_image_does_not_carry_the_frontend() -> None:
+    """Os padroes do `.dockerignore` sao ancorados na raiz do contexto de build.
+
+    `node_modules/` casa contra `./node_modules` e nunca contra `src/interface/node_modules`, entao
+    o frontend inteiro ia junto na imagem do backend: medido, 396 MB de dependencias, relatorio de
+    cobertura e pacote construido, numa imagem que nao executa uma linha de TypeScript.
+    """
+    regras = [
+        linha.strip()
+        for linha in (REPOSITORIO / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if linha.strip() and not linha.startswith("#")
+    ]
+
+    assert "src/interface/" in regras or "src/interface" in regras
+
+
+def _copiados() -> set[str]:
+    """Os alvos de `COPY` do Dockerfile, e nao o texto dele.
+
+    Procurar o nome no arquivo inteiro passa quando ele so aparece num comentario, que foi
+    exatamente o que aconteceu na primeira versao deste teste.
+    """
+    linhas = (REPOSITORIO / "Dockerfile").read_text(encoding="utf-8").splitlines()
+    alvos: set[str] = set()
+    for linha in linhas:
+        if not linha.startswith("COPY "):
+            continue
+        partes = [p for p in linha.split()[1:] if not p.startswith("--")]
+        alvos.update(partes[:-1])
+    return alvos
+
+
+def test_the_image_carries_every_file_the_package_metadata_points_at() -> None:
+    """Metadata que cita arquivo ausente derruba a construcao da imagem, e so no CI.
+
+    Medido: com `readme = "README.md"` no `pyproject.toml` e sem o `COPY` correspondente, os quatro
+    portoes locais passavam e o `uv sync` dentro do `docker build` morria com
+    `OSError: Readme file does not exist`. O mesmo vale para qualquer caminho que a metadata cite.
+    """
+    declarado = tomllib.loads((REPOSITORIO / "pyproject.toml").read_text(encoding="utf-8"))
+    readme = declarado["project"].get("readme")
+
+    if readme is None:
+        pytest.skip("o pacote nao declara readme, entao nao ha o que copiar")
+
+    assert (REPOSITORIO / readme).is_file(), f"{readme} nao existe no repositorio"
+    assert readme in _copiados(), (
+        f"`[project] readme` aponta para {readme} e a imagem nao o copia: o `uv sync` de dentro do "
+        "`docker build` le a metadata e recusa"
+    )
+
+
+def test_the_image_carries_the_manifests_the_pipeline_config_points_at() -> None:
+    """Sem `models/` dentro da imagem, o render morre em `RenderUnavailable` em todo video."""
+    pipeline = (REPOSITORIO / "config" / "pipeline.toml").read_text(encoding="utf-8")
+    copiados = _copiados()
+
+    for manifesto in re.findall(r'"(models/[^"]+\.toml)"', pipeline):
+        assert (REPOSITORIO / manifesto).is_file(), f"{manifesto} nao existe"
+        assert manifesto.split("/")[0] in copiados, (
+            f"{manifesto} nao chega em /app dentro da imagem, e o render morre em todo video"
+        )
 
 
 def test_no_module_walks_out_of_the_package_to_find_a_file() -> None:

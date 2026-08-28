@@ -4,6 +4,10 @@ var/
 .env.*
 .git/
 src/tests/
+# Os padroes acima sao ancorados na raiz do contexto, entao `node_modules/` nao alcanca
+# `src/interface/node_modules`. Sem esta linha o frontend inteiro, 396 MB medidos, entra na
+# imagem do backend, que nao executa uma linha dele.
+src/interface/
 .venv/
 docs/
 node_modules/

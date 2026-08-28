@@ -26,11 +26,14 @@ services:
     ports:
       - "8080:8080"
     environment:
-      XVISION_CORS_ORIGINS: http://localhost:5173,http://localhost:3000
-      XVISION_AUTH_SECRET: ${XVISION_AUTH_SECRET:-segredo-de-desenvolvimento-trocar-antes-de-implantar}
+      XVISION_CORS_ORIGINS: ${XVISION_CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      XVISION_AUTH_SECRET: ${XVISION_AUTH_SECRET:?copie o .env.example para .env e gere um segredo}
       XVISION_API_TOKEN: ${XVISION_API_TOKEN:-}
+      XVISION_PIPELINE: ${XVISION_PIPELINE:-pipeline.toml}
     volumes:
       - ./config:/app/config:ro
+      # Os manifestos que `[render.top_view]` cita: dois TOML, resolvidos relativos a /app.
+      - ./models:/app/models:ro
       - ./var:/var/xvision
     healthcheck:
       test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -38,3 +41,20 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  frontend:
+    build:
+      context: ./src/interface
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

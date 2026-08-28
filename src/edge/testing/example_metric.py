@@ -16,6 +16,7 @@ from edge.features.base import FeatureSpec, ShotOutput
 
 UNIDADE = "m"
 VALOR = 11.5
+CATEGORIA = "PERNA_ESQUERDA"
 
 
 class DistanciaFalsa:
@@ -48,5 +49,27 @@ class SemLeitura(DistanciaFalsa):
             value=None,
             confidence=None,
             reason="o modulo de campo nao produziu homografia neste quadro",
+            evidence={},
+        )
+
+
+class ParteDoCorpo(DistanciaFalsa):
+    """A feature de valor textual, que nenhuma implementacao produz ainda e o contrato ja aceita.
+
+    Tres dos onze blocos `[[label]]` de `config/labels.toml` declaram `type = "enum"`,
+    `body_part_2`, `body_part_3` e `type_of_play`, entao categoria e o proximo tipo de valor a
+    aparecer e nao uma hipotese. Sem unidade de proposito: categoria nao tem unidade.
+    """
+
+    spec = FeatureSpec(name="parte_do_corpo", version="0.1.0", requires=())
+
+    def extract(self, perception: Perception, shot: ShotOutput) -> FeatureValue:
+        return FeatureValue(
+            name=self.spec.name,
+            version=self.spec.version,
+            status="ok",
+            value=CATEGORIA,
+            confidence=None,
+            reason=None,
             evidence={},
         )

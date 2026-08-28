@@ -2,7 +2,7 @@
 name = "xvision"
 version = "0.1.0"
 description = "xVision: extrai features de finalizacao a partir de video, com processamento na borda"
-readme = "src/README.md"
+readme = "README.md"
 license = { text = "CC-BY-4.0" }
 authors = [{ name = "Inteli T12 G02" }]
 requires-python = ">=3.10"
@@ -20,6 +20,12 @@ xvision = "cli:app"
 [project.optional-dependencies]
 conformance = ["pytest>=8.3"]
 players = ["ultralytics>=8.3,<9", "lap>=0.5.12"]
+topview = [
+    "xvision-players-yolo",
+    "ultralytics>=8.3,<9",
+    "torch>=2.2",
+    "imageio-ffmpeg>=0.5",
+]
 ball = []
 field = []
 tracking = []
@@ -43,12 +49,10 @@ dev = [
 [tool.uv.workspace]
 members = ["packages/*"]
 
+[tool.uv.sources]
+xvision-players-yolo = { workspace = true }
+
 [tool.uv]
-# O `ultralytics` exige `opencv-python`, que e a build com GUI e linka libxcb e libGL. A
-# borda e a imagem do CI sao slim e nao tem nenhuma das duas, entao o `import cv2` morria em
-# `libxcb.so.1: cannot open shared object file`. As duas distribuicoes instalam o mesmo modulo
-# `cv2`, entao ter as duas na env nunca foi opcao: uma sobrescreve a outra. O marcador abaixo
-# nunca e verdadeiro, e e assim que se tira um requisito da resolucao sem tocar no `ultralytics`.
 override-dependencies = ["opencv-python; sys_platform == 'nunca'"]
 
 [build-system]
@@ -92,13 +96,6 @@ known-first-party = ["api", "cli", "contracts", "edge", "mlops", "xvision_player
 
 [tool.pyright]
 include = ["src", "packages"]
-# `src/models` e script de operador em cima de `roboflow`, `ultralytics` e `torch`, que nao
-# publicam tipo. Em `strict` isso vira ruido puro: eram 233 erros na develop e 102 aqui, todos
-# `reportUnknown*` de biblioteca de terceiro. Nada disso entra na wheel (ver
-# `[tool.hatch.build.targets.wheel] packages`), e o gate vermelho permanente fazia o time parar
-# de ler a saida inteira. A cobertura continua medindo esses arquivos.
-# Os tres primeiros sao o padrao do pyright, repetidos porque declarar `exclude` substitui a
-# lista dele em vez de somar: sem eles um `.venv` dentro de `packages/` entra na verificacao.
 exclude = ["**/node_modules", "**/__pycache__", "**/.*", "src/models"]
 pythonVersion = "3.10"
 typeCheckingMode = "strict"

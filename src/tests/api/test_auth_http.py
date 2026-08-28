@@ -7,6 +7,7 @@ cobre o que alguem acrescentar amanha sem lembrar disso.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -386,4 +387,238 @@ def test_the_login_hashes_a_password_even_when_the_account_does_not_exist() -> N
     )
     assert corpo.index("conferir_senha") < corpo.index("raise HTTPException"), (
         "a conferencia precisa acontecer antes da recusa, nao depois"
+    )
+
+
+def test_a_flood_of_wrong_passwords_is_cut_off_before_it_becomes_a_guess_machine(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem teto, o login e um oraculo que responde quantas vezes quiserem perguntar."""
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
+    api.zerar_tentativas()
+    errada = {"email": "ninguem@inteli.edu.br", "senha": "senha-errada-mas-longa"}
+
+    codigos = [anonimo.post(f"{PREFIXO}/auth/login", json=errada).status_code for _ in range(4)]
+
+    assert codigos == [401, 401, 401, 429]
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=errada).headers["Retry-After"]
+
+
+def test_the_counter_resets_when_the_password_is_finally_right(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Quem erra, corrige e volta a errar nao pode herdar a contagem da tentativa anterior."""
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
+    api.zerar_tentativas()
+    email = "acerta@inteli.edu.br"
+    anonimo.post(f"{PREFIXO}/auth/register", json={"email": email, "senha": SENHA})
+    errada = {"email": email, "senha": "senha-errada-mas-longa"}
+
+    anonimo.post(f"{PREFIXO}/auth/login", json=errada)
+    anonimo.post(f"{PREFIXO}/auth/login", json=errada)
+    assert (
+        anonimo.post(f"{PREFIXO}/auth/login", json={"email": email, "senha": SENHA}).status_code
+        == 200
+    )
+
+    codigos = [anonimo.post(f"{PREFIXO}/auth/login", json=errada).status_code for _ in range(3)]
+
+    assert codigos == [401, 401, 401]
+
+
+def test_a_neighbour_account_is_not_locked_out_by_someone_elses_wrong_password(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Teto so por origem entregaria o trancamento da conta alheia a quem divide o mesmo NAT."""
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "2")
+    api.zerar_tentativas()
+    vizinho = "vizinho@inteli.edu.br"
+    anonimo.post(f"{PREFIXO}/auth/register", json={"email": vizinho, "senha": SENHA})
+    alvo = {"email": "alvo@inteli.edu.br", "senha": "senha-errada-mas-longa"}
+
+    anonimo.post(f"{PREFIXO}/auth/login", json=alvo)
+    anonimo.post(f"{PREFIXO}/auth/login", json=alvo)
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=alvo).status_code == 429
+
+    entrada = anonimo.post(f"{PREFIXO}/auth/login", json={"email": vizinho, "senha": SENHA})
+
+    assert entrada.status_code == 200
+
+
+def test_the_window_forgets_old_attempts_instead_of_banning_forever(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Teto sem janela vira banimento permanente do endereco na primeira rajada."""
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "2")
+    monkeypatch.setenv(api.JANELA_ENV, "60")
+    api.zerar_tentativas()
+    errada = {"email": "esquece@inteli.edu.br", "senha": "senha-errada-mas-longa"}
+
+    anonimo.post(f"{PREFIXO}/auth/login", json=errada)
+    anonimo.post(f"{PREFIXO}/auth/login", json=errada)
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=errada).status_code == 429
+
+    daqui_a_pouco = time.monotonic() + 61
+    monkeypatch.setattr(api.time, "monotonic", lambda: daqui_a_pouco)
+
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=errada).status_code == 401
+
+
+def test_the_registration_is_capped_too_because_it_is_the_most_expensive_open_route(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`scrypt` mais uma linha no banco, sem credencial e sem teto, e trabalho de graca.
+
+    A chave e so a origem: cada chamada traz um email novo, entao uma chave que o incluisse
+    nunca acumularia duas tentativas e o teto nao valeria nada.
+    """
+    monkeypatch.setenv(api.REGISTROS_ENV, "3")
+    api.zerar_tentativas()
+
+    codigos = [
+        anonimo.post(
+            f"{PREFIXO}/auth/register", json={"email": f"conta-{i}@inteli.edu.br", "senha": SENHA}
+        ).status_code
+        for i in range(4)
+    ]
+
+    assert codigos == [201, 201, 201, 429]
+    recusa = anonimo.post(
+        f"{PREFIXO}/auth/register", json={"email": "mais-uma@inteli.edu.br", "senha": SENHA}
+    )
+    assert recusa.headers["Retry-After"]
+
+
+def test_the_registration_cap_does_not_lock_the_login_of_who_just_signed_up(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Os dois baldes sao separados: estourar o registro nao pode impedir de entrar."""
+    monkeypatch.setenv(api.REGISTROS_ENV, "2")
+    api.zerar_tentativas()
+    email = "primeira@inteli.edu.br"
+    assert (
+        anonimo.post(f"{PREFIXO}/auth/register", json={"email": email, "senha": SENHA}).status_code
+        == 201
+    )
+    anonimo.post(
+        f"{PREFIXO}/auth/register", json={"email": "segunda@inteli.edu.br", "senha": SENHA}
+    )
+    assert (
+        anonimo.post(
+            f"{PREFIXO}/auth/register", json={"email": "terceira@inteli.edu.br", "senha": SENHA}
+        ).status_code
+        == 429
+    )
+
+    entrada = anonimo.post(f"{PREFIXO}/auth/login", json={"email": email, "senha": SENHA})
+
+    assert entrada.status_code == 200
+
+
+def test_the_attempt_counter_does_not_grow_without_a_ceiling(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chave carrega o email, que quem chama escolhe: sem teto ela e memoria que so cresce."""
+    monkeypatch.setenv(api.JANELA_ENV, "60")
+    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 3)
+    api.zerar_tentativas()
+
+    for i in range(12):
+        anonimo.post(
+            f"{PREFIXO}/auth/login",
+            json={"email": f"email-{i}@inteli.edu.br", "senha": "senha-errada-mas-longa"},
+        )
+
+    assert len(api.chaves_de_tentativa()) <= 4, "cada email novo deixava uma entrada permanente"
+
+
+def test_a_key_whose_window_expired_leaves_the_counter_instead_of_living_there_forever(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Varrer o que venceu e o que devolve a memoria de quem nunca mais voltou.
+
+    O teto e 2 e nao 0 de proposito: com 0 o despejo por tamanho esvazia o dicionario em toda
+    chamada e satisfaz a assercao sozinho, e apagar a condicao de vencimento continuaria passando.
+    Com 2 e duas chaves vivas, so a poda por vencimento pode tirar a terceira.
+    """
+    monkeypatch.setenv(api.JANELA_ENV, "60")
+    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 2)
+    api.zerar_tentativas()
+    errada = {"email": "some-daqui@inteli.edu.br", "senha": "senha-errada-mas-longa"}
+
+    anonimo.post(f"{PREFIXO}/auth/login", json=errada)
+    assert len(api.chaves_de_tentativa()) == 1
+
+    daqui_a_pouco = time.monotonic() + 61
+    monkeypatch.setattr(api.time, "monotonic", lambda: daqui_a_pouco)
+    for numero in range(3):
+        anonimo.post(
+            f"{PREFIXO}/auth/login",
+            json={"email": f"depois-{numero}@inteli.edu.br", "senha": "senha-errada-mas-longa"},
+        )
+
+    restantes = api.chaves_de_tentativa()
+    assert "some-daqui@inteli.edu.br" not in " ".join(restantes)
+    assert len(restantes) <= 3, "a poda por vencimento nao rodou, e so o teto de tamanho segurou"
+
+
+def test_the_expiry_sweep_runs_before_the_size_eviction_and_not_instead_of_it(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Uma chave vencida com muitos carimbos nao pode empurrar para fora uma viva com poucos.
+
+    O despejo por tamanho ordena por numero de carimbos, entao sem a poda por vencimento antes
+    dele a chave morta e pesada fica e a viva e leve sai. Este e o unico cenario que distingue as
+    duas metades de `_varrer`, e ele existe porque a primeira versao deste teste passava com a
+    poda por vencimento apagada.
+    """
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "10")
+    monkeypatch.setenv(api.JANELA_ENV, "60")
+    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 1)
+    api.zerar_tentativas()
+    errada = "senha-errada-mas-longa"
+
+    for _ in range(3):
+        anonimo.post(
+            f"{PREFIXO}/auth/login", json={"email": "pesado@inteli.edu.br", "senha": errada}
+        )
+
+    daqui_a_pouco = time.monotonic() + 61
+    monkeypatch.setattr(api.time, "monotonic", lambda: daqui_a_pouco)
+    anonimo.post(f"{PREFIXO}/auth/login", json={"email": "leve@inteli.edu.br", "senha": errada})
+    anonimo.post(f"{PREFIXO}/auth/login", json={"email": "gatilho@inteli.edu.br", "senha": errada})
+
+    restantes = " ".join(api.chaves_de_tentativa())
+
+    assert "pesado@inteli.edu.br" not in restantes, (
+        "a chave vencida sobreviveu por ter mais carimbos"
+    )
+    assert "leve@inteli.edu.br" in restantes, "a chave viva foi despejada no lugar da vencida"
+
+
+def test_the_flood_does_not_evict_the_key_that_is_being_counted(
+    anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Despejar pela ordem do dicionario deixava quem inunda desfazer a propria tranca.
+
+    `dict` mantem ordem de primeira insercao, e nem `_erradas[chave] = recentes` nem o `append`
+    movem a chave para o fim: a chave da vitima, criada antes de tudo, era a primeira a cair.
+    """
+    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
+    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 4)
+    api.zerar_tentativas()
+    alvo = {"email": "alvo@inteli.edu.br", "senha": "senha-errada-mas-longa"}
+
+    for _ in range(3):
+        anonimo.post(f"{PREFIXO}/auth/login", json=alvo)
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=alvo).status_code == 429
+
+    for numero in range(20):
+        anonimo.post(
+            f"{PREFIXO}/auth/login",
+            json={"email": f"lixo-{numero}@inteli.edu.br", "senha": "senha-errada-mas-longa"},
+        )
+
+    assert anonimo.post(f"{PREFIXO}/auth/login", json=alvo).status_code == 429, (
+        "a inundacao desfez a tranca da conta que estava sendo protegida"
     )

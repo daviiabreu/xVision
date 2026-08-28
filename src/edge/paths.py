@@ -85,6 +85,7 @@ def config_file(nome: str) -> Path:
 
 
 PIPELINE_NOME = "pipeline.toml"
+PIPELINE_ENV = "XVISION_PIPELINE"
 
 
 def pipeline_config() -> Path:
@@ -94,8 +95,15 @@ def pipeline_config() -> Path:
     `XVISION_CONFIG_DIR` era aceita e ignorada: medido, apontando a variavel para uma copia com
     outro `impl`, as sete etapas saiam `ok` e o evento trazia o modulo antigo. O operador trocava
     o modelo, o relatorio dizia que rodou, e rodou o de antes.
+
+    `XVISION_PIPELINE` escolhe o arquivo dentro da pasta. Sem ela o servico sobe com
+    `pipeline.toml`, que declara as sete especies como stub: ele responde, processa e devolve etapa
+    `ok` com metrica nenhuma. Isso serve para desenvolver a API sem GPU e nao serve para analisar
+    video, e a diferenca nao aparecia em lugar nenhum ate alguem subir um clipe real.
     """
-    return config_dir() / PIPELINE_NOME
+    declarado = os.environ.get(PIPELINE_ENV)
+
+    return config_dir() / (declarado or PIPELINE_NOME)
 
 
 def cache_dir() -> Path:

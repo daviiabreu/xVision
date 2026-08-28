@@ -24,7 +24,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 
-from api import store
+from api import render, store
 from api.schemas import Metrica, Resultado, tipo_de
 from edge.cache.perception import PerceptionCache
 from edge.features.registry import load_extractors, read_feature_config
@@ -154,8 +154,9 @@ def processar_video(
     try:
         store.marcar(identificador, store.PROCESSANDO, caminho=banco)
         logger.info("video=%s iniciou", identificador)
-        resultados = _rodar(identificador, caminho, config)
-    except (ClipUnavailable, PipelineError) as erro:
+        resultados, motivo = _analisar(identificador, caminho, config)
+        _renderizar(identificador, caminho, config)
+    except ClipUnavailable as erro:
         logger.warning("video=%s recusado: %s", identificador, type(erro).__name__)
         store.marcar(
             identificador,
@@ -167,15 +168,41 @@ def processar_video(
         logger.exception("video=%s morreu por erro interno", identificador)
         store.marcar(identificador, store.FALHOU, motivo=FALHA_INTERNA, caminho=banco)
     else:
-        logger.info(
-            "video=%s terminou etapas=%d ms=%.0f",
-            identificador,
-            len(resultados),
-            (time.monotonic() - inicio) * 1000,
-        )
-        store.marcar(identificador, store.FINALIZADO, resultados=resultados, caminho=banco)
+        gasto = (time.monotonic() - inicio) * 1000
+        if resultados is None:
+            logger.info("video=%s falhou ms=%.0f motivo=%s", identificador, gasto, motivo)
+            store.marcar(identificador, store.FALHOU, motivo=motivo, caminho=banco)
+        else:
+            logger.info(
+                "video=%s terminou etapas=%d ms=%.0f", identificador, len(resultados), gasto
+            )
+            store.marcar(identificador, store.FINALIZADO, resultados=resultados, caminho=banco)
     finally:
         caminho.unlink(missing_ok=True)
+
+
+def _analisar(
+    identificador: int, caminho: Path, config: Path
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """`ClipUnavailable` continua subindo: clipe que nao abre nao produz evento nem imagem."""
+    try:
+        return _rodar(identificador, caminho, config), None
+    except PipelineError as erro:
+        logger.warning("video=%s sem evento: %s", identificador, type(erro).__name__)
+        return None, _sem_caminho(str(erro), caminho)
+
+
+def _renderizar(identificador: int, caminho: Path, config: Path) -> None:
+    """Falha aqui nao derruba o resultado da analise."""
+    try:
+        configuracao = render.read_config(config)
+        if configuracao is None:
+            return
+        render.render(identificador, caminho, configuracao)
+    except render.RenderUnavailable as erro:
+        logger.warning("video=%s sem visao superior: %s", identificador, erro)
+    except Exception:
+        logger.exception("video=%s: a visao superior morreu por erro interno", identificador)
 
 
 def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, Any]]:
@@ -199,9 +226,9 @@ def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, An
         Metrica(
             nome=feature.name,
             unidade_de_medida=unidades.get(feature.name, ""),
-            tipo=tipo_de(feature.value),  # pyright: ignore[reportArgumentType]
-            valor=feature.value if isinstance(feature.value, bool | int | float) else None,
-            status=feature.status,  # pyright: ignore[reportArgumentType]
+            tipo=tipo_de(feature.value),
+            valor=feature.value,
+            status=feature.status,
         )
         for feature in evento.features
     ]

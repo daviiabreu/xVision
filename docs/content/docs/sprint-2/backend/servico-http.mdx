@@ -66,7 +66,7 @@ O frontend pede um endereço de envio:
 E recebe o identificador e o endereço, já com a versão dentro:
 
 ```json
-{ "id": 5, "uploadUrl": "http://127.0.0.1:8099/v1/videos/upload/gjhFiaaIccwFyLBkPXPq..." }
+{ "id": 5, "uploadUrl": "/v1/videos/upload/gjhFiaaIccwFyLBkPXPq..." }
 ```
 
 O `PUT` naquele endereço leva o binário cru e responde em 8 ms, antes de qualquer processamento:
@@ -96,7 +96,8 @@ E o resultado traz uma linha por etapa, na ordem em que o grafo as executou:
     { "nome_processo": "pose", "status": true, "frame": null, "metricas": [] },
     { "nome_processo": "tracking", "status": true, "frame": null, "metricas": [] }
   ],
-  "motivo": null
+  "motivo": null,
+  "render_url": "/v1/videos/5/render"
 }
 ```
 
@@ -105,8 +106,9 @@ etapa `shot`, e só quando existe feature declarada: o `config/pipeline.toml` qu
 não tem nenhuma seção `[features.*]`, então em toda execução real a lista sai vazia. `frame` é a
 imagem de demonstração e responde `null` porque a visualização não entra nesta sprint.
 
-A tradução para métrica existe e é exercitada. Com duas features declaradas numa cópia da
-configuração, uma que mede e outra que não consegue, a mesma rota devolve:
+A tradução para métrica existe e é exercitada. Com três features declaradas numa cópia da
+configuração, uma que mede um número, uma que não consegue medir e uma que mede uma categoria, a
+mesma rota devolve:
 
 ```json
 {
@@ -115,10 +117,24 @@ configuração, uma que mede e outra que não consegue, a mesma rota devolve:
   "frame": null,
   "metricas": [
     { "nome": "distancia_falsa", "unidade_de_medida": "m", "tipo": "float", "valor": 11.5, "status": "ok" },
-    { "nome": "sem_leitura", "unidade_de_medida": "m", "tipo": "float", "valor": null, "status": "unavailable" }
+    { "nome": "sem_leitura", "unidade_de_medida": "m", "tipo": null, "valor": null, "status": "unavailable" },
+    { "nome": "parte_do_corpo", "unidade_de_medida": "", "tipo": "text", "valor": "PERNA_ESQUERDA", "status": "ok" }
   ]
 }
 ```
+
+O campo `tipo` tem três valores, `boolean`, `float` e `text`, e sai do valor que a feature
+devolveu, não de uma declaração da `FeatureSpec`. Texto é o caso das features categóricas, e três
+dos onze blocos `[[label]]` de `config/labels.toml` declaram `type = "enum"`: `body_part_2`,
+`body_part_3` e `type_of_play`. A fronteira apagava o valor textual e mandava `valor: null` ao lado de
+`status: "ok"`, duas afirmações que se contradizem, e a tela lia a primeira e escrevia
+`indisponível` para uma medida que deu certo.
+
+A consequência de o tipo sair do valor é que sem valor não há tipo, e o campo é nulo nesse caso.
+O `else` que existia antes respondia `float` para toda leitura ausente, e para as duas features
+`enum` acima isso é afirmar número onde nunca vai haver número. Nulo é a única resposta que não
+inventa nada, e a tela não lê o campo para decidir o que desenhar: `Metric.tsx` decide pelo tipo
+do valor que chegou, o que mantém as duas pontas de acordo sem precisar confiar no campo.
 
 O campo `status` da métrica existe para que número medido e número indisponível não cheguem à tela
 com a mesma cara. A unidade vem da `FeatureSpec` de cada feature, e não de um sufixo no nome: quem
@@ -134,14 +150,15 @@ por teste contra o código:
 | --- | --- | --- |
 | `GET /` | 200 | nenhuma |
 | `GET /health` | 200 | nenhuma |
-| `POST /v1/auth/register` | 201 | 409, 422 |
-| `POST /v1/auth/login` | 200 | 401, 422 |
+| `POST /v1/auth/register` | 201 | 409, 422, 429 |
+| `POST /v1/auth/login` | 200 | 401, 422, 429 |
 | `GET /v1/auth/me` | 200 | 401 |
 | `POST /v1/videos/upload-url` | 200 | 401, 415, 422 |
 | `PUT /v1/videos/upload/{token}` | 202 | 400, 404, 409, 413, 415, 422, 503 |
 | `POST /v1/videos/processamento` | 202 | 400, 401, 413, 415, 422, 503 |
 | `GET /v1/videos/status/{video_id}` | 200 | 401, 404, 422 |
 | `GET /v1/videos/{video_id}` | 200 | 401, 404, 409, 422 |
+| `GET /v1/videos/{video_id}/render` | 200 | 401, 404, 422 |
 
 O 422 aparece em toda rota que valida corpo ou caminho: é o que o pydantic devolve. O serviço
 registra um tratador próprio para ele porque a resposta padrão embute o corpo recebido dentro do
@@ -153,6 +170,33 @@ Declarar a recusa não é enfeite de documentação: o FastAPI só descreve no c
 declara, e um cliente gerado a partir do arquivo trata como sucesso qualquer código que não esteja
 lá. Um teste provoca cada recusa de verdade, batendo na rota, e falha se o serviço responder um
 código que o contrato não declara.
+
+### O vídeo anotado que a interface mostra
+
+Até aqui o resultado era só número, e com as sete espécies em stub ele era número nenhum: a tela
+dizia que a análise tinha rodado e não mostrava nada. O serviço passa a produzir, por clipe, o
+vídeo da visão superior, com o quadro anotado à esquerda e a posição projetada no gramado à
+direita, e a interface o exibe acima das métricas.
+
+Quem desenha é `src/models/top_view/create_top_view.py`, que já existia. O `src/api/render.py`
+importa `process_video` e chama, em vez de reimplementar o desenho, e assim existe uma
+implementação só: mudança no desenho aparece na tela sem ninguém copiar nada. Três coisas ficam
+do lado do serviço, porque um script de operador não precisa delas e um serviço não funciona sem:
+o peso vem do manifesto declarado em `[render.top_view]`, com sha256 conferido, em vez de um
+caminho relativo ao diretório de quem treinou; o arquivo termina em `var/api/renders`, porque
+`src/` é área de código e o serviço só escreve em `var/`; e falta de peça vira motivo registrado
+em vez de exceção, porque ilustração ausente não é falha de análise.
+
+O render não depende do desfecho da análise, e isso foi medido antes de ser decidido: num clipe
+real de partida com o `config/pipeline.toml` de hoje, a espécie `shot` não aponta instante de
+contato, `process_clip` levanta `NoShotDetected` e o vídeo terminava em `Falhou` sem nada na tela.
+Agora clipe que não abre continua sendo recusa do arquivo, e falha de pipeline vira `Falhou` com
+motivo e com o vídeo gravado do mesmo jeito. A tela mostra os dois: o motivo e o vídeo.
+
+O custo é assimétrico e é o principal preço desta escolha. Medido num clipe da Footstats de 4 s a
+59,94 fps, 240 quadros, em CPU: 2 s de análise contra 84 s de render, porque o script roda dois
+modelos em cada quadro do clipe, e não nos quadros que o conjunto declarado escolhe. O vídeo sai
+com 4,5 MB em H.264, que é o formato que navegador toca.
 
 ## Decisões
 
@@ -166,12 +210,12 @@ leva segundos é o clipe com modelo de verdade sobre vídeo de partida, e esse n
 existe. A decisão é para o segundo caso, e ela custa pouco no primeiro.
 
 **Existem dois caminhos de envio porque chegaram duas especificações.** A mensagem do contrato
-escrito pede o vídeo em base64 dentro do JSON, e é essa que o código do frontend em
-`src/interface` implementa hoje: `useVideoUpload.ts` converte o arquivo com `fileToBase64` e
-`videoService.ts` posta o par de campos `file` e `type` em `/videos/processamento`. A outra
-especificação, a de pedir uma URL e mandar o binário cru por `PUT` no desenho de uma URL
-pré-assinada, ainda não tem cliente escrito. O campo de tipo aparece ora como `contentType`, ora
-como `type`, e o serviço aceita os dois nomes. *Alternativa descartada:* escolher uma das
+escrito pede o vídeo em base64 dentro do JSON, e a outra especificação pede uma URL e o binário
+cru por `PUT`, no desenho de uma URL pré-assinada. O frontend implementou a primeira e trocou pela
+segunda no commit `726c93e`, então hoje o cliente do `PUT` é a própria tela e o caminho base64 não
+tem nenhum: ele fica de pé porque é o que o contrato escrito pede, e sair dele é conversa com quem
+o escreveu. O campo de tipo aparece ora como `contentType`, ora como `type`, e o serviço aceita os
+dois nomes. *Alternativa descartada:* escolher uma das
 especificações e descobrir a divergência no dia da integração. Custa um alias e uma rota, e não
 custa uma reunião. O caminho recomendado continua sendo o `PUT`, porque o corpo é transmitido por
 pedaço direto para o disco: medido hoje, um envio de 100 MB por `PUT` manteve o RSS do processo
@@ -185,9 +229,17 @@ descartada:* exigir também o cabeçalho `Authorization` no `PUT`, que não fech
 alcance, pelo argumento que está em [autenticação e posse do vídeo](/docs/sprint-2/backend/autenticacao).
 A posse do endereço sai de um `UPDATE` condicional, e não de ler o estado e depois gravar: medido
 no serviço anterior, dois `PUT` no mesmo endereço passavam os dois, e com a fila ocupada isso
-acontecia sempre, mesmo sem simultaneidade, porque a janela era a fila inteira. Trocar este serviço
-por um armazenamento de objetos no dia da implantação muda apenas quem escreve o endereço, e não o
-frontend.
+acontecia sempre, mesmo sem simultaneidade, porque a janela era a fila inteira.
+
+**O endereço sai como caminho relativo à raiz do serviço, e não absoluto.** O absoluto só podia ser
+montado com o `Host` da requisição, que é escolhido por quem chama: atrás de um proxy que reescreve
+o cabeçalho o navegador recebia o nome interno do serviço, e com TLS terminado acima recebia
+`http://`, que o navegador bloqueia como conteúdo misto. *Alternativa descartada:* honrar
+`X-Forwarded-Proto` e `X-Forwarded-Host`, que não resolve o primeiro caso, porque o
+`ProxyHeadersMiddleware` do uvicorn não lê `X-Forwarded-Host`, e ainda exige acertar
+`--forwarded-allow-ips`, cujo padrão `127.0.0.1` descarta o cabeçalho vindo de outro contêiner.
+Quem chama já sabe a base, porque precisou dela para chegar aqui, e `src/tests/api/test_enderecos.py`
+manda um `Host` forjado e cobra que ele não apareça na resposta.
 
 **Um middleware recusa corpo grande pelo cabeçalho, antes de ele existir em memória.** Medido
 hoje: um `POST` no caminho base64 declarando `Content-Length` de 300 MB foi recusado com 413 em
@@ -304,9 +356,9 @@ do serviço em `uvicorn`, nesta máquina, com `curl` e amostragem de RSS por `ps
 reproduzíveis e valem para este hardware, não para a Jetson. Os números marcados como medidos no
 serviço anterior vêm das docstrings e dos testes que guardam cada correção, e descrevem um código
 que não existe mais: eles justificam a decisão, e não descrevem o comportamento atual. O que não
-tem medição está escrito como projeção. A suíte da API tem 162 testes e cobre 97,68% das linhas
-de `src/api`; nesta máquina, três execuções de `pytest src/tests/api` levaram entre 9,0 s e
-12,2 s, e 11,3 s com a medição de cobertura ligada.
+tem medição está escrito como projeção. A suíte da API tem 203 testes e cobre 96,51% das linhas
+de `src/api`, medidos em 28/08/2026 com `uv run pytest src/tests/api --cov=src/api`; a mesma
+execução sem a medição de cobertura leva 3,5 s nesta máquina.
 
 ## Trade-offs
 
@@ -324,9 +376,10 @@ com várias pessoas ao mesmo tempo.
 rodar em mais de uma instância, isto vira PostgreSQL. A troca fica contida porque nenhum chamador
 conhece SQL, só as funções de `store.py`, mas ela vai acontecer, e o gatilho é a segunda instância.
 
-**A desvantagem dos dois caminhos de envio é manter e testar duas superfícies.** Ela se paga
-enquanto as duas especificações estiverem em aberto, e deve ser cobrada quando o time do frontend
-fechar em uma.
+**A desvantagem dos dois caminhos de envio é manter e testar duas superfícies.** A condição que
+justificava o custo já venceu: o frontend fechou no `PUT`, e o caminho base64 segue mantido e
+testado sem nenhum cliente. Ele fica porque é o que o contrato escrito pede, e tirá-lo é decisão
+de quem escreveu o contrato, não do serviço.
 
 **A desvantagem do 413 pelo cabeçalho é que `Content-Length` é afirmação do cliente.** Ele some em
 envio fragmentado, e aí quem segura é o teto por pedaço, que só corta depois de ter recebido os
@@ -356,9 +409,11 @@ voo voltam na subida seguinte, e há teste para os dois casos. O que não há é
 instâncias sobre o mesmo `var/` recuperariam os mesmos órfãos e processariam o mesmo vídeo duas
 vezes.
 
-**Não há limite de taxa por chamador.** O teto de corpo e o teto de fila seguram volume, não
-frequência. Um cliente em laço não derruba o serviço, mas ocupa a fila inteira e empurra todos os
-outros para o 503.
+**As rotas de vídeo não têm limite de taxa por chamador.** O teto existe em `/v1/auth/login` e em
+`/v1/auth/register`, descrito em
+[autenticação e posse do vídeo](/docs/sprint-2/backend/autenticacao), e não nas seis rotas de
+vídeo: nelas o teto de corpo e o teto de fila seguram volume, não frequência. Um cliente em laço
+não derruba o serviço, mas ocupa a fila inteira e empurra todos os outros para o 503.
 
 **O disco em trânsito não tem teto próprio.** O arquivo enviado fica em `var/uploads/` entre o 202
 e o fim do processamento, e com o teto de fila em 32 e 128 MB por arquivo o pior caso é da ordem
@@ -369,16 +424,12 @@ arquivos no tamanho máximo.
 esquecer de ajustar `XVISION_CORS_ORIGINS` na implantação faz o navegador do usuário bloquear a
 chamada sem que o serviço registre nada de anormal.
 
-**O cliente do frontend ainda não fecha com este contrato, em três pontos.** O `api.ts` de
-`src/interface` não manda cabeçalho `Authorization` em chamada nenhuma, e as duas rotas que ele
-usa exigem credencial, então a integração de hoje responderia 401 antes de qualquer vídeo entrar.
-Ele lê o resultado em `/videos_processados/{id}`, endereço que este serviço não publica, porque o
-resultado sai em `GET /v1/videos/{video_id}`. E os nomes de campo declarados em `videoService.ts`
-não são os que o serviço devolve: no nível do resultado, `results` contra `resultados`, `name`
-contra `nome_processo` e `metrics` contra `metricas`; dentro de cada métrica, `name`,
-`unit_measurement`, `type` e `value` contra `nome`, `unidade_de_medida`, `tipo` e `valor`, que
-ainda ganha o `status` que o tipo do frontend não prevê. Nenhum dos três é difícil de resolver, e
-os três dependem de uma decisão conjunta sobre qual lado muda.
+**O cliente do frontend fecha com este contrato, e o que resta é o que nenhum dos dois lados
+mede.** Os três pontos que faltavam foram resolvidos: `api.ts` manda `Authorization` em toda
+chamada, o resultado é lido em `GET /v1/videos/{video_id}` e `videoService.ts` traduz os nomes de
+campo numa fronteira só, `status` da métrica incluído. O que segue aberto é que nenhum teste
+automático exercita os dois lados juntos: a prova de hoje é uma execução do fluxo inteiro contra
+a imagem do frontend e o serviço em pé, feita à mão.
 
 ## Ainda não implementado
 
@@ -387,10 +438,11 @@ os três dependem de uma decisão conjunta sobre qual lado muda.
 | `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir, na tela, que a unidade que chega é a mesma que a `FeatureSpec` declara, e que uma feature sem leitura aparece com `status` diferente de `ok` |
 | `frame` de demonstração | Desenhar a caixa do atirador no quadro do contato e comparar com o gabarito da fixture sintética, que é conhecido pixel a pixel |
 | O tempo real de um clipe | Medir o pipeline com o primeiro modelo de verdade sobre um clipe da Footstats, e só então fixar o teto da fila e o `Retry-After` com base no número |
+| O vídeo anotado dentro da imagem | Os dois manifestos de `models/` passaram a entrar na imagem, e o que falta é o resto: o render exige `torch`, `ultralytics` e os dois pesos, o que leva a imagem de 932 MB para alguns GB, e essa decisão é do time. Hoje o extra `topview` liga isso fora da imagem; o teste é medir a imagem com os extras e o tempo de subida antes de escolher |
 | Mais de uma instância | Trocar SQLite por PostgreSQL e a fila em processo por uma externa; o teste é subir duas instâncias sobre o mesmo estado e conferir que nenhum vídeo é processado duas vezes |
 | Limite de taxa por chamador | Medir requisições por minuto de um cliente real antes de escolher o teto, para não inventar um número |
 | Transporte da borda para a nuvem | O contrato do evento já existe; falta a frente de serviços decidir o meio, e o teste é o mesmo evento sair de uma máquina e chegar íntegro na outra |
-| Integração fechada com o frontend | Apontar `VITE_API_URL` para `/v1`, mandar o cabeçalho `Authorization`, trocar `/videos_processados/{id}` por `GET /v1/videos/{video_id}` e acertar os nomes de campo; o teste é a tela exibir o resultado de um clipe que ela mesma enviou |
+| Teste automático dos dois lados juntos | A integração com o frontend está fechada e foi exercitada à mão, clipe enviado pela tela até o resultado aparecer; falta um teste que suba serviço e interface e cobre o mesmo caminho sem ninguém olhando |
 
 ## Referências
 

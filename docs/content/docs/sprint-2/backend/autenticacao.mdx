@@ -241,9 +241,8 @@ apareça antes do `raise`.
 **O `PUT` do envio não exige Bearer, e isso é decisão e não esquecimento.** O endereço de envio já
 é uma credencial: 32 bytes sorteados, preso a um vídeo específico, válido uma vez só e reivindicado
 por `UPDATE` condicional, de modo que dois `PUT` no mesmo endereço nunca passam os dois. É o mesmo
-desenho de uma URL pré-assinada de armazenamento de objetos, e ele ainda não tem cliente escrito: o
-frontend de hoje manda o vídeo em base64 pela outra rota, como descreve
-[o serviço HTTP](/docs/sprint-2/backend/servico-http). A alternativa descartada era exigir também o
+desenho de uma URL pré-assinada de armazenamento de objetos, e o cliente dele é a própria tela,
+como descreve [a interface](/docs/sprint-2/frontend). A alternativa descartada era exigir também o
 cabeçalho, e ela não fecharia nada e custaria alcance: quem tem o endereço já passou por
 `POST /v1/videos/upload-url`, que exige credencial e é onde a posse do vídeo foi gravada, e exigir
 os dois obrigaria todo cliente futuro a carregar a sessão até o último passo do envio, inclusive um
@@ -296,19 +295,31 @@ nesta sprint.
 
 ## Riscos e incertezas
 
-O `compose.yaml` traz um valor padrão de desenvolvimento para `XVISION_AUTH_SECRET`. O código
-recusa segredo ausente justamente para forçar uma decisão, e esse padrão desfaz metade da proteção
-se alguém subir o compose como está fora da máquina de desenvolvimento. O impacto é direto: com o
-segredo conhecido, qualquer pessoa assina uma sessão para qualquer `sub`.
+O `compose.yaml` trazia um valor padrão de desenvolvimento para `XVISION_AUTH_SECRET`, e ele saiu:
+com o segredo versionado, qualquer pessoa com o repositório assinaria uma sessão para qualquer
+`sub`, o que desfaz inteira a decisão que a seção acima descreve. Hoje o compose usa
+`${XVISION_AUTH_SECRET:?...}`, então ele recusa subir sem a variável, com a mesma intenção que o
+`auth.segredo` já tinha. O preço é uma etapa a mais para quem clona: copiar o `.env.example` e
+gerar um segredo. O que sobra de risco é o `.env` da máquina de quem desenvolve, que não é
+versionado e vale o que valer o disco dela.
 
 Vídeo gravado antes da terceira migração tem `principal_id` nulo, e `conferir_posse` compara
 igualdade, então esse vídeo responde 404 para todo mundo, inclusive para quem o enviou. O impacto
 é perda de acesso a resultado antigo, não vazamento, e vale conferir antes de reaproveitar um
 banco anterior a esta sprint.
 
-Não há limite de taxa nem bloqueio após tentativas erradas. A única barreira contra adivinhação de
-senha é o custo do `scrypt` somado ao mínimo de 12 caracteres, e esse mínimo também está abaixo da
-recomendação: a
+O teto de tentativas existe e cobre as duas rotas abertas, mas ele não fecha o ataque de senha
+única contra muitas contas. Em `/v1/auth/login` a contagem é por par (origem, email), com 20
+tentativas erradas em 300 s, e a chave inclui o email de propósito: sem isso, quem erra a senha por
+trás do mesmo NAT trancaria a conta do vizinho, e há teste para esse caso. A consequência é que
+tentar uma senha provável contra vinte contas diferentes nunca acumula duas tentativas na mesma
+chave. Em `/v1/auth/register` a chave é só a origem, porque o email é novo a cada chamada, e o
+mesmo teto vale: ele existe porque essa é a rota aberta mais cara do serviço, e não porque alguém
+mediu quantos cadastros por minuto são normais. A contagem vive na memória do processo, então com
+mais de uma réplica cada uma conta a sua e o teto efetivo multiplica.
+
+A outra barreira contra adivinhação de senha é o custo do `scrypt` somado ao mínimo de 12
+caracteres, e esse mínimo está abaixo da recomendação: a
 [folha de autenticação do OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 trata como fraca, citando o NIST SP 800-63B, toda senha com menos de 15 caracteres quando não há
 segundo fator, e segundo fator não existe aqui. A 19 ms por derivação, uma tentativa de cada vez
@@ -330,17 +341,22 @@ hardware de destino nem da recomendação do OWASP, que pede oito vezes mais. Se
 de 100 ms lá, o login vira o gargalo do serviço e o parâmetro precisa cair; se sobrar memória, ele
 sobe até onde a placa aguentar.
 
-O frontend ainda não tem tela de login, então a metade de conta de usuário não tem consumidor. A
-integração hoje acontece por token de serviço, e a sessão só é exercitada por teste.
+A conta de usuário passou a ter consumidor: a tela de login existe em `src/interface`, guarda o
+`access_token` devolvido pelo `/v1/auth/login` e confere quem entrou em `/v1/auth/me` antes de
+gravar a sessão, o que está descrito em [a interface](/docs/sprint-2/frontend). O token fica em
+`localStorage`, e esse é o risco conhecido dessa escolha: qualquer script da página o lê. A imagem
+do frontend passou a mandar `Content-Security-Policy`, que é a mitigação correspondente, e ela
+reduz a superfície sem eliminar o risco.
 
 ## Ainda não implementado
 
 | O que falta | Como a hipótese será testada |
 | --- | --- |
 | Revogar uma sessão sem derrubar as outras | Guardar uma versão por principal dentro do corpo assinado; teste emite duas sessões, invalida uma e confere que a outra segue valendo |
-| Limite de taxa no login | Medir logins por minuto de um cliente real antes de escolher o teto; teste dispara N tentativas seguidas e espera 429 com `Retry-After` |
+| Teto de login calibrado por medição | O teto de 20 em 300 s e o de registro não saíram de medição nenhuma: falta contar logins por minuto de uso real e só então fixar o número, sem trocar um valor inventado por outro |
+| Balde por origem contra senha única em muitas contas | A chave do login inclui o email para não trancar a conta do vizinho de NAT, e por isso não vê o ataque que troca de conta a cada tentativa; o teste é disparar uma senha contra N contas da mesma origem e cobrar 429 antes da N-ésima, sem quebrar o caso do vizinho |
 | Parâmetro do `scrypt` calibrado na Jetson | Rodar a derivação na placa e subir `N` o mais perto possível do piso `2^17` do OWASP sem estourar o tempo de login nem a memória disputada com o decodificador; teste de regressão fixa o formato guardado, que já carrega os parâmetros |
-| Tela de login no frontend | Apontar `VITE_API_URL` para `/v1`, guardar o `access_token` e conferir que `GET /v1/auth/me` responde 200 com o email certo |
+| Revogação vista pela tela | A tela de login existe, guarda o `access_token` e confere a sessão em `GET /v1/auth/me` logo depois de entrar; falta o caminho de revogar uma sessão e a tela perceber sem esperar o vencimento |
 | Registro que não revela se o email já tem conta | Responder 201 nos dois casos e avisar o dono por email; teste registra o mesmo email duas vezes e cobra a mesma resposta, como o teste de login já faz |
 | Mínimo de senha nos 15 caracteres do OWASP | Subir `SENHA_MINIMA` junto com a tela de login do frontend, para não invalidar conta já criada; teste cobra 422 em senha de 14 caracteres |
 | TLS na frente do serviço | Terminar TLS no proxy e conferir que o endereço de envio deixa de trafegar em claro |

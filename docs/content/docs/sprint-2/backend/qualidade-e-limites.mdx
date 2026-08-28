@@ -27,8 +27,8 @@ deles, e não o desenho do backend, que está na
    └────────────────────────┬─────────────────────────────────┘
                             │  toda MR, e todo commit em develop
                             ▼
-       CI do GitLab: 4 jobs de Python + 3 de Terraform,
-       mais pipeline:check, que só roda na merge request
+       CI do GitLab: 5 jobs de Python, 6 de frontend, 3 de
+       Terraform, 2 de docs, mais pipeline:check e branch-rules
                             │
                             ▼
                           merge
@@ -46,9 +46,9 @@ deles, e não o desenho do backend, que está na
 | --- | --- | --- |
 | `ruff check` e `ruff format --check` | que o código respeita as seis famílias de regra selecionadas e sai formatado igual na mão de todo mundo | nada sobre comportamento: um módulo inteiro errado passa formatado |
 | `pyright` em modo estrito | que os tipos fecham em todo o `src/`, sem `Any` implícito, verificado no piso 3.10 | que o tipo descreve a intenção: um `float` bem tipado continua podendo trazer pixel onde a feature espera metro |
-| `pytest --cov` | que 743 testes passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
+| `pytest --cov` | que os 864 testes de Python passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
 | `uv pip compile` para `aarch64` | que existe roda binária de cada dependência de execução para a arquitetura da placa, no piso 3.10 | que roda na Jetson: resolução não é instalação, e ninguém do grupo tem a placa nesta sprint |
-| meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e as promessas do README continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
+| meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e a correspondência entre o CI e os portões locais continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
 | `conftest.py` da suíte | que nenhum teste escreve no `var/` de quem roda, que o segredo de assinatura existe e que o dump do parceiro está escondido | não impede um teste de criar estado dentro do próprio `tmp_path` e depender dele |
 | suíte de conformidade de módulo | que um módulo respeita o pré-processamento que declarou, é determinístico, fecha o que abriu e entrega as chaves da espécie | que o módulo acerta: ela cobra o contrato, nunca a acurácia |
 | teste de mutação | que a suíte derruba um defeito plausível replantado no código | que os defeitos plausíveis foram bem escolhidos: a lista é escrita à mão |
@@ -68,17 +68,23 @@ uv run --all-extras pyright
 uv run --all-extras pytest --cov -q
 ```
 
-A saída medida no dia 25/08/2026, no worktree da branch `feat/backend-fundacao`, num Apple M5 com
+A saída medida no dia 28/08/2026, no worktree da branch `feat/frontend`, num Apple M5 com
 Python 3.10.20:
 
 ```text
 All checks passed!
-116 files already formatted
+147 files already formatted
 0 errors, 0 warnings, 0 informations
-TOTAL                                   3034     94    97%
-Required test coverage of 80.0% reached. Total coverage: 96.90%
-743 passed, 1 skipped in 7.93s
+TOTAL                                   4548    654    86%
+Required test coverage of 80.0% reached. Total coverage: 85.62%
+864 passed in 11.36s
 ```
+
+A cobertura desceu de 96,90% para 85,62% entre a sprint e esta branch, e nenhum teste foi apagado
+no caminho: `[tool.coverage.run]` passou a incluir `src/models`, que são scripts de operador sem
+suíte, e eles somam 434 linhas nunca executadas. Medindo só as cinco áreas do backend a cobertura
+é 96,65%. Deixar `src/models` no denominador é decisão, e não descuido: esconder da medida o código
+que ninguém testa transformaria o número num elogio.
 
 Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 6 segundos sem
 cobertura e 8 com ela. Esse é o piso, e não uma constante: em dez execuções seguidas na mesma
@@ -206,7 +212,7 @@ vermelha, o que é a melhora possível, e não conserta o problema de fundo: gua
 aproximação da propriedade que interessa, e vale exatamente enquanto o nome e o formato ficarem
 parados.
 
-A terceira é que 105 dos 743 testes, cerca de 14%, testam o repositório e não o produto. Eles
+A terceira é que 117 dos 864 testes, cerca de 13%, testam o repositório e não o produto. Eles
 pagam manutenção quando a estrutura muda, e já quebraram duas vezes pelo mesmo motivo que existem
 para impedir, que é depender do ambiente de quem escreve. A segunda dessas quebras virou um teste
 que varre a própria suíte procurando caminho construído a partir da raiz do repositório e cobra
@@ -240,7 +246,7 @@ sim uma chamada que alcançava o dump por dentro, e por isso a cura foi esconder
 três.
 
 **Os números da suíte são sobre a fixture sintética, e não sobre vídeo.** Os sete módulos
-respondem do gabarito da fixture, então 743 testes verdes provam que a plataforma liga, e não que
+respondem do gabarito da fixture, então 864 testes verdes provam que a plataforma liga, e não que
 alguma coisa detecta jogador. Ler a cobertura como se fosse indicador de qualidade do produto seria
 o erro mais fácil de cometer com esta página aberta.
 

@@ -86,8 +86,11 @@ produção qual ficou para trás. Um teste recusa rota de contrato registrada fo
 outro recusa a versão do documento discordar do prefixo da URL.
 
 **Para o frontend isso não é mudança de código.** O `videoService.ts` monta as chamadas como
-`${VITE_API_URL}/videos/upload-url`, então basta a variável de ambiente apontar para
-`http://host/v1`. O endereço do `PUT` já vem pronto na resposta, com a versão dentro.
+`${VITE_API_URL}/v1/videos/upload-url`, e o endereço do `PUT` chega na resposta como caminho
+relativo, também com a versão dentro. Por isso `VITE_API_URL` aponta para a raiz do serviço
+(`http://host`, sem `/v1` e sem barra no fim), que é o que o `compose.yaml` e o
+`src/interface/Dockerfile` já usam: com `/v1` na variável, o caminho devolvido dobraria o prefixo
+e o `PUT` cairia em 404.
 
 Quem chamar sem versão recebe 404, e `GET /` diz para onde ir, porque chamada sem versão é o
 erro mais provável de quem integra.

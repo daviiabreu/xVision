@@ -1,0 +1,13 @@
+meta {
+  name: 10 analysis render
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/videos/{{videoId}}/render
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

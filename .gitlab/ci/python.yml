@@ -78,3 +78,28 @@ python:arm64:
       uv pip compile --only-binary :all:
       --python-platform aarch64-unknown-linux-gnu --python-version 3.10
       /tmp/edge.txt -o /tmp/arm64.txt
+
+api:image:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_HOST: tcp://docker:2375
+  extends:
+    - .actions-rules:python
+  needs:
+    - python:test
+  script:
+    - docker build --build-arg EXTRA=api -t "$CI_PROJECT_NAME-api:$CI_COMMIT_SHORT_SHA" .
+    - >
+      docker run -d --name api -p 8080:8080
+      -e XVISION_AUTH_SECRET=segredo-de-ci-com-tamanho-suficiente-para-passar
+      --entrypoint uv "$CI_PROJECT_NAME-api:$CI_COMMIT_SHORT_SHA"
+      run --no-sync uvicorn api:create_app --factory --host 0.0.0.0 --port 8080
+    - sleep 5
+    - docker run --rm --network host curlimages/curl:8.11.1 -sf http://localhost:8080/health
+    - docker run --rm --network host curlimages/curl:8.11.1 -sf http://localhost:8080/openapi.json -o /tmp/o.json
+    # Sem `-f` de proposito: com ele o curl sai com erro no 401 e o status nunca chega ao grep.
+    - docker run --rm --network host curlimages/curl:8.11.1 -s -o /dev/null -w "%{http_code}" http://localhost:8080/v1/videos/1/render | grep -q 401

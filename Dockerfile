@@ -6,9 +6,12 @@ RUN useradd --create-home --uid 10001 xvision \
 USER xvision
 
 WORKDIR /app
-COPY --chown=xvision:xvision pyproject.toml uv.lock ./
+# O `README.md` entra porque `[project] readme` aponta para ele: sem o arquivo, o hatchling recusa
+# ler a metadata e o `uv sync` morre com `Readme file does not exist`. Sao 6 kB.
+COPY --chown=xvision:xvision pyproject.toml uv.lock README.md ./
 COPY --chown=xvision:xvision src ./src
 COPY --chown=xvision:xvision config ./config
+COPY --chown=xvision:xvision models ./models
 
 ARG EXTRA=""
 ENV UV_NO_CACHE=1

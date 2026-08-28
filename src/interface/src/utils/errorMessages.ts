@@ -1,0 +1,15 @@
+export const ERROR_MESSAGES = {
+  VIDEO_UPLOAD_FAILED: "Não foi possível enviar o vídeo. Tente novamente.",
+  VIDEO_INVALID: "Selecione um arquivo de vídeo válido.",
+  VIDEO_EMPTY: "O arquivo selecionado está vazio.",
+  VIDEO_TOO_LARGE: "O vídeo deve ter no máximo 128 MB.",
+  VIDEO_UNREADABLE: "O arquivo não abriu como vídeo. Ele pode estar corrompido.",
+  NO_CONNECTION: "Não foi possível falar com o servidor. Verifique sua conexão.",
+  TOO_MANY_ATTEMPTS: "Tentativas demais. Espere alguns minutos antes de tentar de novo.",
+  QUEUE_FULL: "A fila de análise está cheia. Tente de novo em alguns minutos.",
+  INVALID_REQUEST: "O servidor recusou os dados enviados. Confira e tente de novo.",
+  SERVER_ERROR: "O servidor não conseguiu responder. Tente novamente em instantes.",
+  SESSION_EXPIRED: "Sua sessão expirou. Entre de novo para continuar.",
+  UNEXPECTED_ADDRESS: "O servidor respondeu com um endereço inesperado.",
+  API_URL_MISSING: "A aplicação foi publicada sem o endereço da API. Avise quem a implantou.",
+} as const;

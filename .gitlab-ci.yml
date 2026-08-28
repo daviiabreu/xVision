@@ -2,7 +2,6 @@ stages:
   - test
   - build
   - deploy
-  # more stages
 
 include:
   - local: ".gitlab/ci/variables.yml"
@@ -12,6 +11,6 @@ include:
   - local: ".gitlab/ci/python.yml"
   - local: ".gitlab/ci/terraform.yml"
   - local: ".gitlab/ci/docs.yml"
+  - local: ".gitlab/ci/frontend.yml"
   - local: ".gitlab/ci/release.yml"
 
-  # more component pipelines

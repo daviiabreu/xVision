@@ -46,3 +46,19 @@ def test_stores_are_separate_from_services() -> None:
 
     assert 'variable "stores"' in texto
     assert 'resource "terraform_data" "store"' in texto
+
+
+def test_a_static_bundle_declares_a_build_arg_instead_of_a_runtime_variable() -> None:
+    """A imagem do frontend e nginx servindo estatico: variavel de ambiente ali nao e lida.
+
+    O endereco da API e substituido pelo Vite no build. Declara-lo como `API_URL` de execucao
+    faria a saida de `terraform output -json topology` descrever algo que ninguem le, e o passo de
+    implantacao que a consome passaria a variavel para o lugar errado.
+    """
+    texto = _hcl()
+
+    assert "build_args" in texto, "a topologia nao distingue argumento de build de variavel"
+    assert 'build_args  = { VITE_API_URL = "api" }' in texto
+    assert "if !contains(values(s.build_args), d)" in texto, (
+        "a dependencia resolvida no build nao pode sair tambem como variavel de ambiente"
+    )

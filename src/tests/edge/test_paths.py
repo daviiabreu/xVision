@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from edge.paths import DataUnavailable, data_root, var_dir
+from edge.paths import DataUnavailable, data_root, pipeline_config, var_dir
 
 
 def test_var_defaults_to_var_beside_the_repository(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,3 +71,18 @@ def test_the_perception_cache_never_writes_inside_the_partner_dump() -> None:
 
     assert entrada != raiz
     assert entrada not in raiz.parents
+
+
+def test_a_variavel_escolhe_qual_pipeline_o_servico_usa(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Sem isto o servico so roda o pipeline de stub, que responde sem medir nada."""
+    monkeypatch.setenv("XVISION_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "pipeline.toml").write_text("", encoding="utf-8")
+    (tmp_path / "pipeline.models.toml").write_text("", encoding="utf-8")
+
+    monkeypatch.delenv("XVISION_PIPELINE", raising=False)
+    assert pipeline_config().name == "pipeline.toml"
+
+    monkeypatch.setenv("XVISION_PIPELINE", "pipeline.models.toml")
+    assert pipeline_config().name == "pipeline.models.toml"

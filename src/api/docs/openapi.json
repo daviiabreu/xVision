@@ -56,7 +56,7 @@
           "/v1"
         ],
         "summary": "Cria uma conta de usuario.",
-        "description": "Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.",
+        "description": "Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.\n\nO teto e por origem, e nao por par (origem, email) como no login: aqui o email e novo a cada\nchamada, entao uma chave que o incluisse nunca acumularia duas tentativas. Esta e a rota nao\nautenticada mais cara do servico, porque roda `scrypt` e grava uma linha, e sem teto ela\naceitava trabalho ate o pool de threads do Starlette encher.\n\nA contagem inclui o cadastro que deu certo, porque ele custa o mesmo `scrypt` do que falhou, e\npor isso o teto e o de `REGISTROS_ENV` e nao o do login: atras de um NAT a origem e uma so para\na turma inteira, e vinte cadastros em cinco minutos trancariam a demonstracao.",
         "operationId": "_rota_registro_v1_auth_register_post",
         "requestBody": {
           "content": {
@@ -89,6 +89,16 @@
               }
             }
           },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -108,7 +118,7 @@
           "/v1"
         ],
         "summary": "Troca email e senha por uma sessao.",
-        "description": "Email desconhecido e senha errada respondem igual, e demoram igual.\n\nRespondendo diferente, a rota vira lista de emails cadastrados. Por isso a senha e conferida\nmesmo quando a conta nao existe: sem isso, o caminho do email desconhecido volta antes de\nrodar o `scrypt` e o tempo de resposta conta a diferenca sozinho.",
+        "description": "Email desconhecido e senha errada respondem igual, e demoram igual.\n\nRespondendo diferente, a rota vira lista de emails cadastrados. Por isso a senha e conferida\nmesmo quando a conta nao existe: sem isso, o caminho do email desconhecido volta antes de\nrodar o `scrypt` e o tempo de resposta conta a diferenca sozinho.\n\nA contagem de erradas vive em memoria do processo. Com mais de uma replica cada uma conta a\nsua, e o teto efetivo multiplica; resolver isso pede estado compartilhado, que so se paga\nquando existir a segunda replica.",
         "operationId": "_rota_login_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -133,6 +143,16 @@
           },
           "401": {
             "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
             "content": {
               "application/json": {
                 "schema": {
@@ -578,6 +598,65 @@
           }
         }
       }
+    },
+    "/v1/videos/{video_id}/render": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Devolve o video anotado da analise.",
+        "description": "Devolve o video anotado da analise, e 404 quando ele nao foi produzido.",
+        "operationId": "_rota_render_v1_videos__video_id__render_get",
+        "parameters": [
+          {
+            "name": "video_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Video Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "O video anotado.",
+            "content": {
+              "video/mp4": {}
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nao existe video com esse identificador, ou o endereco de envio e desconhecido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -661,12 +740,21 @@
             "title": "Unidade De Medida"
           },
           "tipo": {
-            "type": "string",
-            "enum": [
-              "boolean",
-              "float"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "boolean",
+                  "float",
+                  "text"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Tipo"
+            "title": "Tipo",
+            "description": "Tipo do valor medido. Nulo quando nao houve leitura, porque ele sai do valor."
           },
           "valor": {
             "anyOf": [
@@ -675,6 +763,9 @@
               },
               {
                 "type": "number"
+              },
+              {
+                "type": "string"
               },
               {
                 "type": "null"
@@ -698,8 +789,7 @@
         "type": "object",
         "required": [
           "nome",
-          "unidade_de_medida",
-          "tipo"
+          "unidade_de_medida"
         ],
         "title": "Metrica"
       },
@@ -858,6 +948,18 @@
             ],
             "title": "Motivo",
             "description": "Preenchido apenas quando Falhou."
+          },
+          "render_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Url",
+            "description": "Caminho do video anotado da analise, relativo a raiz do servico, quando ele o produziu. Nulo quando o render nao rodou, e o motivo fica no log e nao aqui: a analise nao falhou por isso."
           }
         },
         "type": "object",
@@ -963,7 +1065,7 @@
           "uploadUrl": {
             "type": "string",
             "title": "Uploadurl",
-            "description": "Endereco para onde mandar o binario por PUT."
+            "description": "Caminho para onde mandar o binario por PUT, relativo a raiz do servico."
           }
         },
         "type": "object",

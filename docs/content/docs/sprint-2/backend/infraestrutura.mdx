@@ -1,10 +1,10 @@
 ---
 title: Infraestrutura, contêiner e integração contínua
-description: A imagem única que vira sete trocando um argumento, a topologia declarada sem provedor e os oito portões que rodam em cada merge request
+description: A imagem única que vira sete trocando um argumento, a topologia declarada sem provedor e os portões que rodam em cada merge request
 ---
 
 Esta página cobre como o backend sai da máquina de quem escreveu: a imagem que empacota o sistema,
-o wheel que uma instalação produz, a topologia declarada em HCL e os oito jobs do CI. Ela é o par
+o wheel que uma instalação produz, a topologia declarada em HCL e os jobs do CI. Ela é o par
 operacional da [visão geral do backend](/docs/sprint-2/backend), e o que cada portão
 prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
@@ -28,10 +28,14 @@ prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qual
      ├─ infra/*.tf ──► terraform fmt · validate · plan
      │                 3 recursos planejados, nenhum aplicado
      │
-     └─ .gitlab/ci/*.yml ──► 8 jobs na merge request, 7 no merge para develop
+     └─ .gitlab/ci/*.yml ──► 9 jobs em toda merge request, mais os que
+                              dependem do que a mudança tocou
               pipeline:check
-              python:lint · python:types · python:test · python:arm64
+              python:lint · python:types · python:test · python:arm64 · api:image
               terraform:fmt · terraform:validate · terraform:plan
+              só quando src/interface muda: frontend:lint · frontend:format ·
+              frontend:types · frontend:test · frontend:build · frontend:image
+              só quando docs muda: docs:lint
 ```
 
 ## Componentes e responsabilidades
@@ -40,9 +44,9 @@ prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qual
 | --- | --- | --- |
 | `Dockerfile` | uma imagem parametrizada por `ARG EXTRA`, com usuário não-root e healthcheck próprio | não constrói para a Jetson, não publica em registro, não roda teste |
 | `.dockerignore` | limitar o que um `COPY` consegue alcançar no repositório | não protege material que já entrou numa camada e não é o que faz o contexto ser pequeno |
-| `compose.yaml` | dois serviços da mesma imagem, com montagens e variáveis de desenvolvimento | não é o modo de produção e não guarda segredo de verdade |
+| `compose.yaml` | três serviços, dois da mesma imagem do backend e um do frontend, com montagens e variáveis de desenvolvimento | não é o modo de produção, não guarda segredo e recusa subir sem `XVISION_AUTH_SECRET` |
 | `infra/*.tf` | declarar a topologia: serviços, portas, rota de saúde, dependências e armazenamento | não cria recurso, não conhece provedor, não guarda estado |
-| `.gitlab/ci/*.yml` | oito portões por merge request, mais os jobs de documentação e release | não constrói imagem, não aplica infraestrutura, não roda na placa |
+| `.gitlab/ci/*.yml` | nove portões em toda merge request, mais os seis do frontend e o da documentação quando a mudança os alcança | não publica imagem em registro, não aplica infraestrutura, não roda na placa |
 | `pyproject.toml` | o que entra no wheel, o console script `xvision` e o piso de cobertura | não descreve o contêiner nem a topologia |
 
 ## Fluxo de dados
@@ -160,8 +164,8 @@ provavelmente por diferença de arquitetura ou de versão de dependência.
 **`UV_NO_CACHE=1`, com um ganho menor do que a nota do `Dockerfile` sugere.** Alternativa
 descartada: montar o cache do uv com `RUN --mount=type=cache`, que acelera a reconstrução e
 também não deixa nada na camada final. Ela foi recusada porque amarra a construção ao cache
-local de quem constrói, e este projeto não tem registro nem job de CI que construa imagem, então
-o ganho ficaria numa máquina só enquanto o arquivo passaria a depender de um recurso do BuildKit
+local de quem constrói, e o job que constrói a imagem no CI começa com o cache frio a cada execução,
+então o ganho ficaria na máquina de quem desenvolve enquanto o arquivo passaria a depender de um recurso do BuildKit
 que a base da Jetson ainda vai ter de suportar. Dentro do contêiner
 o cache do uv ocupa 150 MB ao lado dos 147 MB do venv, e o `du` confirma os dois números. O que
 não se confirmou foi a economia: construindo sem a variável, a imagem foi de 498 MB para 503 MB em
@@ -208,8 +212,8 @@ não serve de evidência aqui: neste repositório ele deu 8,34 kB numa reconstru
 cópia limpa, com o arquivo de exclusão no lugar. A evidência que dá para conferir é direta e é
 outra: com o `.dockerignore`, `src/tests/` não entra na imagem, e `ls /app/src/tests` dentro do
 contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`,
-`var/`, `.git/`, `.venv/`) esteja listada, porque não há CI que construa imagem para pegar a
-regressão.
+`var/`, `.git/`, `.venv/`) esteja listada, porque o job que constrói a imagem confere que ela sobe
+e responde, e não o que ela deixou de carregar.
 
 **Terraform declara a topologia e nunca aplica, e é por isso que ele é entrega e não decoração.**
 A proposta tinha sido rejeitada antes, com motivo escrito: o provider comunitário do provedor
@@ -236,9 +240,12 @@ justamente o único momento em que nada rodava. A regra `.actions-rules:python` 
 `develop` explicitamente, e um teste compara essa constante com o alvo declarado no arquivo de
 configuração local da pipeline, pulando quando o arquivo não existe, porque ele não é versionado e
 o runner não o tem. O `pipeline:check` ficou de fora dessa correção: ele herda a regra genérica,
-que cobre a merge request e a branch padrão, e a branch padrão do projeto é `main`. São oito jobs
-na merge request e sete no commit que cai em `develop`, e fechar essa diferença é trabalho de uma
-linha que ainda não foi feito.
+que cobre a merge request e a branch padrão, e a branch padrão do projeto é `main`. São nove jobs
+sempre presentes na merge request e oito no commit que cai em `develop`, e fechar essa diferença é
+trabalho de uma linha que ainda não foi feito. Os seis do frontend e o da documentação entram por
+cima disso quando a mudança toca `src/interface` ou `docs`, e ficam de fora quando não toca: eles
+filtram por caminho de propósito, porque rodar `npm ci` numa mudança que só mexe em Python custa
+minuto de runner sem provar nada.
 
 **O `python:arm64` exige roda binária, e não só uma resolução.** Ele exporta o lock com as flags
 listadas acima e resolve o resultado para `aarch64-unknown-linux-gnu` com `--only-binary :all:`,
@@ -260,16 +267,18 @@ varre a árvore sintática de `src/` recusando o padrão fora dos testes.
 
 O que o desenho compra: um arquivo descreve o ambiente de todo mundo, o contêiner roda o pipeline
 inteiro sem rede e sem montagem, a topologia de produção é revisável numa MR antes de existir
-qualquer conta de nuvem, e os sete portões de código e de infraestrutura rodam tanto na MR quanto
+qualquer conta de nuvem, e os oito portões de código e de infraestrutura rodam tanto na MR quanto
 no commit que integra `develop`.
 
-**A desvantagem principal: nenhum dos oito jobs toca a imagem nem a infraestrutura de verdade.**
-O CI prova lint, tipos, teste, resolução para `aarch64`, formato e validade do HCL. Ele não
-constrói a imagem e nunca chama `apply`. Os dois artefatos desta página são exatamente os que
-menos verificação automática têm: uma regressão no `Dockerfile` só aparece quando alguém constrói
-à mão, e o `plan` de uma configuração sem provedor não pode falhar do jeito que um `plan` com
-provedor falha, porque não há API do outro lado para discordar. Os testes de infraestrutura
-compensam parte disso lendo os arquivos, mas ler um arquivo é mais fraco do que executá-lo.
+**A desvantagem principal: o CI constrói as duas imagens e não toca a infraestrutura de verdade.**
+`api:image` e `frontend:image` constroem, sobem o contêiner e batem nele com `curl`, então uma
+regressão no `Dockerfile` deixou de esperar alguém construir à mão. O que continua sem verificação
+é a outra metade: o `plan` de uma configuração sem provedor não pode falhar do jeito que um `plan`
+com provedor falha, porque não há API do outro lado para discordar, e nenhum job chama `apply`. Os
+testes de infraestrutura compensam parte disso lendo os arquivos, mas ler um arquivo é mais fraco
+do que executá-lo. E o que as duas imagens provam é que sobem e respondem, e não que fazem o
+trabalho: a da API responde `/health` e recusa `/v1/videos/1/render` sem credencial, e a do
+frontend serve o `index.html` numa rota profunda e o favicon com o tipo certo.
 
 Segunda desvantagem: a imagem tem 498 MB em uma etapa só. Construção em múltiplas etapas não foi
 feita porque a camada do `uv sync` pesa 154 MB e as camadas da base somam cerca de 216 MB, medido
@@ -277,7 +286,15 @@ em `docker history`, então o ganho estaria em trocar a base, e trocar a base é
 sprint 3 vai fazer ao ir para a Jetson. Otimizar agora seria trabalho jogado fora, e essa é uma
 estimativa, não uma medição.
 
-Terceira, menor: sem registro de imagem, a reprodutibilidade depende do digest da base continuar
+A terceira, medida nesta base e corrigida: o `.dockerignore` da raiz não alcançava
+`src/interface`. Os padrões de arquivo de exclusão do Docker são ancorados na raiz do contexto,
+então `node_modules/` casa contra `./node_modules` e nunca contra `src/interface/node_modules`, e
+o frontend inteiro ia junto na imagem do backend. Medido com `docker images`: 1,01 GB com o
+frontend dentro, 548 MB depois de acrescentar `src/interface/` ao arquivo, numa imagem que não
+executa uma linha de TypeScript. Os 498 MB e 538 MB citados acima são de antes de o frontend
+existir em `src/`, e um teste passou a cobrar a linha.
+
+Quarta, menor: sem registro de imagem, a reprodutibilidade depende do digest da base continuar
 disponível e de cada pessoa construir localmente. Publicar a imagem custaria configurar o registro
 do projeto e um job novo, e a troca foi aceitar o custo de construir em cada máquina enquanto o
 time cabe em oito pessoas.
@@ -307,21 +324,24 @@ real. Quando um provedor entrar, os três recursos viram recursos de provedor, o
 exigir credencial, e a distância entre o que está declarado e o que já existe na conta pode ser
 grande o bastante para exigir `import` antes de qualquer coisa. A escolha de provedor está aberta.
 
-**O segredo do compose é um valor literal no arquivo.** Ele está marcado como descartável e o
-serviço recusa subir sem segredo em vez de inventar um padrão, o que é a proteção certa. Ainda
-assim, nada impede alguém levar esse valor para um ambiente real, e não há gerenciador de segredos
-no caminho hoje.
+**O segredo saiu do compose e virou requisito, e isso custa atrito.** O valor literal que estava
+no arquivo desfazia a decisão que `auth.segredo` defende, então ele virou
+`${XVISION_AUTH_SECRET:?...}`. O preço é que a substituição acontece quando o compose lê o arquivo,
+e não quando o serviço sobe: sem a variável, todo comando de compose recusa, inclusive
+`docker compose build frontend`, que não usa o segredo para nada. Quem clona copia o
+`.env.example` uma vez e não pensa mais nisso, e essa foi a troca aceita. O que continua faltando
+é um gerenciador de segredos no caminho da implantação: hoje o valor mora no `.env` de cada
+máquina, que não é versionado e vale o que valer o disco dela.
 
 ## Ainda não implementado
 
 | O que falta | Como a hipótese será testada |
 | --- | --- |
 | Imagem para a Jetson | Construir sobre `l4t-jetpack` na placa e conferir que existe uma só OpenCV no contêiner e que ela enxerga a GPU |
-| Job que constrói a imagem no CI | Medir o tempo de construção no runner antes de decidir se cabe em toda MR ou só no merge para `develop` |
 | Registro de imagem | Publicar no registro do projeto e comparar o tempo de download na borda com o tempo de construção local |
 | Provedor real no Terraform | Escolher, importar o que já existe e rodar `plan` contra a conta, comparando com a topologia declarada |
-| Segredo fora do arquivo | Substituir o valor do compose por variável de CI mascarada e conferir que o serviço recusa subir sem ela |
-| `pipeline:check` na branch de integração | Acrescentar `develop` à regra genérica e conferir, no primeiro merge, que o pipeline volta com oito jobs e não sete |
+| Segredo vindo de um cofre | O compose já recusa subir sem `XVISION_AUTH_SECRET`, e o valor mora no `.env` de cada máquina; falta a implantação lê-lo de variável de CI mascarada ou de um cofre, e o teste é derrubar o `.env` e conferir que nada sobe com segredo em claro |
+| `pipeline:check` na branch de integração | Acrescentar `develop` à regra genérica e conferir, no primeiro merge, que o pipeline volta com nove jobs sempre presentes e não oito |
 
 ## Referências
 

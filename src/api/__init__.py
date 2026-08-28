@@ -9,9 +9,11 @@ URL em `POST /videos/upload-url` e mandar o binario cru nela por `PUT`, que e o 
 base64 dentro do JSON, como o contrato escrito pede, e por isso tem teto proprio: base64 infla
 33% e o corpo inteiro precisa existir em memoria antes de virar bytes.
 
-A URL de envio aponta para o proprio servico e nao para um armazenamento de objetos. O formato e
-o mesmo que um S3 assinado, entao trocar por armazenamento de verdade no dia da implantacao muda
-apenas quem escreve o endereco, e nao o frontend.
+O endereco de envio aponta para o proprio servico e sai como caminho relativo a raiz dele. Ele ja
+saiu absoluto, montado com o `Host` que o cliente mandou, e isso escrevia no corpo da resposta um
+dado que nao e nosso: proxy que reescreve `Host` devolvia o nome interno do servico, e com TLS
+terminado acima devolvia `http://`, que o navegador recusa como conteudo misto. Quem chama ja sabe
+a base, porque precisou dela para chegar aqui.
 
 Ele e area de composicao como o `cli`: importa `edge`, e ninguem o importa fora do gerador de
 OpenAPI. A documentacao dele mora ao lado, em `docs/`: `openapi.json` e a copia versionada do
@@ -26,6 +28,7 @@ import binascii
 import logging
 import os
 import secrets
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -35,10 +38,10 @@ from typing import Any, cast
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from api import auth, execution, seguranca, store
+from api import auth, execution, render, seguranca, store
 from api.schemas import (
     Aceito,
     Erro,
@@ -63,6 +66,8 @@ VERSAO = f"{VERSAO_MAIOR}.0.0"
 PREFIXO = f"/v{VERSAO_MAIOR}"
 
 LOG_ENV = "XVISION_LOG_LEVEL"
+MP4 = "video/mp4"
+
 ORIGENS_ENV = "XVISION_CORS_ORIGINS"
 ORIGENS_PADRAO = "http://localhost:5173,http://localhost:3000"
 UPLOAD_MB_ENV = "XVISION_API_MAX_UPLOAD_MB"
@@ -86,8 +91,38 @@ RECUSAS = {
     401: "Credencial ausente, invalida, expirada ou revogada.",
     409: "Ja existe conta com esse email, ou o video ja saiu da fila.",
     415: "O tipo enviado nao e um dos que o pipeline abre.",
+    429: "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
     503: "A fila esta cheia. O cabecalho Retry-After diz quando voltar.",
 }
+
+TENTATIVAS_ENV = "XVISION_LOGIN_TENTATIVAS"
+REGISTROS_ENV = "XVISION_REGISTRO_TENTATIVAS"
+JANELA_ENV = "XVISION_LOGIN_JANELA_S"
+TENTATIVAS_PADRAO = 20
+
+# O teto do registro e outro porque ele conta chamada, e nao erro: cadastrar direito tambem gasta
+# um `scrypt`. Ele existe para limitar trabalho, e o trabalho tem preco medido, 17 ms de CPU por
+# derivacao nesta maquina. Cem chamadas em 300 s sao 1,7 s de CPU por origem na janela, menos de
+# 1% de um nucleo, e cabem duas turmas se cadastrando ao mesmo tempo atras do mesmo NAT, que e o
+# caso concreto que um teto de 20 quebraria na primeira demonstracao.
+REGISTROS_PADRAO = 100
+JANELA_PADRAO = 300
+
+# Cada entrada e uma chave de texto e uma lista curta de carimbos: dez mil delas cabem em poucos
+# megabytes, que e o preco maximo que a contagem pode custar num dispositivo de borda.
+CHAVES_MAXIMAS = 10_000
+
+_erradas: dict[str, list[float]] = {}
+
+
+def zerar_tentativas() -> None:
+    """Solta os bloqueios de login em vigor, para quem operar nao precisar reiniciar o servico."""
+    _erradas.clear()
+
+
+def chaves_de_tentativa() -> tuple[str, ...]:
+    """As chaves que a contagem guarda agora, para quem opera medir o que ela custa de memoria."""
+    return tuple(_erradas)
 
 
 def uploads_dir() -> Path:
@@ -95,8 +130,12 @@ def uploads_dir() -> Path:
 
 
 def _teto(variavel: str, padrao: int) -> int:
+    return _inteiro(variavel, padrao) * MB
+
+
+def _inteiro(variavel: str, padrao: int) -> int:
     declarado = os.environ.get(variavel)
-    return (int(declarado) if declarado else padrao) * MB
+    return int(declarado) if declarado else padrao
 
 
 def _origens() -> list[str]:
@@ -124,13 +163,12 @@ def raiz() -> dict[str, Any]:
 
 
 def _rota_upload_url(
-    request: Request, pedido: UploadUrlRequest, principal: seguranca.Autenticado
+    pedido: UploadUrlRequest, principal: seguranca.Autenticado
 ) -> UploadUrlResponse:
     """Reserva um identificador e devolve o endereco para onde mandar o binario."""
     _conferir_tipo(pedido.contentType)
     video = store.criar(pedido.fileName, pedido.contentType, principal_id=principal.id)
-    base = str(request.base_url).rstrip("/")
-    return UploadUrlResponse(id=video.id, uploadUrl=f"{base}{PREFIXO}/videos/upload/{video.token}")
+    return UploadUrlResponse(id=video.id, uploadUrl=f"{PREFIXO}/videos/upload/{video.token}")
 
 
 def _conferir_tipo(content_type: str) -> None:
@@ -297,8 +335,21 @@ def _handler_base64(config: Path) -> Callable[..., Aceito]:
     return processar
 
 
-def _rota_registro(pedido: RegistroRequest) -> PrincipalResponse:
-    """Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta."""
+def _rota_registro(pedido: RegistroRequest, request: Request) -> PrincipalResponse:
+    """Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.
+
+    O teto e por origem, e nao por par (origem, email) como no login: aqui o email e novo a cada
+    chamada, entao uma chave que o incluisse nunca acumularia duas tentativas. Esta e a rota nao
+    autenticada mais cara do servico, porque roda `scrypt` e grava uma linha, e sem teto ela
+    aceitava trabalho ate o pool de threads do Starlette encher.
+
+    A contagem inclui o cadastro que deu certo, porque ele custa o mesmo `scrypt` do que falhou, e
+    por isso o teto e o de `REGISTROS_ENV` e nao o do login: atras de um NAT a origem e uma so para
+    a turma inteira, e vinte cadastros em cinco minutos trancariam a demonstracao.
+    """
+    chave = f"registro|{_origem(request)}"
+    _cobrar_tentativa(chave, REGISTROS_ENV, REGISTROS_PADRAO)
+    _erradas.setdefault(chave, []).append(time.monotonic())
     try:
         criado = store.criar_principal(
             "usuario", pedido.email, senha_hash=auth.hash_de_senha(pedido.senha)
@@ -308,22 +359,90 @@ def _rota_registro(pedido: RegistroRequest) -> PrincipalResponse:
     return PrincipalResponse(id=criado.id, tipo="usuario", nome=criado.nome)
 
 
-def _rota_login(pedido: LoginRequest) -> SessaoResponse:
+def _origem(request: Request) -> str:
+    """`X-Forwarded-For` e escolhido por quem ataca, entao a origem e a do socket."""
+    return request.client.host if request.client else "desconhecido"
+
+
+def _chave(request: Request, email: str) -> str:
+    """A contagem do login e por par (origem, email), para o vizinho de NAT nao trancar a conta."""
+    return f"{_origem(request)}|{email.strip().lower()}"
+
+
+def _varrer(agora: float, janela: int) -> None:
+    """A contagem mora em memoria e a chave carrega o email, que quem chama escolhe.
+
+    Sem teto de tamanho, uma rajada de emails distintos vindos de uma rota sem credencial deixa
+    uma entrada por email, para sempre: podar os carimbos de uma chave nao devolve as outras. A
+    varredura so roda quando o dicionario passa do tamanho declarado, entao o caso normal nao
+    paga nada.
+
+    Quando ainda sobra gente dentro da janela, sai primeiro quem tem menos carimbos, e nao quem
+    entrou antes. A ordem importa porque ela decide quem paga a conta da inundacao: despejando
+    pela ordem do dicionario, que e a de primeira insercao, a chave que vinha acumulando
+    tentativas ha minutos era a primeira a cair, e quem inundava com emails descartaveis desfazia
+    a propria tranca de graca. Contando carimbos, cai o lixo de uma tentativa so e fica quem esta
+    perto do teto. Empurrar a chave de uma vitima para fora continua sendo possivel, e passa a
+    custar tantas requisicoes quanto o teto, cada uma com o `scrypt` inteiro do lado de quem
+    tenta.
+    """
+    if len(_erradas) <= CHAVES_MAXIMAS:
+        return
+    for chave, carimbos in list(_erradas.items()):
+        if not carimbos or agora - carimbos[-1] >= janela:
+            del _erradas[chave]
+    if len(_erradas) <= CHAVES_MAXIMAS:
+        return
+    descartaveis = sorted(_erradas, key=lambda c: (len(_erradas[c]), _erradas[c][-1]))
+    for chave in descartaveis[: len(_erradas) - CHAVES_MAXIMAS]:
+        del _erradas[chave]
+
+
+def _cobrar_tentativa(
+    chave: str, variavel: str = TENTATIVAS_ENV, padrao: int = TENTATIVAS_PADRAO
+) -> None:
+    """Chave sem carimbo recente sai do dicionario, em vez de ficar com uma lista vazia."""
+    teto = _inteiro(variavel, padrao)
+    janela = _inteiro(JANELA_ENV, JANELA_PADRAO)
+    agora = time.monotonic()
+    _varrer(agora, janela)
+    recentes = [t for t in _erradas.get(chave, []) if agora - t < janela]
+    if recentes:
+        _erradas[chave] = recentes
+    else:
+        _erradas.pop(chave, None)
+    if len(recentes) >= teto:
+        raise HTTPException(
+            status_code=429,
+            detail="chamadas demais vindas deste endereco, espere um pouco",
+            headers={"Retry-After": str(int(janela - (agora - recentes[0])) + 1)},
+        )
+
+
+def _rota_login(pedido: LoginRequest, request: Request) -> SessaoResponse:
     """Email desconhecido e senha errada respondem igual, e demoram igual.
 
     Respondendo diferente, a rota vira lista de emails cadastrados. Por isso a senha e conferida
     mesmo quando a conta nao existe: sem isso, o caminho do email desconhecido volta antes de
     rodar o `scrypt` e o tempo de resposta conta a diferenca sozinho.
+
+    A contagem de erradas vive em memoria do processo. Com mais de uma replica cada uma conta a
+    sua, e o teto efetivo multiplica; resolver isso pede estado compartilhado, que so se paga
+    quando existir a segunda replica.
     """
+    chave = _chave(request, pedido.email)
+    _cobrar_tentativa(chave)
     linha = store.principal_por_nome(pedido.email)
     guardado = linha.senha_hash if linha is not None and linha.senha_hash else SENHA_FALSA
     confere = auth.conferir_senha(pedido.senha, guardado)
     if linha is None or linha.revogado_em is not None or not confere:
+        _erradas.setdefault(chave, []).append(time.monotonic())
         raise HTTPException(
             status_code=401,
             detail="email ou senha invalidos",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    _erradas.pop(chave, None)
     return SessaoResponse(access_token=auth.assinar(linha.id), expira_em=auth.validade())
 
 
@@ -363,7 +482,24 @@ def _rota_resultado(video_id: int, principal: seguranca.Autenticado) -> Resultad
         video_status=video.estado,  # pyright: ignore[reportArgumentType]
         resultados=video.resultados or [],  # pyright: ignore[reportArgumentType]
         motivo=video.motivo,
+        render_url=_endereco_do_render(video_id),
     )
+
+
+def _endereco_do_render(video_id: int) -> str | None:
+    if not render.render_path(video_id).is_file():
+        return None
+    return f"{PREFIXO}/videos/{video_id}/render"
+
+
+def _rota_render(video_id: int, principal: seguranca.Autenticado) -> FileResponse:
+    """Devolve o video anotado da analise, e 404 quando ele nao foi produzido."""
+    video = _buscar(video_id)
+    seguranca.conferir_posse(video, principal)
+    caminho = render.render_path(video_id)
+    if not caminho.is_file():
+        raise HTTPException(status_code=404, detail=f"o video {video_id} nao tem render gravado")
+    return FileResponse(caminho, media_type=MP4, filename=f"render-{video_id}.mp4")
 
 
 def _buscar(video_id: int) -> store.Video:
@@ -561,14 +697,16 @@ def create_app(config: Path | None = None) -> FastAPI:
         summary="Extrai caracteristicas de finalizacao a partir de um clipe de video.",
         lifespan=_ciclo_de_vida,
     )
+    app.middleware("http")(_recusar_corpo_grande)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_origens(),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["*"],
+        # Sem isto o `Retry-After` que 429 e 503 prometem no contrato nao chega ao `fetch`.
+        expose_headers=["Retry-After"],
     )
-    app.middleware("http")(_recusar_corpo_grande)
     app.add_exception_handler(RequestValidationError, _validacao)
     _registrar(app, config)
     return app
@@ -590,6 +728,8 @@ class Rota:
     modelo: type[BaseModel] | None
     recusas: dict[int | str, dict[str, Any]]
     sucesso: int
+    resposta: type[Response] = JSONResponse
+    """Sem ela o FastAPI descreve todo 200 como `application/json`."""
 
 
 def _erros(*codigos: int) -> dict[int | str, dict[str, Any]]:
@@ -630,7 +770,7 @@ def _registrar(app: FastAPI, config: Path) -> None:
             "POST",
             "Cria uma conta de usuario.",
             PrincipalResponse,
-            _erros(409),
+            _erros(409, 429),
             201,
         ),
         Rota(
@@ -639,7 +779,7 @@ def _registrar(app: FastAPI, config: Path) -> None:
             "POST",
             "Troca email e senha por uma sessao.",
             SessaoResponse,
-            _erros(401),
+            _erros(401, 429),
             200,
         ),
         Rota(
@@ -696,6 +836,16 @@ def _registrar(app: FastAPI, config: Path) -> None:
             _erros(401, 404, 409),
             200,
         ),
+        Rota(
+            "/videos/{video_id}/render",
+            _rota_render,
+            "GET",
+            "Devolve o video anotado da analise.",
+            None,
+            {**_erros(401, 404), 200: {"content": {MP4: {}}, "description": "O video anotado."}},
+            200,
+            FileResponse,
+        ),
     ]
     for rota in rotas:
         v1.add_api_route(
@@ -704,6 +854,7 @@ def _registrar(app: FastAPI, config: Path) -> None:
             methods=[rota.metodo],
             summary=rota.resumo,
             response_model=rota.modelo,
+            response_class=rota.resposta,
             responses=rota.recusas,
             status_code=rota.sucesso,
         )

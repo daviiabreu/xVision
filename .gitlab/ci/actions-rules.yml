@@ -21,10 +21,21 @@
       changes:
         - docs/**/*
 
+.actions-rules:frontend:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - src/interface/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - src/interface/**/*
+    - if: $CI_COMMIT_BRANCH == "develop"
+      changes:
+        - src/interface/**/*
+
 .actions-rules:python:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_BRANCH == "develop"
 
-# new rules

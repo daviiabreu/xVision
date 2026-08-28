@@ -16,8 +16,17 @@ locals {
   variaveis_de_ambiente = {
     for nome, s in local.servicos : nome => merge(
       { PORT = tostring(s.port), HEALTH_PATH = s.health_path },
-      { for d in s.needs : "${upper(d)}_URL" => "<resolvido pelo provedor: ${d}>" }
+      {
+        for d in s.needs : "${upper(d)}_URL" => "<resolvido pelo provedor: ${d}>"
+        if !contains(values(s.build_args), d)
+      }
     )
+  }
+
+  argumentos_de_build = {
+    for nome, s in local.servicos : nome => {
+      for arg, d in s.build_args : arg => "<resolvido pelo provedor: ${d}>"
+    }
   }
 }
 
@@ -31,6 +40,7 @@ resource "terraform_data" "service" {
     health_path = each.value.health_path
     public      = each.value.public
     environment = local.variaveis_de_ambiente[each.key]
+    build_args  = local.argumentos_de_build[each.key]
   }
 }
 

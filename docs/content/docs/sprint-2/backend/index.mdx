@@ -194,15 +194,16 @@ de ponta a ponta contra a aplicação real com a fixture acima. A conta vem ante
 
 ```text
 POST /v1/auth/login              200   devolve access_token
-POST /v1/videos/upload-url       200   {"id": 1, "uploadUrl": "http://localhost:8080/v1/videos/upload/8K0x1F..."}
+POST /v1/videos/upload-url       200   {"id": 1, "uploadUrl": "/v1/videos/upload/8K0x1F..."}
 PUT  /v1/videos/upload/{token}   202   {"status": 202, "id": 1}
 GET  /v1/videos/status/1         200   {"video_status": "Finalizado"}
 GET  /v1/videos/1                200   resultado por etapa
 ```
 
-O `uploadUrl` sai absoluto, montado a partir do `base_url` da própria requisição, e não como
-caminho relativo: quem consome é um navegador noutra origem, e caminho relativo resolveria contra
-o host do frontend. O log do serviço, na mesma execução, registra a passagem pela borda:
+O `uploadUrl` sai como caminho relativo à raiz do serviço, e não absoluto: o absoluto só podia ser
+montado com o `Host` que o cliente mandou, e quem chama já sabe a base. O detalhe está em
+[o serviço HTTP](/docs/sprint-2/backend/servico-http#decisoes). O log do serviço, na mesma
+execução, registra a passagem pela borda:
 
 ```text
 INFO xvision.api video=1 iniciou
@@ -219,17 +220,21 @@ E o corpo que o frontend recebe no `GET /v1/videos/1`, recortado nas duas primei
     { "nome_processo": "ball", "status": true, "frame": null, "metricas": [] },
     { "nome_processo": "field", "status": true, "frame": null, "metricas": [] }
   ],
-  "motivo": null
+  "motivo": null,
+  "render_url": "/v1/videos/1/render"
 }
 ```
 
 `metricas` vem vazia pelo mesmo motivo que `features` vem vazia no evento, e `frame` responde
-`null` porque a imagem de demonstração depende da visualização, que não entra nesta sprint. O
-frontend entra em `src/interface` quando a branch dele for mesclada, e é TypeScript, então fica
-fora dos portões de Python: os testes que varrem `src/` já definem área como pasta com Python
-dentro, justamente para esse merge não quebrar um portão por um motivo que não tem nada a ver com
-a mudança. A pasta ainda não existe nesta branch, e `src/tests/test_readme.py` a isenta por
-escrito da checagem de caminho enquanto isso for verdade.
+`null` porque a imagem de demonstração depende da visualização, que não entra nesta sprint.
+`render_url` aponta para o vídeo anotado da visão superior e vem nulo quando o serviço não o
+produziu, o que acontece sempre que falta um dos dois pesos declarados em `[render.top_view]`.
+
+O frontend vive em `src/interface`, e é TypeScript: ele fica fora dos portões de Python e tem os
+seus próprios, seis jobs em `.gitlab/ci/frontend.yml`. Os testes que varrem `src/` definem área
+como pasta com Python dentro, e é isso que faz o merge do frontend não quebrar portão nenhum por
+um motivo que não tem nada a ver com a mudança. O que a tela faz com esse corpo está em
+[a interface](/docs/sprint-2/frontend).
 
 ## Decisões
 
@@ -346,11 +351,15 @@ rótulo, e não o modelo. A derivação completa está em
 | Visualização do quadro no resultado | O campo `frame` já existe no contrato e responde `null`; o teste é a tela do frontend exibir o quadro do contato sem mudança de contrato |
 | PostgreSQL em produção | A topologia em `infra/` declara o armazenamento sem amarrar provedor, e a decisão depende de escolha que o time ainda não tomou |
 
-Os portões internos, rodados em 25/08/2026 nesta base: `ruff check` responde `All checks passed!`,
-`ruff format --check` responde `116 files already formatted`, `pyright` em modo estrito responde
-`0 errors`, e `pytest --cov` responde `743 passed, 1 skipped` com cobertura de linha de 96,90%
-contra um piso de 80%. O tempo de parede da suíte fica de fora de propósito: ele varia por máquina
-e não é resultado de portão nenhum. O que esses números provam, e principalmente o que eles não
+Os portões internos, rodados em 28/08/2026 nesta base: `ruff check` responde `All checks passed!`,
+`ruff format --check` responde `147 files already formatted`, `pyright` em modo estrito responde
+`0 errors`, e `pytest --cov` responde `864 passed` com cobertura de linha de 85,62% contra um piso
+de 80%. A cobertura caiu de 96,90% para cá, e a queda não é de teste apagado: `[tool.coverage.run]`
+passou a incluir `src/models`, que são scripts de operador sem suíte, e os seis arquivos deles
+sozinhos somam 434 linhas não executadas. Medindo só as cinco áreas do backend, com
+`--cov=src/api --cov=src/cli --cov=src/contracts --cov=src/edge --cov=src/mlops`, a cobertura é
+96,65%. O tempo de parede da suíte fica de fora de propósito: ele varia por máquina e
+não é resultado de portão nenhum. O que esses números provam, e principalmente o que eles não
 provam, está em [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
 ## Referências

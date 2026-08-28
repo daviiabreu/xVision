@@ -1,3 +1,7 @@
+[render.top_view]
+players = "models/players/football-player-detection-1.0.0.toml"
+field = "models/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
+
 [frames.coarse]
 strategy = "uniform"
 fps = 5

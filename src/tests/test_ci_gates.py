@@ -54,6 +54,7 @@ def ci() -> dict[str, Any]:
     for arquivo in (
         PYTHON_CI,
         REPOSITORY / ".gitlab" / "ci" / "terraform.yml",
+        REPOSITORY / ".gitlab" / "ci" / "frontend.yml",
         REPOSITORY / ".gitlab" / "ci" / "actions-rules.yml",
     ):
         documento.update(
@@ -272,3 +273,75 @@ def test_the_integration_branch_here_is_the_one_the_pipeline_really_targets() ->
     assert alvo == INTEGRACAO_BRANCH, (
         f"as MRs apontam para {alvo!r} e o portao do CI defende {INTEGRACAO_BRANCH!r}"
     )
+
+
+FRONTEND_CI = REPOSITORY / ".gitlab" / "ci" / "frontend.yml"
+INTERFACE = REPOSITORY / "src" / "interface"
+
+FRONTEND = {
+    "frontend:lint": "npm run lint",
+    "frontend:format": "npm run format:check",
+    "frontend:types": "npm run types:check",
+    "frontend:test": "npm run test",
+    "frontend:build": "npm run build",
+}
+
+
+def package_json() -> dict[str, Any]:
+    return cast("dict[str, Any]", json.loads((INTERFACE / "package.json").read_text("utf-8")))
+
+
+def test_the_pipeline_includes_the_frontend_jobs() -> None:
+    raiz = (REPOSITORY / ".gitlab-ci.yml").read_text(encoding="utf-8")
+
+    assert ".gitlab/ci/frontend.yml" in raiz
+
+
+@pytest.mark.parametrize("job", sorted(FRONTEND))
+def test_every_frontend_job_runs_the_script_it_exists_for(job: str) -> None:
+    """Esvaziar o script de um job deixa a MR verde num portao que ninguem esta mais rodando."""
+    assert FRONTEND[job] in " ".join(scripts(job))
+
+
+@pytest.mark.parametrize("job", sorted(FRONTEND))
+def test_every_frontend_job_only_runs_when_the_interface_changes(job: str) -> None:
+    """O filtro de caminho e a diferenca entre este portao e o de Python, e ele tem de existir.
+
+    Sem `changes`, toda MR de documentacao paga `npm ci` sem provar nada; com `changes` apontando
+    para a pasta errada, o portao some sem ninguem ver.
+    """
+    definicao = resolved(job)
+    regras = ci()[".actions-rules:frontend"]["rules"]
+    condicoes = [regra.get("if") for regra in regras]
+
+    assert definicao["stage"] == "test"
+    assert ".frontend" in definicao["heranca"]
+    assert MERGE_REQUEST in condicoes
+    assert INTEGRACAO in condicoes, "o commit de merge da branch de integracao ficaria sem portao"
+    for regra in regras:
+        assert regra.get("changes") == ["src/interface/**/*"], (
+            f"{job} nao filtra pela pasta da interface: {regra.get('changes')}"
+        )
+
+
+@pytest.mark.parametrize("job", sorted(FRONTEND))
+def test_every_frontend_command_exists_in_the_package(job: str) -> None:
+    """Renomear um script no `package.json` sem tocar o CI derruba o portao, e nao a MR."""
+    script = FRONTEND[job].removeprefix("npm run ")
+
+    assert script in package_json()["scripts"], f"{job} chama `npm run {script}`, que nao existe"
+
+
+def test_the_frontend_build_receives_the_api_address_the_bundle_bakes_in() -> None:
+    """Sem a variavel, o Vite assa `undefined` no lugar do endereco e nenhum portao repara."""
+    assert resolved("frontend:build")["variables"]["VITE_API_URL"]
+
+
+def test_the_frontend_coverage_floor_lives_in_the_config_and_the_job_only_measures() -> None:
+    """O piso mora num lugar so, como o `fail_under` do lado Python."""
+    configuracao = (INTERFACE / "vite.config.ts").read_text(encoding="utf-8")
+    definicao = resolved("frontend:test")
+
+    assert "thresholds" in configuracao, "sem piso declarado a cobertura pode cair sem avisar"
+    assert "--coverage" in package_json()["scripts"]["test"]
+    assert definicao["coverage"], "sem isto o GitLab nao desenha a porcentagem na MR"
