@@ -138,6 +138,36 @@ def test_an_oversized_body_is_refused_by_the_header_and_never_parsed(
     assert len(resposta.content) < 1000, "a resposta cresceu junto com o pedido"
 
 
+def test_a_body_with_no_content_length_is_cut_by_the_per_chunk_ceiling(
+    cliente: TestClient, uploads: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A segunda linha de defesa, e a unica que existe quando nao ha cabecalho para conferir.
+
+    Envio fragmentado nao declara `Content-Length`, entao o middleware nao tem o que olhar e
+    deixa passar. Quem segura dali em diante e o teto por pedaco do `_gravar`, e ele estava
+    descoberto: trocar `total > teto` por um teto dez milhoes de vezes maior mantinha a suite
+    inteira verde, porque todo teste de teto que existia mandava o tamanho no cabecalho e era
+    recusado um andar antes.
+
+    As duas mensagens sao diferentes de proposito, `o corpo passa do teto` contra `o video passa
+    do teto`, e e por elas que se sabe qual das duas linhas recusou. A assercao cobra a segunda:
+    se o corpo tivesse chegado com tamanho declarado, a recusa viria com a outra mensagem.
+    """
+    monkeypatch.setenv("XVISION_API_MAX_UPLOAD_MB", "1")
+
+    def em_pedacos() -> Iterator[bytes]:
+        for _ in range(4):
+            yield b"x" * (512 * 1024)
+
+    resposta = cliente.put(_endereco(cliente), content=em_pedacos())
+
+    assert resposta.status_code == 413
+    assert "o video passa do teto" in resposta.json()["detail"], (
+        f"quem recusou foi o middleware do cabecalho, e nao o teto por pedaco: {resposta.text}"
+    )
+    assert _restos(uploads) == [], "o pedaco ja gravado ficou no disco"
+
+
 def test_the_service_refuses_work_it_cannot_do_instead_of_queueing_forever(
     cliente: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
