@@ -9,9 +9,7 @@ O pipeline saiu de zero evento para evento em todos os clipes processados. O mó
 `shot` substitui o stub que respondia a partir do gabarito da fixture e passa a apontar o instante
 do contato a partir da trajetória da bola no vídeo real.
 
-Ele é a âncora do sistema inteiro: o conjunto de quadros `window` abre em volta do instante que
-ele aponta, e é nessa janela que `players`, `tracking` e `pose` medem. Instante errado desloca a
-janela toda.
+Ele é a âncora do sistema inteiro: a espécie `pose` escolhe o finalizador pelo jogador mais próximo da bola no instante que ele aponta, `body_part` mede no quadro com pose mais perto dele e `type_of_play` lê os 90 quadros anteriores a ele. Instante errado troca o corpo medido e o trecho de trajetória lido.
 
 Para o módulo funcionar sobre vídeo real foi preciso entregar junto a cadeia de percepção de que
 ele depende, e fechar cinco defeitos de plataforma que só aparecem quando um modelo de verdade
@@ -42,7 +40,7 @@ na janela de 1,5 s antes e 0,5 s depois do instante, que a 59,94 fps são 121 qu
 | `edge.modules.players.YoloPlayers` | uma caixa por jogador, em ordem estável | não rastreia e não identifica |
 | `edge.modules.tracking.GreedyTracking` | ligar as caixas ao longo do tempo | não redetecta, não mede velocidade |
 | `edge.modules.pose.YoloPose` | keypoints do finalizador na janela | não detecta jogador, não mede ângulo |
-| `edge.features.body_part` | cabeça, perna esquerda ou perna direita | não decide se o chute foi bom |
+| `edge.features.body_part` | perna esquerda ou perna direita, pela velocidade do tornozelo | não produz a classe `CABECA`, não decide se o chute foi bom |
 | `edge.features.type_of_play` | bola parada, jogada aberta ou lance individual | não mede assistência |
 
 O rastreador da bola e o filtro de forma vêm do trabalho do Gabriel Alves na branch
@@ -114,17 +112,14 @@ quando esse rótulo vale muito mais como conjunto de teste.
 segmentos que passam por ele, que se encontram trivialmente nele: o refino era um arredondamento
 disfarçado. O teste pegou, e a correção move o instante para dentro do intervalo entre amostras.
 
-**`shooter_track_id` sai sempre ausente, e isso é estrutural.** O identificador vem da espécie
-`tracking`, que roda na janela ancorada no `shot`. Um `shot` que dependesse de `tracking` fecharia
-ciclo no grafo, e o `topological_order` recusa a execução antes de começar. Quem precisa saber de
+**`shooter_track_id` sai sempre ausente.** ... enquanto ela rodava na janela ancorada no `shot` a dependência fechava ciclo no grafo ... Com os conjuntos uniformes o ciclo deixou de existir, e o campo continua ausente por um motivo mais simples: o `shot` decide sobre a trajetória da bola e não sobre caixa de jogador. O contrato deixa o campo opcional, `edge.modules.records` cobra só `frame_index` ... Quem precisa saber de
 quem é o chute identifica o jogador mais próximo da bola no quadro do contato.
 
 **A pose recorta o finalizador em vez de olhar o quadro inteiro.** Medido num clipe do parceiro, o
 estimador de pose encontrou 2 pessoas onde o detector de jogadores encontrou 14, porque jogador de
 transmissão tem caixa de cerca de 32 por 102 pixels num quadro de 1920 por 1080. Sobre o recorte do
 mesmo jogador, ampliado, foram 14 de 14. Recortar os 22 custaria cerca de 1900 inferências por
-clipe, e as duas features que precisam de pose falam do finalizador: são 121 recortes, em lotes,
-medidos em 14,8 ms cada contra 39,6 ms um a um.
+clipe, e no conjunto denso a 15 fps são cerca de 105 recortes no clipe mediano, em lotes de 32, medidos em 14,8 ms cada contra 39,6 ms um a um.
 
 **O `tracking` não usa o rastreador do Ultralytics.** Aquele guarda estado entre chamadas com
 `persist=True`, e a suíte de conformidade cobra que duas chamadas com a mesma entrada devolvam a
@@ -140,16 +135,14 @@ PyTorch para provar coisas que não dependem de modelo nenhum. Os modelos reais 
 
 Nenhum deles levanta exceção, e é isso que os torna caros.
 
-O primeiro é a janela quase nunca ter homografia. O `field` rodava a 5 fps e a janela roda em taxa
-nativa, então só 10 dos 121 quadros da janela podiam ter registro de campo: nos outros 111 o
+O primeiro é a janela quase nunca ter homografia. O `field` rodava a 5 fps e a janela rodava em taxa nativa, então só 10 dos 121 quadros dela podiam ter registro de campo: nos outros 111 o
 `assemble` apagava a coordenada de campo de jogador e de bola, e a culpa cairia no dono do `field`.
 
 O segundo é a junção por quadro entre `players` e `tracking`. Com `players` a cada 12 quadros e
 `tracking` a cada um, só os múltiplos de 12 encontravam par, e nos outros onze o identificador não
 chegava ao jogador.
 
-O terceiro é que a correção óbvia dos dois primeiros fecha ciclo no grafo. A saída que ordena
-limpo põe `players` e `field` na janela, que não depende deles.
+O terceiro é que a correção óbvia dos dois primeiros fechava ciclo no grafo. A saída que ordenava limpo pôs `players` e `field` na janela, que não depende deles, e a janela saiu de produção depois, quando as sete espécies passaram a rodar no mesmo conjunto.
 
 O quarto é a caixa no espaço errado. O contrato cobra caixa em pixel do quadro original, e o módulo
 só recebe o tensor já redimensionado. Sem o tamanho da origem não há volta possível, e todo
@@ -200,7 +193,7 @@ Na fixture sintética, que é o único lugar do projeto com gabarito exato do in
 **zero quadros**: o módulo aponta o quadro 18 e o gabarito é 18. Isso prova que a geometria mede o
 que diz medir quando a trajetória é conhecida, e não substitui a validação contra clipe real.
 
-Sobre os 604 clipes do conjunto, com a cadeia completa e nenhuma falha:
+Sobre os 604 clipes do conjunto, com a cadeia completa e nenhuma falha. As cinco linhas saem da execução daquele momento, antes da correção do detector de bola e da troca da regra de `body_part`, e é por isso que a cobertura aqui não bate com os números das seções seguintes:
 
 | Medida | Valor |
 | --- | --- |
@@ -268,8 +261,7 @@ Dois clipes da amostra de 40 ficaram de fora porque não têm finalização vis�
 `is_blocked` de fora da área, e chute travado na saída não parece chute.
 
 Sobre esses 38 clipes, o detector cinemático erra o instante com mediana de 63 quadros, ou 1,05
-segundo. Só 32 por cento caem dentro da tolerância de 30 quadros, e 45 por cento do contato cai
-fora da janela de extração inteira, que pega 90 quadros antes e 30 depois.
+segundo. Só 32 por cento caem dentro da tolerância de 30 quadros, e em 45 por cento o contato cai fora da faixa inteira de 90 quadros antes e 30 depois.
 
 O efeito nas duas features, medido de forma pareada nos clipes que as duas execuções cobriram,
 porque comparar acurácias sobre conjuntos de tamanhos diferentes não decide nada:
@@ -339,11 +331,10 @@ disco desde a sprint anterior sem nenhuma configuração apontando para ele.
 
 Três outros defeitos de configuração vieram junto, todos medidos:
 
-- O pré-processamento reduz 1920 por 1080 a 1280 por 736, escala 0,667, o que leva a bola de 13,5 a
-  9,0 pixels de lado. Nove pixels é uma célula do nível P3 do YOLOv8, que tem passo 8. Medido no
+- O pré-processamento reduzia 1920 por 1080 a 1280 por 736 ... o que levava a bola de 13,5 a 9,0 pixels de lado. [...] Hoje a `PreprocessSpec` da espécie é 1920 por 1088, o múltiplo de 32 acima de 1080. Nove pixels é uma célula do nível P3 do YOLOv8, que tem passo 8. Medido no
   quadro do contato, o candidato de maior confiança acerta 4 vezes em 38 a 1280 e entre 14 e 18 a
   1920.
-- A confiança mínima é 0,25 e está cravada em código, sem caminho pela configuração. A confiança
+- A confiança mínima era 0,25 e estava cravada em código, sem caminho pela configuração. [...] Hoje ela chega pela entrada `[modules.ball]` do TOML e a produção roda a 0,10. A confiança
   mediana da bola correta é 0,154, com primeiro quartil em 0,096, então o limiar apaga os candidatos
   certos em 21 a 23 dos 38 quadros de contato.
 - O rastreador piora o resultado em vez de melhorar. Ele ancora no candidato de maior confiança e
@@ -389,10 +380,13 @@ detector de bola, por melhor que seja, muda isso: é um limite de resolução da
 A distinção entre cabeça e pé não sofre do mesmo problema, porque a cabeça fica a cerca de 80 pixels
 dos tornozelos num jogador de 95, o que é mais de três vezes o diâmetro da bola.
 
-A hipótese para esquerda contra direita, a ser testada e ainda não testada, é cinemática e não
-geométrica: a perna que chuta balança e a que apoia fica parada, então a diferença de velocidade
-entre os dois tornozelos em quadros vizinhos separa as duas mesmo com 12 pixels entre elas.
-Velocidade é diferença temporal e não sofre do mesmo limite de resolução que a posição.
+A saída para esquerda contra direita é cinemática e não geométrica: a perna que chuta balança e a
+que apoia fica parada, então a diferença de velocidade entre os dois tornozelos em quadros vizinhos
+separa as duas mesmo com 12 pixels entre elas. Velocidade é diferença temporal e não sofre do mesmo
+limite de resolução que a posição. A hipótese deixou de ser hipótese: é o que a versão 0.2.0 de
+`edge.features.body_part` faz hoje, com `JANELA_S = 0.25`, ganhando o tornozelo de maior velocidade
+média numa janela de meia-largura 0,25 s em torno do contato. O que ela vale está medido mais
+abaixo, e não é vitória: a regra empata com o preditor constante e não passa dele.
 
 ## O que foi corrigido, e quanto cada correção valeu
 
@@ -605,7 +599,7 @@ quantidades, quantos quadros a bola ficou imóvel e a que velocidade ela chegou,
 calibradas para amostragem a 5 fps com um detector que quase não achava a bola. Sobre trajetória de
 verdade elas não separam as classes:
 
-| Rótulo verdadeiro | `quadros_imoveis`, mediana | `velocidade_de_chegada`, mediana |
+| Rótulo verdadeiro | `quadros_imoveis`, mediana | `velocidade_de_chegada_px_por_quadro`, mediana |
 | --- | --- | --- |
 | `set piece` | 0 | 21,9 |
 | `individual` | 0 | 9,8 |
@@ -648,8 +642,7 @@ gabarito não tem barra de erro própria, e todo erro medido contra ele mistura 
 de quem anotou. A ferramenta já grava o anotador e calcula a concordância; falta uma segunda passada
 sobre um subconjunto.
 
-O peso da bola é licenciado sob AGPL-3.0, assim como o `ultralytics`, e o projeto se declara
-CC-BY-4.0 no `pyproject.toml`. Isso não bloqueia trabalho acadêmico e não é novo, mas passou a valer
+O peso da bola é licenciado sob AGPL-3.0, assim como o `ultralytics`, e o projeto se declara CC-BY-4.0 no `src/pyproject.toml`. Isso não bloqueia trabalho acadêmico e não é novo, mas passou a valer
 para mais um artefato e precisa estar resolvido antes de qualquer entrega ao parceiro.
 
 O ramo `individual` da feature `type_of_play` é limite declarado e não defeito. O enum do parceiro
@@ -686,9 +679,7 @@ claramente da distância, que é a regra que estava em produção e é a pior de
 maioria com significância neste conjunto. O que destrava isso é gabarito e não algoritmo, e o número
 está calculado acima.
 
-As espécies `field` e `identity` continuam stub. O `field` é card de outra pessoa e sem ele nenhuma
-coordenada em metros existe, o que mantém `marked`, `occupied_area` e `goalkeeper_position` fora do
-alcance. O `identity` não bloqueia nenhuma das sete métricas declaradas e fica de fora por decisão.
+As espécies `field` e `identity` continuam stub. O `field` é card de outra pessoa e ... o que mantém `marked` e `occupied_area` fora do alcance. O `identity` não bloqueia nenhuma ... O quadro das sete métricas declaradas em `config/labels.toml`, com o que falta em cada uma e como cada hipótese será testada, está em [o que fica para a próxima sprint](./o-que-falta).
 
 O ajuste fino do peso em dado da própria competição não foi feito. O peso em uso é treinado em bola
 de futebol de transmissão de outra fonte, e o SAHI reporta que o ganho do ladrilho quase triplica

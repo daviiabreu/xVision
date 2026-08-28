@@ -85,19 +85,16 @@ calcular as features associadas à finalização.
 | Área ocupada | Roberto | Campo, jogadores, tracking e instante do chute | Medida da ocupação defensiva na região relevante da jogada |
 | Atacante marcado | Matheus | Identificação das equipes, posições no campo e instante do chute | Indicação de proximidade entre o finalizador e defensores adversários |
 | Olhou para a bola | Davi e Roberto | Jogador finalizador, bola, pose e janela anterior ao chute | Indicação de orientação do jogador em relação à bola antes da finalização |
-| Pé ou cabeça | Gov | Instante do chute, bola e pose do finalizador | Classificação entre cabeça, perna esquerda e perna direita |
+| Pé ou cabeça | Davi | Instante do chute, bola e pose do finalizador | Classificação entre cabeça, perna esquerda e perna direita |
 | Assistência | Yasmim e Danilo | Bola, tracking, equipes e janela anterior ao chute | Indicação de participação de outro jogador da equipe na construção imediata do lance |
-| Tipo de jogada | Gov | Bola, jogadores, tracking e contexto temporal | Classificação entre jogada coletiva, individual ou bola parada |
+| Tipo de jogada | Davi | Bola, jogadores, tracking e contexto temporal | Classificação entre jogada coletiva, individual ou bola parada |
 
 As sete métricas representam o escopo planejado, mas não uma garantia de conclusão integral nesta
 sprint. A prioridade será implementar aquelas cujas dependências estiverem disponíveis e com
 qualidade suficiente. Métricas bloqueadas deverão ter a causa e os próximos passos registrados para
 continuidade na sprint seguinte.
 
-Os nomes e domínios das saídas deverão seguir o contrato de rótulos do projeto. Cada extrator
-deverá retornar valor, confiança, versão e evidências suficientes para auditoria. Quando uma
-dependência estiver ausente ou abaixo da confiança mínima, o resultado será `unavailable`, junto
-com uma justificativa, em vez de assumir `false` ou zero.
+Os nomes e domínios das saídas deverão seguir o contrato de rótulos do projeto, declarado em `src/config/labels.toml`. Cada extrator deverá retornar valor, confiança, versão e evidências suficientes para auditoria. Quando uma dependência estiver ausente, o resultado será `unavailable` com o motivo, e o contrato reserva `low_confidence` para o valor medido abaixo da confiança mínima, em vez de assumir `false` ou zero.
 
 ## Dependências e ordem de desbloqueio
 

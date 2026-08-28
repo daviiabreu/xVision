@@ -4,9 +4,7 @@ description: Um JSON Schema congelado como fonte única, tipos que leem as regra
 ---
 
 Esta página descreve `src/contracts`, a área que define o que é um evento de finalização e que não
-importa nenhuma outra: `edge` e `cli` a importam direto, e `mlops` e `api` chegam ao evento por
-`edge`. Ela é o acordo entre quem produz o evento na borda e quem o consome, e é a peça de
-`contracts` na [arquitetura do backend](/docs/sprint-2/backend).
+importa nenhuma outra: `edge`, `cli` e `mlops` a importam direto, e a `api` chega ao evento pelo `edge`. Só o `edge` monta o `ShotEvent`; o `mlops` importa daqui apenas os tipos de percepção, `Clip`, `Box` e `FramePerception`. Ela é o acordo entre quem produz o evento na borda e quem o consome, e é a peça de `contracts` na [arquitetura do backend](/docs/sprint-2/backend).
 
 ## Onde se encaixa no fluxo
 
@@ -47,7 +45,7 @@ contrato.
 | `schema.py` | localiza e lê esse arquivo por `importlib.resources`, e expõe `load_schema`, `SCHEMA_VERSION`, `SCHEMA_FILENAME` e `SCHEMA_PATH` | não importa biblioteca de terceiro, não valida e não guarda o schema em cache: cada chamada de `load_schema` relê o arquivo |
 | `events.py` | os tipos congelados `ShotEvent`, `FeatureValue` e `PipelineMetadata`, as invariantes cobradas na construção e a serialização explícita | não importa `jsonschema` e não confere presença de chave: `from_dict` assume payload já validado |
 | `validation.py` | valida um dicionário contra o schema e traduz o erro do validador para `SchemaValidationError` | não constrói evento e não importa `jsonschema` no topo do módulo |
-| `perception.py` | os tipos que circulam dentro da borda entre os módulos, como `Clip`, `Box` e `FramePerception` | nunca é serializado no evento, e por isso não tem `to_dict` nem entrada no schema |
+| `perception.py` | os tipos que circulam entre os módulos da borda, como `Clip`, `Box` e `FramePerception`, e que o `mlops` também consome | nunca é serializado no evento, e por isso não tem `to_dict` nem entrada no schema |
 | `demo.py` | monta um evento completo, valida e imprime, servindo de prova ao vivo e de fixture dos testes | não abre vídeo e não roda módulo: os valores são de exemplo, não medidos |
 
 A fronteira mais forte da tabela é a primeira linha da própria área: `contracts` não importa
@@ -70,6 +68,7 @@ que o frontend consome.
 O evento abaixo não é exemplo inventado. Ele é a saída de:
 
 ```bash
+cd src
 uv run python -m contracts.demo
 ```
 
@@ -226,10 +225,7 @@ validador, inclusive no processo da borda que só monta e serializa. Um teste em
 a propriedade afirmando que `jsonschema` não está em `sys.modules` depois de `import contracts`.
 *Alternativa descartada:* o import no topo do módulo, que é a forma normal, é mais fácil de ler e
 faz quem só monta o evento carregar o validador junto. Medido nesta estação com
-`python -X importtime`, dez execuções de cada: `import contracts` ficou entre 15 ms e 27 ms
-acumulados, com mediana de 23 ms, e `import jsonschema` sozinho entre 32 ms e 58 ms, com mediana de
-34 ms. A dispersão de cada série é maior que a diferença entre as duas medianas, então o ganho em
-milissegundos não sustenta a decisão sozinho, e nada disso foi medido na Jetson. O motivo mais
+`python -X importtime`, dez execuções de cada: `import contracts` ficou entre 13,1 ms e 13,7 ms acumulados, com mediana de 13,4 ms, e `import jsonschema` sozinho entre 27,1 ms e 28,2 ms, com mediana de 27,5 ms. Os 14 ms de diferença são maiores que a dispersão das duas séries, então o ganho existe, mas ele é pago uma vez por processo e não por clipe, então não sustenta a decisão sozinho, e nada disso foi medido na Jetson. O motivo mais
 forte é a forma da dependência: o código já monta e serializa o evento com o import de `jsonschema`
 bloqueado, verificado assim fora da suíte. O empacotamento ainda não acompanha essa propriedade,
 porque `jsonschema` está declarado como dependência de raiz e entra em toda instalação, e movê-lo
@@ -335,6 +331,9 @@ formato, nunca a verdade do valor.
 | Teto de tamanho para `evidence` | Medir o percentil 95 do tamanho da linha do `events.jsonl` sobre os clipes do parceiro antes de escolher qualquer limite |
 | Transporte da borda para a nuvem | Enviar o evento e validar do outro lado contra o mesmo arquivo, e não contra uma cópia dele |
 | Idempotência conferida no consumidor | Reenviar o mesmo `shot_id` e afirmar que o consumidor grava uma vez só |
+
+O que falta nas outras áreas, e o transporte da borda para a nuvem visto de cima, está reunido em
+[o que fica para a próxima sprint](../o-que-falta).
 
 ## Referências
 

@@ -67,7 +67,7 @@ O schema adotado possui 29 keypoints por frame, baseados no padrão SoccerNet, c
 
 | Parâmetro | Valor |
 | --------- | ----- |
-| Modelo base | `yolo11l-pose.pt` |
+| Modelo base | `yolo11n-pose.pt` |
 | Dataset | SoccerNet Calibration (via Hugging Face) |
 | Imagens | ~16.465 treino / 3.214 validação / 3.142 teste |
 | Keypoints | 29 (SoccerNet schema) |
@@ -78,7 +78,11 @@ O schema adotado possui 29 keypoints por frame, baseados no padrão SoccerNet, c
 
 ### Resultado
 
-Com o dataset maior e mais diverso, o modelo convergiu nos keypoints, apresentando Pose mAP50 crescente ao longo do treinamento. Em inferência sobre frames reais, os pontos do campo passaram a ser detectados de forma coerente com a geometria visível na imagem.
+Com o dataset maior e mais diverso, o modelo convergiu nos keypoints: em inferência sobre frames
+reais, os pontos do campo passaram a cair sobre a geometria visível na imagem, como mostram a figura
+e o vídeo abaixo. A verificação foi visual. Nenhuma métrica de validação deste treino ficou
+registrada no repositório, então esta seção não traz número medido, e fechar essa lacuna é o
+primeiro item de "Ainda não implementado".
 
 <Diagram
   dark="/sprint2/line-tracking/resultado.jpeg"
@@ -184,7 +188,7 @@ O melhor modelo é salvo automaticamente em `runs/pose/<name>/weights/best.pt`.
 | Parâmetro | Padrão | Descrição |
 | --------- | ------ | --------- |
 | `--data` | obrigatório | Caminho para o `dataset.yaml` gerado pelo passo anterior |
-| `--model` | `yolo11n-pose.pt` | Checkpoint base (ex: `yolo11l-pose.pt`, `yolo11x-pose.pt`) |
+| `--model` | `yolo11n-pose.pt` | Checkpoint base (ex: `yolo11s-pose.pt`, `yolov8n-pose.pt`) |
 | `--epochs` | `100` | Número de épocas de treinamento |
 | `--imgsz` | `960` | Resolução de entrada (imagens originais são 960×540) |
 | `--batch` | `16` | Tamanho do batch |
@@ -230,20 +234,23 @@ python validate.py --weights ./best.pt --source foto.jpg --show_labels
 
 A primeira abordagem, baseada no dataset do Roboflow com 255 imagens e ângulo de câmera restrito, não foi suficiente para que o modelo aprendesse a localizar os keypoints do campo. A Pose mAP50 permaneceu em zero durante todo o treinamento, com os pontos detectados de forma aleatória nos frames de teste.
 
-A segunda abordagem, utilizando as labels do SoccerNet com mais de 16.000 imagens capturadas em múltiplos ângulos e perspectivas, resolveu os dois problemas identificados. O modelo convergiu corretamente e passou a detectar os keypoints de forma coerente com a geometria real do campo, habilitando o cálculo de homografia necessário para os demais componentes da solução.
+A segunda abordagem, utilizando as labels do SoccerNet com mais de 16.000 imagens capturadas em múltiplos ângulos e perspectivas, resolveu os dois problemas identificados. O modelo convergiu e passou a detectar os keypoints de forma coerente com a geometria visível do
+campo. O cálculo da homografia, que é o que os demais componentes consomem, ainda não existe: falta
+o template métrico dos 29 pontos declarados em `models/line_tracking/dataset.py` e falta ligar o
+modelo no lugar do stub que `config/pipeline.toml` aponta hoje para `field`, como a seção seguinte
+detalha.
 
 ---
 
 ## Ainda não implementado
 
 O modelo converge e detecta os keypoints, e é isso que esta página mostra. O que ele ainda não faz
-é chegar ao pipeline: `config/pipeline.toml` e `config/pipeline.models.toml` declaram
-`modules.field` como `edge.modules.stubs:StubField` nas duas, então nenhum quadro que o sistema
+é chegar ao pipeline: `config/pipeline.toml` e `config/pipeline.models.toml`, os dois em `src/config/`, declaram `modules.field` como `edge.modules.stubs:StubField`, então nenhum quadro que o sistema
 processa hoje carrega homografia, e `pitch_xy` sai nulo.
 
 | O que falta | Como a hipótese será testada na próxima sprint |
 | --- | --- |
-| O módulo `field` de verdade no lugar do stub | Trocar o `impl` de `modules.field`, rodar `xvision run --all --config config/pipeline.models.toml` e conferir que os quadros passam a carregar `pitch_xy`, que hoje sai nulo |
+| O módulo `field` de verdade no lugar do stub | Trocar o `impl` de `modules.field`, rodar `xvision run --all --config config/pipeline.models.toml` de dentro de `src/` e conferir que os quadros passam a carregar `pitch_xy`, que hoje sai nulo |
 | O peso publicado onde o time alcança | Ele saiu do Git na MR !56 e virou artefato declarado, mas o manifesto não tem campo `download`: quem clona não consegue obter o arquivo. O teste é `xvision artifact get` resolvendo numa árvore limpa |
 | A métrica que depende dele | `occupied_area` é medida em metros de gramado, então ela não existe enquanto não houver homografia. O experimento é declarar a feature e comparar com a coluna do parceiro |
 | O erro de reprojeção medido em clipe de partida | Os números desta página vêm do conjunto de validação do SoccerNet. A hipótese é que eles se sustentam no vídeo da Footstats, e o experimento é medir o erro de reprojeção sobre os clipes anotados |

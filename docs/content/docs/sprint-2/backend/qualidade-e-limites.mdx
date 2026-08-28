@@ -14,7 +14,7 @@ deles, e não o desenho do backend, que está na
 [visão geral](/docs/sprint-2/backend).
 
 ```text
-   alteração em src/, config/ ou infra/
+      alteração em src/ ou infra/
               │
               ▼
    ┌──────────────────────────────────────────────────────────┐
@@ -45,10 +45,10 @@ deles, e não o desenho do backend, que está na
 | Componente | O que ele prova | O que ele não prova |
 | --- | --- | --- |
 | `ruff check` e `ruff format --check` | que o código respeita as seis famílias de regra selecionadas e sai formatado igual na mão de todo mundo | nada sobre comportamento: um módulo inteiro errado passa formatado |
-| `pyright` em modo estrito | que os tipos fecham em todo o `src/`, sem `Any` implícito, verificado no piso 3.10 | que o tipo descreve a intenção: um `float` bem tipado continua podendo trazer pixel onde a feature espera metro |
+| `pyright` em modo estrito | que os tipos fecham em todo o `src/`, sem `Any` implícito, verificado no piso 3.10, com os scripts de operador de `src/models` fora do alcance por `exclude` | que o tipo descreve a intenção: um `float` bem tipado continua podendo trazer pixel onde a feature espera metro |
 | `pytest --cov` | que os 1205 testes de Python passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
 | `uv pip compile` para `aarch64` | que existe roda binária de cada dependência de execução para a arquitetura da placa, no piso 3.10 | que roda na Jetson: resolução não é instalação, e ninguém do grupo tem a placa nesta sprint |
-| meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e a correspondência entre o CI e os portões locais continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
+| meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o diretório de configuração, a configuração que roda os modelos de verdade, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e a correspondência entre o CI e os portões locais continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
 | `conftest.py` da suíte | que nenhum teste escreve no `var/` de quem roda, que o segredo de assinatura existe e que o dump do parceiro está escondido | não impede um teste de criar estado dentro do próprio `tmp_path` e depender dele |
 | suíte de conformidade de módulo | que um módulo respeita o pré-processamento que declarou, é determinístico, fecha o que abriu e entrega as chaves da espécie | que o módulo acerta: ela cobra o contrato, nunca a acurácia |
 | teste de mutação | que a suíte derruba um defeito plausível replantado no código | que os defeitos plausíveis foram bem escolhidos: a lista é escrita à mão |
@@ -78,7 +78,7 @@ All checks passed!
 0 errors, 0 warnings, 0 informations
 TOTAL                                   6260    553    91%
 Required test coverage of 80.0% reached. Total coverage: 91.17%
-1205 passed, 1 skipped in 12.58s
+1205 passed, 1 skipped in 12.54s
 ```
 
 A cobertura de hoje é 91,17% sobre 6260 linhas, e ela não é comparável com os 85,62% que esta
@@ -89,9 +89,7 @@ elogio é um teste: ele lê a lista do próprio `pyproject.toml` e cobra que tod
 uma área apareça no relatório, mesmo a zero, para que código sem teste puxe o total para baixo em
 vez de sumir da medida. O caso visível hoje é `mlops/zoom.py`, 27 linhas a 0% dentro do relatório.
 
-Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 9 segundos sem
-cobertura e 12 com ela. Esse é o piso, e não uma constante: em cinco execuções seguidas na mesma
-árvore os tempos foram de 9,18 a 9,70 segundos sem cobertura e de 12,20 a 12,88 com ela, porque
+Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 9,5 segundos sem cobertura e 13 com ela. Esse é o piso, e não uma constante: em cinco execuções seguidas na mesma árvore os tempos foram de 9,45 a 9,58 segundos sem cobertura e de 12,72 a 13,60 com ela, porque
 parte da suíte sobe threads e disputa CPU com o que mais estiver rodando. A primeira execução
 depois de um `uv sync` limpo levou 21 segundos, número medido quando a suíte tinha 864 testes e
 não refeito aqui; é essa a ordem de grandeza que o runner vê, porque lá o cache começa frio a cada
@@ -166,8 +164,7 @@ passaram, com senha e assinatura comparadas byte a byte. Faltava uma linha,
 varreduras por AST da suíte cobram a mesma propriedade na forma que cabe a cada uma: no teto da
 fila, um `next` sem valor padrão, que levanta quando a função procurada some, mais um
 `assert com_cadeado` antes de olhar o conteúdo do bloco; na fronteira entre áreas, um
-`assert modulos` que recusa área sem módulo nenhum. A quarta varredura procura infração e não
-alvo, e nela não achar nada é o resultado certo.
+`assert modulos` que recusa área sem módulo nenhum; na guarda do script da visão superior, um `assert processa is not None` antes de conferir a assinatura de `process_video`. A quinta varredura procura infração e não alvo, e nela não achar nada é o resultado certo.
 
 **O isolamento mora uma vez só, no `conftest.py` da suíte.** A alternativa descartada era isolar
 arquivo por arquivo. Como `edge.paths.var_dir()` é relativo ao diretório de trabalho, qualquer
@@ -239,7 +236,7 @@ padrão foi o que consertou a instabilidade, e o custo é que o carregamento de 
 real só é exercitado na máquina de quem tem o material, com `pytest.skip` quando ele falta. Uma
 regressão que só apareça no formato real do parceiro passa por todos os quatro portões.
 
-**Verde na máquina e vermelho no runner aconteceu três vezes nesta branch**, sempre pela mesma
+**Verde na máquina e vermelho no runner aconteceu três vezes no histórico do projeto**, sempre pela mesma
 forma: confiar no ambiente local como se fosse o de destino. As três foram `uv sync` sem os
 extras, um teste que lia `pipeline.config.json` que não é versionado, e um teste que dependia do
 dump. As duas primeiras viraram teste: um assert exige `--all-extras` no script do job, e uma
@@ -252,8 +249,7 @@ três.
 **Os números da suíte são sobre a fixture sintética, e não sobre vídeo.** Cinco das sete espécies
 de módulo já têm implementação real, e nenhuma delas roda com peso aqui: os pesos moram em
 `var/models`, que está fora do git e fora do runner, então os testes dos adaptadores reais
-exercitam a travessia contra um Ultralytics falso, e a configuração padrão, `config/pipeline.toml`,
-continua respondendo do gabarito da fixture em seis das sete espécies. Assim, 1205 testes verdes
+exercitam a travessia contra um Ultralytics falso, e a configuração padrão, `src/config/pipeline.toml`, continua respondendo do gabarito da fixture em seis das sete espécies. Assim, 1205 testes verdes
 provam que a plataforma liga, e não que alguma coisa detecta jogador. Ler a cobertura como se fosse
 indicador de qualidade do produto seria o erro mais fácil de cometer com esta página aberta.
 
@@ -270,21 +266,16 @@ mais, foi confirmada em parte: a suíte de conformidade, que são sete testes he
 linhas, passou a rodar contra os cinco adaptadores reais sem nenhum ajuste no contrato do módulo, e
 nenhum dos sete falhou. O que ela não previa é que cada adaptador ainda precisa dos próprios testes
 de travessia até a API do Ultralytics, escritos à mão, porque a conformidade cobra o contrato e
-nunca a acurácia. Falta o `field`, que depende do modelo de keypoints do campo, e o `identity`, que
-ficou de fora de propósito por não bloquear nenhuma das sete métricas declaradas; o experimento que
-fecha cada um está em [o que fica para a próxima sprint](../o-que-falta).
+nunca a acurácia. Falta o `field`, cujo modelo de keypoints do campo já existe e está declarado em `src/models/manifests/field/`, de onde o render da visão superior já o consome, e o que falta é ligá-lo no lugar do stub; e falta o `identity`, que ficou de fora de propósito por não bloquear nenhuma das sete métricas declaradas. O experimento que fecha cada um está em [o que fica para a próxima sprint](../o-que-falta).
 
 **Duas das sete métricas têm feature, e as outras cinco continuam saindo com cobertura zero no
-`eval`.** Isto é fato conferido em dois arquivos: `config/labels.toml` declara sete entradas
-`[[metric]]`, e `config/pipeline.toml` e `config/pipeline.models.toml` declaram as mesmas duas
-seções `[features.*]`,
+`eval`.** Isto é fato conferido em dois arquivos: `src/config/labels.toml` declara sete entradas `[[metric]]`, e `src/config/pipeline.toml` e `src/config/pipeline.models.toml` declaram as mesmas duas seções `[features.*]`,
 `edge.features.body_part:BodyPart` e `edge.features.type_of_play:TypeOfPlay`. Como o relatório é
 montado a partir das métricas declaradas e não das predições, e `coverage` é a fração das
 finalizações em que a feature respondeu, as cinco sem feature (`marked`, `goalkeeper_position`,
 `occupied_area`, `looked_before` e `assist`) aparecem com `n_predicted` igual a zero, em vez de
 sumir da tabela. Esse comportamento é deliberado, e é o que impede a saída dar a impressão de que
-ninguém prometeu nada. A mais próxima das cinco é a `marked`: a lógica já existe em
-`edge/participants/marking.py` e falta a `Feature` que a liga ao pipeline. A hipótese a testar na
+ninguém prometeu nada. A mais próxima das cinco é a `marked`: a lógica já existe em `src/edge/participants/marking.py` e falta a `Feature` que a liga ao pipeline. A hipótese a testar na
 sprint 3 é que declarar `[features.marked]` faz a cobertura daquela linha sair de zero, e o
 experimento é rodar `xvision eval` antes e depois da declaração e comparar as duas linhas da mesma
 métrica. O critério não é o valor da acurácia, é a cobertura deixar de ser zero com a linha de base
@@ -295,10 +286,7 @@ inteiro das sete métricas, com o que falta em cada uma, está em
 
 **A imagem da Jetson não existe.** O `Dockerfile` atual constrói para a estação, com base fixada
 por digest, e a imagem da placa foi adiada porque ninguém do grupo tem a Jetson nesta sprint, e
-Dockerfile que ninguém consegue construir é afirmação sem evidência. O que já está registrado em
-comentário, para não ser redescoberto na hora errada, é a armadilha da OpenCV duplicada, que
-[a página de infraestrutura](/docs/sprint-2/backend/infraestrutura) descreve com a fonte, inclusive
-a parte da nota que não se sustenta. O experimento é construir a imagem na placa com
+Dockerfile que ninguém consegue construir é afirmação sem evidência. O que já está registrado, para não ser redescoberto na hora errada, é a armadilha da OpenCV duplicada, que [a página de infraestrutura](/docs/sprint-2/backend/infraestrutura) descreve com a fonte, inclusive a parte da nota que não se sustenta. O `Dockerfile` de hoje não carrega nota nenhuma sobre ela: o comentário que existe no repositório está em `src/pyproject.toml`, sob `[tool.uv]`, e trata de uma duplicação vizinha, a do `ultralytics` puxando o build com GUI por cima do `opencv-python-headless`. O experimento é construir a imagem na placa com
 `uv venv --system-site-packages` e `--no-install-package opencv-python-headless`, rodar o clipe
 sintético e comparar o tempo por etapa contra a estação. O job `python:arm64` do CI já prova a
 metade barata dessa hipótese, que é existir roda binária para a arquitetura no piso 3.10; a metade
@@ -319,13 +307,19 @@ tomou, e a hipótese a testar quando ela for tomada é que amarrar a nuvem mexe 
 declaração da topologia. O experimento é trocar os `terraform_data` por recursos de um provedor
 real e verificar que `variables.tf` fica intacto.
 
-**Limite de taxa e observabilidade estruturada ficaram de fora.** O que existe é contrapressão,
-que é diferente: um teto de fila configurável que devolve 503 quando estoura, e um teto de 128 MB
-por envio recusado pelo cabeçalho antes de o corpo chegar. O log existe e é linha de texto com
-`video=%s`, não evento estruturado. Ambos foram adiados pelo mesmo motivo, que é não haver tráfego
-real para dimensionar: um limite por cliente escolhido sem medição vira número inventado no
-código. O experimento é medir a distribuição de requisições por cliente na primeira semana de uso
-real e só então escolher a janela e o teto.
+**O limite de taxa só cobre a autenticação, e a observabilidade estruturada ficou de fora.** As
+rotas `/auth/register` e `/auth/login` contam tentativas por origem e devolvem 429 com
+`Retry-After`: vinte logins errados e cem cadastros, certos ou não, por janela de 300 s, os três
+números configuráveis por `XVISION_LOGIN_TENTATIVAS`, `XVISION_REGISTRO_TENTATIVAS` e
+`XVISION_LOGIN_JANELA_S`, com a contagem em memória do processo e teto de 10 000 chaves.
+
+Nas rotas de processamento não há limite de taxa nenhum. O que existe ali é contrapressão, que é
+diferente: um teto de fila configurável que devolve 503 quando estoura, e um teto de 128 MB por
+envio recusado pelo cabeçalho antes de o corpo chegar. O log existe e é linha de texto com
+`video=%s`, não evento estruturado. Os dois pendentes foram adiados pelo mesmo motivo, que é não
+haver tráfego real para dimensionar: um limite por cliente escolhido sem medição vira número
+inventado no código. O experimento é medir a distribuição de requisições por cliente na primeira
+semana de uso real e só então escolher a janela e o teto.
 
 **Os mutantes de severidade menor continuam vivos.** A hipótese é que nenhum deles troca resultado
 em silêncio, e ela é justamente a que não foi verificada um a um. O experimento da sprint 3 é
@@ -367,7 +361,6 @@ do CI precisa ser revista com o custo por MR medido, e não estimado.
   22.04 como base da placa, de onde sai o piso de Python 3.10. A página não versionada do JetPack
   já mostra o 7 sobre Ubuntu 24.04, então o piso vale enquanto a placa ficar no 6.
 - [NVIDIA JetPack SDK](https://developer.nvidia.com/embedded/jetpack), que descreve as bibliotecas
-  de visão computacional que já vêm na imagem, origem da armadilha da OpenCV duplicada registrada
-  no `Dockerfile`.
+  de visão computacional que já vêm na imagem, origem da armadilha da OpenCV duplicada que a página de infraestrutura registra.
 - [Terraform, comando `plan`](https://developer.hashicorp.com/terraform/cli/commands/plan), que
   sustenta a decisão de validar e planejar a topologia no CI sem nunca aplicar.

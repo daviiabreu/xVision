@@ -7,8 +7,7 @@ A borda é a parte do backend que abre o clipe de vídeo e produz o evento de fi
 metade que vai para a Jetson, e a metade de baixo da
 [arquitetura do backend](/docs/sprint-2/backend).
 
-Os sete módulos de percepção desta sprint são stubs: respondem a partir do gabarito da fixture
-sintética, e não dos pixels. Isso é deliberado. É o que permite que a plataforma exista, seja
+Abertura reescrita: o projeto vive em `src/` e os comandos rodam de lá; `config/pipeline.toml` tem só `shot` real (`edge.modules.shot:BallBreakShot`) e seis stubs; `config/pipeline.models.toml` sobe cinco das sete (`players`, `ball`, `tracking`, `pose`, `shot`); `field` e `identity` são stub nas duas; duas features declaradas, `body_part` e `type_of_play`. Link para ../o-que-falta. Isso é deliberado. É o que permite que a plataforma exista, seja
 exercitada de ponta a ponta e seja medida antes de qualquer modelo. Toda medida de tempo desta
 página, por consequência, é custo da plataforma e não custo de inferir.
 
@@ -66,7 +65,7 @@ config/pipeline.toml                        clipe .mp4
 | `modules/base.py` | o contrato de três métodos que todo modelo cumpre, mais os tipos que entram e saem | não escolhe qual implementação roda nem valida o conteúdo dos registros |
 | `modules/conformance.py` | a suíte herdável que diz se um adaptador é integrável, sem revisão de ninguém do backend | não testa qualidade de detecção; não roda em vídeo real; não dispensa o dono de importar `edge.modules` |
 | `modules/records.py` | conferir o mínimo que cada espécie promete devolver, por etapa | não cobra faixa de valor, calibração de confiança nem JSON Schema |
-| `modules/registry.py` | carregar a implementação declarada em `config/pipeline.toml` e aplicar `frames`, `needs` e `artifact` por cima da spec | não valida o que a implementação devolve |
+| `modules/registry.py` | carregar a implementação declarada em `config/pipeline.toml`, aplicar `frames`, `needs` e `artifact` por cima da spec e repassar todo o resto da entrada como `options` da espécie | não valida o que a implementação devolve; não interpreta nenhuma chave de `options` |
 | `graph/framesets.py` | resolver quais índices de quadro cada conjunto nomeado cobre | não decodifica; não sabe qual módulo pediu |
 | `graph/order.py` | ordenar por dependência e recusar ciclo antes de qualquer execução | não executa nada |
 | `graph/runner.py` | ordem, execução, degradação declarada, medição de tempo e montagem da `Perception` | não abre vídeo, não escolhe features e não decide o que vira evento |
@@ -74,7 +73,7 @@ config/pipeline.toml                        clipe .mp4
 | `artifacts.py` | descrever o peso por pares de caminho e sha256, e conferir antes de entregar o entrypoint | não carrega o modelo, não converte formato, não escolhe device e não baixa de URL pública |
 | `features/base.py` | rodar os extractors e transformar impossibilidade de medir em `unavailable` com motivo | não sabe de onde veio a percepção nem quais features existem |
 | `features/registry.py` | resolver a seleção declarada em `[features.*]` | não roda nada e não confere resultado |
-| `paths.py` | as três raízes (`data/`, `var/`, `config/`), resolvidas na chamada | não conhece conceito da API; não guarda fonte de verdade em `var/` |
+| `paths.py` | as três raízes, resolvidas na chamada e relativas à raiz Python em `src/`: `../data/footstats`, `../var` e `config` | não conhece conceito da API; não guarda fonte de verdade em `var/` |
 | `pipeline.py` | a cola: roda o grafo, lê o instante de contato, chama as features e monta o `ShotEvent` | não abre vídeo, não decide `clip_id`, não lê CSV e não escreve relatório |
 
 ## Fluxo de dados
@@ -106,8 +105,7 @@ impl   = "edge.modules.stubs:StubPose"
 frames = "window"
 ```
 
-A janela é assimétrica de propósito: contexto, assistência e tipo de jogada precisam do que veio
-antes do contato, então `before_s` é três vezes `after_s`.
+Diz primeiro que as sete espécies apontam para `dense` nas duas configurações, que o `window` está declarado e sem ninguém dentro, e que só o `config/pipeline.oracle-janela.toml` o exercita hoje; a frase da assimetria vira condicional ("quando alguma espécie voltar para o `window`").
 
 Cada módulo declara o que consome, e o provider entrega exatamente aquilo:
 
@@ -134,7 +132,7 @@ class PerceptionModule(Protocol):
 
 O `ModuleOutput` traz um conjunto de registros por quadro, e cada espécie promete um mínimo de
 chaves: `players` e `ball` devolvem `box` e `confidence`, `tracking` e `identity` devolvem
-`track_id`, `shot` devolve `frame_index`, e `field` e `pose` não têm mínimo cobrado. A caixa sai
+`track_id`, `pose` devolve `track_id` e `keypoints`, `shot` devolve `frame_index`, e só `field` não tem mínimo cobrado, porque ajuste de homografia sai com erro de reprojeção e não com confiança. A caixa sai
 em pixel do quadro original, nunca do tensor pré-processado.
 
 Rodando o grafo sobre a fixture sintética, que tem 30 quadros a 10 fps, o resultado é este:

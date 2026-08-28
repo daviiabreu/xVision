@@ -1,6 +1,6 @@
 ---
 title: Introdução do Projeto
-description: Contextualização do xVision, problema identificado e proposta de solução
+description: Contextualização do xVision, problema identificado, proposta de solução e o que já está implementado
 ---
 
 ## Introdução
@@ -11,7 +11,7 @@ A Footstats é uma empresa brasileira especializada na coleta, processamento e d
 
 A partir desse cenário, o xVision propõe utilizar visão computacional para automatizar parte dessa análise. O sistema recebe como entrada um **vídeo que já contém uma finalização** e deve identificar o momento em que ela começa. A partir disso, o vídeo é analisado para extrair as informações necessárias e gerar as métricas relacionadas ao lance.
 
-Parte desse processamento é realizada na borda, permitindo que o vídeo seja analisado próximo à sua fonte. Após o processamento, apenas os **dados estruturados resultantes da análise** seguem para o restante da aplicação, evitando a necessidade de enviar o vídeo bruto.
+Parte desse processamento é realizada na borda, permitindo que o vídeo seja analisado próximo à sua fonte. A decisão de arquitetura é que só os **dados estruturados resultantes da análise** cruzem para o restante da aplicação, sem o vídeo bruto: o contrato desse evento já existe em `contracts/shot_event.v1.json` e é validado dos dois lados, mas o envio da borda para a nuvem ainda não foi implementado, e hoje o pipeline e o serviço HTTP rodam na mesma máquina.
 
 ## Problema
 

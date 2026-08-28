@@ -67,16 +67,14 @@ docker build --build-arg EXTRA=api -t xvision-api .
 | --- | --- | --- | --- |
 | sem `EXTRA` (a borda) | 498 MB | 127 MB | 39 |
 | `EXTRA=api` | 538 MB | 135 MB | 76 |
-| `EXTRA=ball` | 498 MB | 127 MB | 39 |
 
 As 39 entradas da borda correspondem a 17 distribuições instaladas, e as 76 do serviço HTTP a 35;
-o resto são arquivos `.pth`, diretórios `.libs` e metadados de instalação. `EXTRA=ball` sai idêntica
-à imagem sem extra porque os sete extras de percepção estão declarados e vazios hoje. O mecanismo
+o resto são arquivos `.pth`, diretórios `.libs` e metadados de instalação. Na mesma medição `EXTRA=ball` saiu idêntica à imagem sem extra, porque o extra estava vazio. Hoje ele não está: `players` e `ball` já declaram `ultralytics` e `lap`, e os outros cinco extras de percepção (`field`, `tracking`, `identity`, `pose` e `shot`) continuam declarados e vazios. As imagens de `players` e de `ball` ainda não foram medidas. O mecanismo
 existe, o conteúdo dele ainda não: quem entregar um modelo acrescenta a dependência ao extra da sua
 espécie e passa a ter uma imagem própria sem tocar no `Dockerfile`.
 
 A imagem roda o pipeline inteiro sem rede e sem nada montado, o que é a evidência de que o
-ambiente foi resolvido na construção e não na partida:
+ambiente foi resolvido na construção e não na partida. A saída abaixo é a da execução de 25/08/2026:
 
 ```bash
 docker run --rm --network none --entrypoint sh xvision-edge -c \
@@ -155,13 +153,11 @@ aprovou. Um teste cobra a forma do `FROM`, porque a linha é fácil de afrouxar 
 
 **O usuário não-root existe antes do primeiro `COPY`, e cada `COPY` já chega com o dono certo.**
 Alternativa descartada: copiar como root e corrigir depois com `chown -R /app`. Ela custa uma
-camada com o venv inteiro reescrito. Medido hoje, construindo as duas variantes lado a lado: 715 MB
-contra 498 MB em disco, 186 MB contra 127 MB de conteúdo. São 59 MB a mais em toda transferência
-da imagem, por uma linha que não muda comportamento nenhum. A nota no `Dockerfile` registra
-716 MB contra 566 MB, medidos em outro momento; o valor da variante ruim reproduziu, o da boa não,
+camada com o venv inteiro reescrito. Medido em 25/08/2026, construindo as duas variantes lado a lado: 715 MB contra 498 MB em disco, 186 MB contra 127 MB de conteúdo. São 59 MB a mais em toda transferência
+da imagem, por uma linha que não muda comportamento nenhum. Uma medição anterior, feita em outro momento e hoje sem registro no repositório, dava 716 MB contra 566 MB; o valor da variante ruim reproduziu, o da boa não,
 provavelmente por diferença de arquitetura ou de versão de dependência.
 
-**`UV_NO_CACHE=1`, com um ganho menor do que a nota do `Dockerfile` sugere.** Alternativa
+**`UV_NO_CACHE=1`, com um ganho menor do que a justificativa original prometia.** Alternativa
 descartada: montar o cache do uv com `RUN --mount=type=cache`, que acelera a reconstrução e
 também não deixa nada na camada final. Ela foi recusada porque amarra a construção ao cache
 local de quem constrói, e o job que constrói a imagem no CI começa com o cache frio a cada execução,
@@ -211,8 +207,7 @@ recebe 39 B, e com `COPY . /app` recebe 209,77 MB. Ou seja, o número que o Buil
 não serve de evidência aqui: neste repositório ele deu 9,26 kB numa reconstrução e 1,01 MB numa
 cópia limpa, com o arquivo de exclusão no lugar. A evidência que dá para conferir é direta e é
 outra: com o `.dockerignore`, `src/tests/` não entra na imagem, e `ls /app/src/tests` dentro do
-contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`,
-`var/`, `.git/`, `.venv/`) esteja listada, porque o job que constrói a imagem confere que ela sobe
+contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`, `var/`, `.git/`, `src/.venv/`) esteja listada, porque o job que constrói a imagem confere que ela sobe
 e responde, e não o que ela deixou de carregar.
 
 **Terraform declara a topologia e nunca aplica, e é por isso que ele é entrega e não decoração.**
@@ -230,8 +225,7 @@ nenhum `apply`. Um teste varre os arquivos e reprova qualquer recurso cujo tipo 
 que nem `apply` nem `destroy` aparecem nos três jobs. O ganho concreto é que `terraform plan` roda
 no CI de verdade, sem credencial e sem escolha de nuvem ainda feita, e o que a MR revisa é a
 topologia: dois serviços, um armazenamento, quem depende de quem e qual rota de saúde cada um
-expõe. Duas validações de variável recusam porta fora da faixa e `needs` apontando para recurso
-não declarado.
+expõe. Três validações de variável recusam porta fora da faixa, `needs` apontando para recurso não declarado e `build_args` apontando para dependência que o serviço não listou em `needs`.
 
 **A regra do CI cobre a branch de integração, e não só a MR.** Alternativa descartada: manter
 `merge_request_event` mais a branch padrão, que é o recorte que vem de fábrica. Como toda MR deste
@@ -315,8 +309,7 @@ provavelmente não vem pronta. Isso é hipótese registrada, não medição: nin
 nesta sprint, e copiar o arquivo de dependências da estação para a imagem da Jetson continua sendo
 a forma mais provável de quebrar.
 
-**O portão `arm64` prova existência de roda, não execução.** As 38 rodas resolvidas para
-`aarch64-unknown-linux-gnu` dizem que os pacotes existem para a arquitetura. Elas não dizem nada
+**O portão `arm64` prova existência de roda, não execução.** As 105 rodas resolvidas para `aarch64-unknown-linux-gnu` dizem que os pacotes existem para a arquitetura. Elas não dizem nada
 sobre o driver, a versão do CUDA nem a memória da placa.
 
 **O `plan` de hoje não é o `plan` de amanhã.** `terraform_data` não confere nada contra uma API

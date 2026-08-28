@@ -18,8 +18,7 @@ Para um quadro do clipe, o sistema produz duas coisas:
 - um arquivo de dados com a mesma informação em texto: as duplas, a distância de cada uma, e
   para cada jogador se ele está marcado ou não.
 
-A imagem existe para uma pessoa conferir a olho se o resultado faz sentido, para o fluxo, o arquivo de dados é o
-que alimenta o resto da pipeline.
+A imagem existe para uma pessoa conferir a olho se o resultado faz sentido. O arquivo de dados, no esquema `player-marking.v0`, é a mesma informação em forma legível por máquina, e hoje ninguém a lê: quem escreve os dois é um script de operador, não o pipeline. A última seção diz o que falta para isso mudar.
 
 ![Quadro de uma finalização com os jogadores em caixas coloridas por time e duas linhas verdes ligando as duplas que se marcam, uma a 2,2 metros na frente do gol e outra a 4,0 metros](/sprint2/marcacao/duas-duplas.png)
 
@@ -108,9 +107,7 @@ Acima, marcação bem mais apertada: duas duplas a menos de 1,7 m cada. Os demai
 quadro, embora próximos entre si, não formam dupla, porque o adversário mais próximo de cada um
 deles já está emparelhado com outro ou está longe demais.
 
-A distância tem que estar abaixo de um limite. Hoje esse limite é de 5 metros, escolhido
-depois de medir, em quadros reais, quantos jogadores ficam a cada distância do adversário mais
-próximo:
+A distância tem que estar abaixo de um limite. Hoje esse limite é de 5 metros (`DEFAULT_RADIUS_M`), escolhido depois de medir, em 39 quadros dos clipes de entrada, quantos jogadores ficam a cada distância do adversário mais próximo:
 
 | Limite | Jogadores considerados marcados |
 | ------ | ------------------------------- |
@@ -121,10 +118,7 @@ próximo:
 | 6 m    | 33%                             |
 | 8 m    | 46%                             |
 
-Empiricamente, decidiu-se que cinco metros é a distância em que um defensor ainda consegue fechar o espaço ou bloquear o chute.
-É uma escolha justificada, não uma escolha calibrada: para saber qual limite acerta mais,
-seria preciso comparar com as anotações do parceiro, que não estão disponíveis no ambiente onde
-isso foi construído. O limite é configurável justamente por isso.
+A tabela diz quantos jogadores cada limite marca, não quantos estavam de fato marcados. Cinco metros é a hipótese de que a essa distância um defensor ainda fecha o espaço ou bloqueia o chute, e ela não foi calibrada: para saber qual limite acerta mais seria preciso comparar com a coluna `marked` do gabarito do parceiro, e essa comparação só roda quando a lógica virar uma `Feature`. O limite é configurável (`--radius`) justamente por isso.
 
 A dupla não diz quem é o defensor e quem é o atacante. Para afirmar isso seria preciso saber
 quem estava com a bola, e essa informação não entra neste cálculo. Inventar a direção produziria
@@ -142,8 +136,7 @@ mesmo quando a resposta desejada é sobre um só. Existem dois modos:
   2 minutos, quinze vezes mais rápido, e nos testes chegou às mesmas duplas e às mesmas
   distâncias que o clipe inteiro.
 
-A janela só funciona porque ela usa todas as medições de cor que colhe, em vez das cinco
-melhores. Com apenas cinco, um atacante em disputa de área foi para o time errado e a dupla dele
+A janela só funciona porque ela usa as 20 melhores medições de cor por jogador (`DEFAULT_SAMPLE_LIMIT`), e não as cinco que a seleção de amostras usa por padrão. Com apenas cinco, um atacante em disputa de área foi para o time errado e a dupla dele
 desapareceu do resultado: o modo janela chegava a uma resposta diferente da do clipe inteiro. Com
 mais medições o erro desaparece, sem custo extra, porque as cores já são medidas de qualquer jeito
 enquanto os quadros passam.
@@ -152,8 +145,7 @@ enquanto os quadros passam.
 
 Vale explicitar uma característica da geração dessa métrica: a marcação é o último passo de uma cadeia, e a
 qualidade dela é herdada. O cálculo de quem marca quem é geométrico e determinístico, dadas as
-posições e os times corretos, ele sempre chega à mesma resposta, e essa parte é verificada por
-testes automatizados. O que ele não consegue fazer é corrigir uma entrada errada.
+posições e os times corretos, ele sempre chega à mesma resposta, e essa parte está coberta pelos 19 testes de `src/tests/edge/participants/test_marking.py`. O que ele não consegue fazer é corrigir uma entrada errada.
 
 Isso significa que a precisão final depende de três coisas produzidas antes:
 
@@ -191,8 +183,8 @@ abaixo.
 
 | O que falta | Como a hipótese será testada na próxima sprint |
 | --- | --- |
-| A `Feature` que liga a lógica ao pipeline | Escrever `edge/features/marked.py` lendo a equipe de cada `PlayerDetection`, declarar `[features.marked]` e conferir que a métrica aparece no resultado da rota |
-| O que fazer quando a equipe é desconhecida | `modules.identity` é stub nas duas configurações, então `team` vem nulo e nenhuma dupla se forma. A decisão é entre devolver `unavailable` com motivo ou não emitir a métrica, e ela precisa ser tomada antes da feature |
+| A `Feature` que liga a lógica ao pipeline | Escrever `src/edge/features/marked.py` lendo a equipe de cada `PlayerDetection`, declarar `[features.marked]` e conferir que a métrica aparece no resultado da rota |
+| O que fazer quando a equipe é desconhecida | A identificação de times descrita acima vive em `edge/participants/identity.py` e só o script de operador a chama. No pipeline, `modules.identity` é stub nas duas configurações, então `team` vem nulo e nenhuma dupla se forma. A decisão é entre devolver `unavailable` com motivo ou não emitir a métrica, e ela precisa ser tomada antes da feature |
 | A unidade da comparação | O raio de 5 m só faz sentido com homografia. Sem `field`, a posição sai em pixel, e comparar metro com pixel produz número errado em silêncio. A feature depende do `field` estar de pé |
 | O número contra o gabarito | Com a feature declarada, rodar `xvision eval` sobre a dobra de ajuste e comparar com a linha de base de maioria, que para métrica booleana é o que separa medir de acertar por sorte |
 

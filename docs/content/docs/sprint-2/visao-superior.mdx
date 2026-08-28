@@ -11,9 +11,7 @@ transformação entre o plano do gramado visto pela câmera e o plano de um camp
 é um vídeo composto: à esquerda, o frame original com rastreamento; à direita, as mesmas pessoas
 posicionadas em um mapa visto de cima.
 
-Esse recurso é uma visualização de diagnóstico e uma base para métricas futuras. Ele ajuda a
-verificar se a detecção de linhas, o rastreamento e a classificação de equipes estão coerentes antes
-de calcular distância, velocidade ou ocupação de espaço.
+mesmo texto, mais uma frase: Ele não roda só na mão: `src/api/render.py` importa `process_video` deste script, e é esse vídeo que a rota `GET /v1/videos/{id}/render` devolve.
 
 ## O mapa já existe
 
@@ -58,9 +56,7 @@ A homografia é a transformação que liga o frame do vídeo ao campo virtual. O
 ponto confiável detectado no gramado com sua posição equivalente no mapa e calcula como converter
 uma posição de um plano para o outro.
 
-Na prática, quanto mais referências corretas o modelo encontra, mais estável tende a ser o mapa. A
-pipeline espera uma quantidade suficiente de pontos antes de iniciar a projeção e mantém a última
-transformação válida em oclusões curtas. Isso evita que a visão superior desapareça a cada frame em
+Na prática, quanto mais referências corretas o modelo encontra, mais estável tende a ser o mapa. O cálculo em si exige quatro pontos acima da confiança mínima, e `create_top_view.py` é mais exigente que isso: pede 7 pontos válidos para começar a projetar (`MINIMUM_POINTS_TO_START`) e 6 para substituir a matriz já em uso (`MINIMUM_POINTS_TO_UPDATE`). Quando nenhum frame produz matriz, a última válida continua valendo por até 15 frames (`MAX_FRAMES_WITHOUT_CALIBRATION`) antes de o mapa esvaziar. Isso evita que a visão superior desapareça a cada frame em
 que uma linha do campo deixa de aparecer.
 
 Para tornar a estimativa visível, o inverso de `H` projeta o desenho virtual de volta ao vídeo. As
@@ -86,18 +82,14 @@ trajetórias em `team_a` e `team_b`. O resultado é salvo em `identities.json`.
 
 A visão superior usa o mesmo `track_id` e o mesmo mapa de equipes:
 
-- `team_a`: azul;
-- `team_b`: amarelo;
-- sem equipe disponível: cor temporária baseada no identificador de rastreamento.
+As cores saem de `TEAM_COLORS`, em `src/edge/participants/video.py`, e mudaram em 28/08/2026, no commit `78492de`, depois de a figura e o vídeo abaixo terem sido gravados: `team_a` vermelho `(50, 50, 235)` em BGR; `team_b` branco `(235, 235, 235)` em BGR; sem equipe, no mapa a cor derivada do `track_id` e no frame a cor do papel em `COLORS` (branco para jogador, âmbar para goleiro, violeta para árbitro).
 
-No frame original, a anotação é a mesma usada pelo pacote de tracking: elipse no ponto dos pés,
-trajetória, papel e identificação. No mapa, a bolinha recebe a mesma cor. Assim, a cor de um
-jogador não muda entre a imagem e o campo virtual.
+No frame original, a anotação é a mesma usada pelo módulo de participantes: elipse no ponto dos pés, trajetória e uma etiqueta que hoje carrega só o `track_id`, sem papel nem confiança. No mapa, a bolinha recebe a mesma cor sempre que o jogador tem equipe. Para quem ficou sem equipe as duas metades divergem, porque o frame pinta pelo papel e o mapa pela identidade de rastreamento.
 
 ![Vídeo final com rastreamento, equipes e visão superior](/sprint2/top-view/visao-superior-times.png)
 
 *Figura 2. Resultado da pipeline: o vídeo original fica à esquerda e o mapa superior à direita.
-Azul e amarelo representam as equipes; as linhas amarelas são o campo virtual reprojetado.*
+O azul, o amarelo e a etiqueta com papel e confiança são a aparência anterior ao commit `78492de`; as linhas amarelas são o campo virtual reprojetado.*
 
 Os pontos verdes sobre o gramado são os keypoints de homografia aceitos para aquele frame. Cada um
 representa uma referência conhecida, como um encontro entre linhas ou um canto de área. Eles ajudam
@@ -110,7 +102,7 @@ fora das marcações, a limitação está na detecção dos keypoints.
   Seu navegador não suporta vídeo HTML5.
 </video>
 
-*Vídeo 1. Execução completa da visão superior com rastreamento e cores das equipes.*
+*Vídeo 1. Execução completa da visão superior com rastreamento e cores das equipes, gravada com a mesma aparência anterior ao commit `78492de`.*
 
 ## Arquivos e responsabilidades
 
@@ -137,8 +129,7 @@ Em seguida, execute sobre um vídeo ou uma pasta de vídeos:
 python src/models/top_view/create_top_view.py video.mp4
 ```
 
-O script procura o peso dos jogadores em `players_yolov8s/weights/best.pt` e o modelo de
-homografia em `homografia/best.pt`, ambos na raiz do projeto. O vídeo final fica em:
+O script procura o peso dos jogadores em `models/track_players/players_yolov8s/weights/best.pt` e, se não encontrar, em `players_yolov8s/weights/best.pt` na raiz do repositório. O modelo de homografia ele procura em `homografia/best.pt` na raiz do repositório e, como alternativa, em `src/models/homografia/best.pt`. Quando quem chama é a API, os dois pesos vêm dos manifestos resolvidos em `var/models`, não desses caminhos. O vídeo final fica em:
 
 ```text
 src/models/top_view/video_tracking/<nome>_tracking_visao_superior.mp4

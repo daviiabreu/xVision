@@ -39,8 +39,9 @@ direção delas é o que o teste de fronteira cobra.
             ▼                                     ▼
    ┌─────────────────────┐            ┌──────────────────────┐
    │ api                 │            │ cli                  │
-   │ fila, sessão, posse │            │ clip, run, data,     │
-   │ do vídeo enviado    │            │ eval, cache, artifact│
+      │ fila, sessão, posse │            │ clip, run, players,  │
+   │ do vídeo enviado    │            │ label, data, eval,   │
+   │                     │            │ cache, artifact      │
    └──────────┬──────────┘            └────┬────────────┬────┘
               │                            │            │
               │ roda o pipeline            │            │ lê o conjunto
@@ -141,8 +142,7 @@ na ordem em que apareceu no terminal:
 ../var/runs/synthetic/events.jsonl
 ```
 
-A fixture tem 30 quadros a 10 fps, ou seja 3 s, em 320 por 240 e 25 618 bytes, medido com
-`edge.frames.provider.probe`. Ela não imita o perfil do parceiro de propósito: abrindo os 633
+A fixture tem 30 quadros a 10 fps, ou seja 3 s, em 320 por 240, medido com `edge.frames.provider.probe`, e 25 618 bytes em disco. Ela não imita o perfil do parceiro de propósito: abrindo os 633
 clipes da Footstats com o mesmo decodificador, 609 abrem e 24 não, todos os que abrem estão em
 1920 por 1080, 582 a 59,94 fps e 27 a 60 fps, com mediana de duração de 7 s e p95 de 11 s. É a
 população inteira, e não uma amostra. Os tempos acima, portanto, são o custo da plataforma numa
@@ -291,9 +291,7 @@ que falta um dos dois pesos declarados em `[render.top_view]`: é o caso deste c
 mesma execução registra o aviso `sem visao superior: o peso de players nao esta pronto`.
 
 O frontend vive em `src/interface`, e é TypeScript: ele fica fora dos portões de Python e tem os
-seus próprios, seis jobs em `.gitlab/ci/frontend.yml`. Os testes que varrem `src/` definem área
-como pasta com Python dentro, e é isso que faz o merge do frontend não quebrar portão nenhum por
-um motivo que não tem nada a ver com a mudança. O que a tela faz com esse corpo está em
+seus próprios, seis jobs em `.gitlab/ci/frontend.yml`. Os testes que varrem `src/` percorrem a lista fixa das cinco áreas, `api`, `cli`, `contracts`, `edge` e `mlops`, ou procuram só arquivo `.py`, e é isso que faz o merge do frontend não quebrar portão nenhum por um motivo que não tem nada a ver com a mudança. O que a tela faz com esse corpo está em
 [a interface](/docs/sprint-2/frontend).
 
 ## Decisões
@@ -381,12 +379,13 @@ serviço registra são, portanto, o custo da plataforma numa estação de trabal
 ordem de grandeza. É a maior incerteza aberta, e nenhum número aqui deve ser lido como evidência
 sobre o RNF-01.
 
-**Ninguém tem a placa nesta sprint.** A imagem para a Jetson não existe, e a armadilha conhecida
-está registrada no `Dockerfile` em vez de ser redescoberta na hora errada: a base do JetPack já traz
-uma OpenCV instalada pelo sistema, e pôr `opencv-python-headless` do PyPI dentro dela deixa duas
-cópias da mesma biblioteca no mesmo contêiner. A nota do `Dockerfile` credita CUDA à cópia do
-JetPack, e essa parte não se sustenta: a fonte e o efeito sobre o caminho previsto estão em
-[infraestrutura, contêiner e integração contínua](/docs/sprint-2/backend/infraestrutura). O portão
+**Ninguém tem a placa nesta sprint.** A imagem para a Jetson não existe: o `Dockerfile` de hoje
+constrói sobre `ghcr.io/astral-sh/uv:python3.10-bookworm-slim` e não menciona a placa. A armadilha
+conhecida ficou registrada na documentação, em vez de ser redescoberta na hora errada: a base do
+JetPack já traz uma OpenCV instalada pelo sistema, e pôr `opencv-python-headless` do PyPI dentro
+dela deixa duas cópias da mesma biblioteca no mesmo contêiner. Creditar CUDA à cópia do JetPack não
+se sustenta, e a fonte disso, com o efeito sobre o caminho previsto, está em [infraestrutura,
+contêiner e integração contínua](/docs/sprint-2/backend/infraestrutura). O portão
 `python:arm64` do CI resolve o lock para `aarch64` exigindo roda binária, o que prova que os
 pacotes existem para a arquitetura, e não que rodam na placa.
 
@@ -447,4 +446,4 @@ provam, e principalmente o que eles não provam, está em
 - [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339), que define o formato de `started_at` e o perfil estreito que o schema repete como `pattern`.
 - [Documentação do Hatchling](https://hatch.pypa.io/latest/config/build/), que documenta a lista de pacotes do wheel e sustenta manter os testes fora dele.
 - [Documentação do FastAPI](https://fastapi.tiangolo.com/), base do serviço HTTP e do contrato OpenAPI versionado em `/v1`.
-- [Documentação do NVIDIA JetPack](https://developer.nvidia.com/embedded/jetpack), que lista a OpenCV entre os componentes já presentes na imagem da placa, origem da armadilha da OpenCV duplicada anotada no `Dockerfile`. O piso de Python 3.10 não sai dessa página: ele está fixado em `.python-version` e no `requires-python` do `pyproject.toml`, e é cobrado por `src/tests/test_python_floor.py`, que compara o piso declarado com o do lock e o do pyright.
+- [Documentação do NVIDIA JetPack](https://developer.nvidia.com/embedded/jetpack), que lista a OpenCV entre os componentes já presentes na imagem da placa, origem da armadilha da OpenCV duplicada registrada em Riscos. O piso de Python 3.10 não sai dessa página: ele está fixado em `.python-version` e no `requires-python` do `pyproject.toml`, e é cobrado por `src/tests/test_python_floor.py`, que compara o piso declarado com o do lock e o do pyright.

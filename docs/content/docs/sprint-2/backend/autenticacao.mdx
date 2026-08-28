@@ -62,10 +62,11 @@ autorizado pelo próprio endereço, e não pelo cabeçalho.
 
 A fronteira entre `auth.py` e `seguranca.py` não é organização: é o que permite testar a
 credencial sem subir servidor. Os 23 testes de `test_auth_nucleo.py` não abrem nenhuma conexão
-HTTP e rodam em 0,4 s, mesmo com o `scrypt` no caminho. Somados aos de fronteira e aos da
-ferramenta de token, são 77 testes em 1,3 s, com cobertura de 98% em `auth.py` e 100% em
+HTTP e rodam em 0,3 s, mesmo com o `scrypt` no caminho. Somados aos de fronteira e aos da
+ferramenta de token, são 87 testes em 2,5 s, com cobertura de 98% em `auth.py` e 100% em
 `seguranca.py` e `tokens.py`. O primeiro tempo é o que o `pytest` reporta para
-`pytest src/tests/api/test_auth_nucleo.py`; o segundo, para o mesmo comando com os três arquivos.
+`pytest tests/api/test_auth_nucleo.py`, rodado de dentro de `src/`, que é onde o projeto Python
+mora; o segundo, para o mesmo comando com os três arquivos.
 A cobertura sai desse comando acrescido de `--cov=api.auth --cov=api.seguranca --cov=api.tokens`,
 que instrumenta o interpretador e por isso mede tempo maior.
 
@@ -107,8 +108,9 @@ dois campos:
 {"exp":1787655947,"sub":1}
 ```
 
-O token de serviço nasce pela linha de comando e é mostrado uma vez. O banco guarda apenas o
-resumo, então perder o token significa emitir outro e revogar o antigo:
+O token de serviço nasce pela linha de comando e é mostrado uma vez. Os comandos rodam de dentro
+de `src/`, que é onde o projeto Python mora. O banco guarda apenas o resumo, então perder o token
+significa emitir outro e revogar o antigo:
 
 ```bash
 python -m api.tokens criar borda-jetson
@@ -139,13 +141,14 @@ As rotas de autenticação e as que dependem dela, com os códigos que o contrat
 
 | Rota | Sucesso | Recusas declaradas |
 | --- | --- | --- |
-| `POST /v1/auth/register` | 201 | 409 email já tem conta, 422 senha menor que 12 ou email vazio |
-| `POST /v1/auth/login` | 200 | 401 email ou senha inválidos, 422 corpo fora da forma |
+| `POST /v1/auth/register` | 201 | 409 email já tem conta, 422 senha menor que 12 ou email vazio, 429 teto de tentativas |
+| `POST /v1/auth/login` | 200 | 401 email ou senha inválidos, 422 corpo fora da forma, 429 teto de tentativas |
 | `GET /v1/auth/me` | 200 | 401 ausente, malformada, expirada ou revogada |
 | `POST /v1/videos/upload-url` | 200 | 401, 415, 422 |
 | `PUT /v1/videos/upload/{token}` | 202 | 400, 404, 409, 413, 415, 422, 503, e nenhum 401 |
 | `GET /v1/videos/status/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 422 |
 | `GET /v1/videos/{video_id}` | 200 | 401, 404, que inclui vídeo de outro, 409, 422 |
+| `GET /v1/videos/{video_id}/render` | 200 | 401, 404, que inclui vídeo de outro e render ausente, 422 |
 
 ## Decisões
 
@@ -269,8 +272,11 @@ sessões de todo mundo, que é o botão de emergência, não a operação de rot
 também.** Cada derivação reserva 16 MiB, e as rotas de login e registro são síncronas, então
 correm no pool de threads que o anyio limita em 40 por padrão, valor conferido em execução. No
 pior caso isso são 640 MiB de memória só de derivação de senha (cálculo, não medição), disputando
-com o decodificador de vídeo numa máquina onde memória é o recurso escasso. Como não há limite de
-taxa, uma enxurrada de logins é hoje o caminho mais barato para pressionar a memória do serviço.
+com o decodificador de vídeo numa máquina onde memória é o recurso escasso. O teto de tentativas
+recusa com 429 antes de rodar o `scrypt`, mas ele conta por chave, e a chave do login carrega o
+email: quem varia o email a cada requisição abre uma chave nova a cada vez e paga a primeira
+derivação em todas elas. É por isso que uma enxurrada de logins com emails diferentes continua
+sendo hoje o caminho mais barato para pressionar a memória do serviço.
 
 **O 404 no lugar do 403 esconde a existência do vídeo, e a desvantagem principal recai sobre o
 usuário honesto.** Quem erra o identificador recebe exatamente a resposta de quem está sondando, e
@@ -311,9 +317,12 @@ O teto de tentativas existe e cobre as duas rotas abertas, mas ele não fecha o 
 tentativas erradas em 300 s, e a chave inclui o email de propósito: sem isso, quem erra a senha por
 trás do mesmo NAT trancaria a conta do vizinho, e há teste para esse caso. A consequência é que
 tentar uma senha provável contra vinte contas diferentes nunca acumula duas tentativas na mesma
-chave. Em `/v1/auth/register` a chave é só a origem, porque o email é novo a cada chamada, e o
-mesmo teto vale: ele existe porque essa é a rota aberta mais cara do serviço, e não porque alguém
-mediu quantos cadastros por minuto são normais. A contagem vive na memória do processo, então com
+chave. Em `/v1/auth/register` a chave é só a origem, porque o email é novo a cada chamada, e o teto
+é outro: 100 tentativas na mesma janela de 300 s, contra as 20 do login. O número é alto de
+propósito, porque atrás de um NAT a origem é uma só para a turma inteira e vinte cadastros em cinco
+minutos trancariam a demonstração, e ele sai do preço medido do trabalho, 17 ms de CPU por
+derivação nesta máquina, ou 1,7 s de CPU por origem na janela inteira. O que nenhum dos dois tetos
+tem é medição de uso: ninguém contou quantos logins ou cadastros por minuto são normais. A contagem vive na memória do processo, então com
 mais de uma réplica cada uma conta a sua e o teto efetivo multiplica.
 
 A outra barreira contra adivinhação de senha é o custo do `scrypt` somado ao mínimo de 12
@@ -348,10 +357,14 @@ reduz a superfície sem eliminar o risco.
 
 ## Ainda não implementado
 
+O que falta na sprint inteira, e não só aqui, está consolidado em
+[o que fica para a próxima sprint](../o-que-falta). A tabela abaixo é a parte de autenticação e
+posse, com o detalhe que só cabe nesta página.
+
 | O que falta | Como a hipótese será testada |
 | --- | --- |
 | Revogar uma sessão sem derrubar as outras | Guardar uma versão por principal dentro do corpo assinado; teste emite duas sessões, invalida uma e confere que a outra segue valendo |
-| Teto de login calibrado por medição | O teto de 20 em 300 s e o de registro não saíram de medição nenhuma: falta contar logins por minuto de uso real e só então fixar o número, sem trocar um valor inventado por outro |
+| Teto de tentativas calibrado por uso | O teto de 20 em 300 s do login não saiu de medição nenhuma, e o de 100 do registro saiu do custo de CPU da derivação, não da demanda: falta contar logins e cadastros por minuto de uso real e só então fixar os dois, sem trocar um valor inventado por outro |
 | Balde por origem contra senha única em muitas contas | A chave do login inclui o email para não trancar a conta do vizinho de NAT, e por isso não vê o ataque que troca de conta a cada tentativa; o teste é disparar uma senha contra N contas da mesma origem e cobrar 429 antes da N-ésima, sem quebrar o caso do vizinho |
 | Parâmetro do `scrypt` calibrado na Jetson | Rodar a derivação na placa e subir `N` o mais perto possível do piso `2^17` do OWASP sem estourar o tempo de login nem a memória disputada com o decodificador; teste de regressão fixa o formato guardado, que já carrega os parâmetros |
 | Revogação vista pela tela | A tela de login existe, guarda o `access_token` e confere a sessão em `GET /v1/auth/me` logo depois de entrar; falta o caminho de revogar uma sessão e a tela perceber sem esperar o vencimento |

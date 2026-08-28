@@ -45,6 +45,7 @@ Essa direção é cobrada por teste, e não confiada à disciplina.
 | `api/execution.py` | rodar o pipeline fora do ciclo da requisição, com teto de fila, e traduzir o evento da borda em uma linha por etapa | não deixa exceção subir, não sabe quem chamou e não impõe prazo ao desligamento: ele cancela o que não começou e espera o clipe em voo |
 | `api/seguranca.py` | traduzir o cabeçalho `Authorization` em `Principal` e cobrar a [posse do vídeo](/docs/sprint-2/backend/autenticacao) | não emite credencial e não guarda segredo |
 | `api/auth.py` | assinar sessão, conferir senha com `scrypt` e resumir token de serviço | não fala HTTP e não lê o banco |
+| `api/render.py` | resolver os pesos do manifesto e chamar o desenho da visão superior por clipe | não desenha nada: quem desenha é `src/models/top_view/create_top_view.py`, e peça que falta vira motivo, não exceção |
 | `api/export.py` | escrever `src/api/docs/openapi.json` a partir do app que roda | não edita o contrato à mão |
 
 A fronteira mais importante é a de `store.py`: ele lê os vídeos que uma queda deixou pelo meio e
@@ -69,7 +70,7 @@ E recebe o identificador e o endereço, já com a versão dentro:
 { "id": 5, "uploadUrl": "/v1/videos/upload/gjhFiaaIccwFyLBkPXPq..." }
 ```
 
-O `PUT` naquele endereço leva o binário cru e responde em 8 ms, antes de qualquer processamento:
+O `PUT` naquele endereço leva o binário cru e responde em 2 ms, antes de qualquer processamento:
 
 ```json
 { "status": 202, "id": 5 }
@@ -200,13 +201,17 @@ clipe, o vídeo da visão superior, com o quadro anotado à esquerda e a posiç�
 à direita, e a interface o exibe acima das métricas.
 
 Quem desenha é `src/models/top_view/create_top_view.py`, que já existia. O `src/api/render.py`
-importa `process_video` e chama, em vez de reimplementar o desenho, e assim existe uma
-implementação só: mudança no desenho aparece na tela sem ninguém copiar nada. Três coisas ficam
-do lado do serviço, porque um script de operador não precisa delas e um serviço não funciona sem:
-o peso vem do manifesto declarado em `[render.top_view]`, com sha256 conferido, em vez de um
-caminho relativo ao diretório de quem treinou; o arquivo termina em `var/api/renders`, porque
-`src/` é área de código e o serviço só escreve em `var/`; e falta de peça vira motivo registrado
-em vez de exceção, porque ilustração ausente não é falha de análise.
+importa `process_video` e chama, em vez de reimplementar o desenho, e assim existe uma implementação
+só: mudança no desenho aparece na tela sem ninguém copiar nada. Três coisas ficam do lado do
+serviço, porque um script de operador não precisa delas e um serviço não funciona sem: o peso vem do
+manifesto declarado em `[render.top_view]`, com sha256 conferido, em vez de um caminho relativo ao
+diretório de quem treinou; o arquivo termina em `var/api/renders`, porque `src/` é área de código e
+o serviço só escreve em `var/`; e falta de peça vira motivo registrado em vez de exceção, porque
+ilustração ausente não é falha de análise. É por isso que `render_url` nem sempre vem preenchido: os
+dois pesos de `[render.top_view]` são material derivado de dado restrito e não estão no git, e num
+clone sem `var/models` o serviço levanta `RenderUnavailable` com `o peso de players nao esta
+pronto`, registra `sem visao superior` no log, devolve `render_url` nulo e conclui a análise assim
+mesmo.
 
 O render não depende do desfecho da análise, e isso foi medido antes de ser decidido: num clipe
 real de partida com o `config/pipeline.toml` padrão, em que a bola é stub e responde pelo gabarito
@@ -226,9 +231,7 @@ com 4,5 MB em H.264, que é o formato que navegador toca.
 identificador na hora e consulta depois. *Alternativa descartada:* devolver o resultado na mesma
 requisição, que foi a primeira versão. Ela amarra a duração do pipeline à duração de uma conexão
 HTTP, e obriga o corpo inteiro a existir em memória. É preciso separar o que é fato do que é
-projeção: com o `config/pipeline.toml` padrão, em que seis das sete espécies são stub, a fixture
-sintética atravessa o pipeline em 14 ms no melhor caso e 81 ms no pior (13 execuções medidas hoje,
-mediana de 38 ms). O clipe que leva segundos é o clipe com modelo de verdade sobre vídeo de
+projeção: com o `config/pipeline.toml` padrão, em que seis das sete espécies são stub, a fixture sintética atravessa o pipeline em 12 ms no melhor caso e 18 ms no pior (13 execuções medidas hoje, mediana de 13 ms). O clipe que leva segundos é o clipe com modelo de verdade sobre vídeo de
 partida, e esse número ainda não existe. A decisão é para o segundo caso, e ela custa pouco no
 primeiro.
 
@@ -248,9 +251,7 @@ dia da integração, que custaria retrabalho nos dois lados perto da entrega. At
 uma rota e um alias por uma sprint, e desfazer custou um commit.
 *Alternativa descartada:* manter o caminho base64 de pé por ser o que o contrato escrito pedia, que
 é pagar manutenção por um cliente hipotético depois de o cliente real já ter escolhido.
-O `PUT` é o caminho que fica porque o corpo é transmitido por pedaço direto para o disco: medido
-hoje, um envio de 100 MB por `PUT` manteve o RSS do processo entre 66,1 MB e 66,6 MB do começo ao
-fim da transmissão.
+O `PUT` é o caminho que fica porque o corpo é transmitido por pedaço direto para o disco: medido hoje, um envio de 100 MB por `PUT`, esticado para 5 s para dar tempo de amostrar, manteve o RSS do processo entre 111,4 MB e 111,6 MB do começo ao fim da transmissão.
 
 **O endereço de envio aponta para o próprio serviço, no formato de uma URL pré-assinada.** Ele é
 um token opaco de 32 bytes sorteados, vale uma vez só e está preso a um vídeo. *Alternativa
@@ -287,9 +288,7 @@ para 1176 MB de RSS. Numa borda de 2 GB isso é falta de memória com dois clien
 certa não ajuda em nada.
 
 **O teto por pedaço é a segunda linha, para o caso em que não há cabeçalho.** Envio fragmentado
-não declara `Content-Length`, e aí não há o que conferir antes. Medido hoje: um `PUT` de 200 MB
-com `Content-Length` foi cortado em 5 ms, antes de o cliente conseguir transmitir corpo nenhum;
-o mesmo `PUT` sem `Content-Length` só foi cortado depois de 137.965.432 bytes recebidos. As duas
+não declara `Content-Length`, e aí não há o que conferir antes. Medido hoje: um `PUT` de 200 MB com `Content-Length` foi cortado em 0,7 ms, antes de o cliente conseguir transmitir corpo nenhum; o mesmo `PUT` sem `Content-Length` só foi cortado depois de 136.952.332 bytes recebidos. As duas
 mensagens são diferentes de propósito, `o corpo passa do teto de 128 MB` contra `o video passa do
 teto de 128 MB`, e é assim que se sabe qual das duas linhas recusou. *Alternativa descartada:*
 recusar de saída todo envio sem `Content-Length`, o que fecharia a porta para quem transmite sem
@@ -394,9 +393,7 @@ serviço anterior vêm das docstrings e dos testes que guardam cada correção, 
 que não existe mais: eles justificam a decisão, e não descrevem o comportamento atual. O que não
 tem medição está escrito como projeção. A suíte da API tem 195 testes e cobre 96,59% das linhas
 de `src/api`, medidos em 28/08/2026 com `cd src && uv run pytest tests/api --cov=api`; a mesma
-execução sem a medição de cobertura leva 4,3 s nesta máquina. O número caiu de 203 para 194 quando
-a rota de envio em base64 saiu: dez testes eram sobre a codificação e morreram com ela, e três
-entraram no lugar cobrindo o mesmo risco pelo caminho do `PUT`. O 195º é o do teto por pedaço, que
+execução sem a medição de cobertura leva 4,3 s nesta máquina. O número caiu de 203 para 194 quando a rota de envio em base64 saiu: onze testes eram sobre a codificação, sobre o alias de tipo e sobre a rota que os servia, e morreram com ela; dois voltaram reescritos pelo caminho do `PUT`. O 195º é o do teto por pedaço, que
 guardava um comportamento sem teste nenhum.
 
 ## Trade-offs
@@ -423,12 +420,12 @@ dobro: o corpo inteiro em memória e 33% a mais de bytes na rede.
 
 **A desvantagem do 413 pelo cabeçalho é que `Content-Length` é afirmação do cliente.** Ele some em
 envio fragmentado, e aí quem segura é o teto por pedaço, que só corta depois de ter recebido os
-bytes: medido, 132 MB entraram antes do corte. A proteção barata cobre o caso comum, e o caso
+bytes: medido, 131 MB entraram antes do corte. A proteção barata cobre o caso comum, e o caso
 incomum custa banda.
 
 **A desvantagem da triagem de tipo pela porta é que a prova real vem depois do upload.** Qualquer
 `video/*` passa na porta, e quem decide é o decodificador, que abre o arquivo já gravado. Medido
-hoje: 100 MB que não eram vídeo foram recebidos inteiros em 0,22 s e só então recusados com 415.
+hoje: 100 MB que não eram vídeo foram recebidos inteiros em 0,11 s e só então recusados com 415.
 Evitar isso exigiria conferir assinatura nos primeiros bytes durante a transmissão, o que
 resolveria o arquivo obviamente inválido e não o vídeo corrompido no meio, que é o caso que mais
 aparece.

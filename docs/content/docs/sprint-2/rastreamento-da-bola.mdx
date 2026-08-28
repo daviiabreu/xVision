@@ -1,6 +1,6 @@
 ---
 title: Rastreamento da bola
-description: Detecção e rastreamento da bola na borda, ajuste fino do YOLOv8n no SoccerNet e resultados no alvo da Footstats
+description: Detecção e rastreamento da bola na borda, o que roda hoje, o ajuste fino do YOLOv8n no SoccerNet e o que foi medido no alvo da Footstats
 ---
 
 O rastreamento da bola detecta a bola em cada quadro e liga essas detecções ao longo do tempo, formando
@@ -14,24 +14,33 @@ candidatos que não parecem bola, e a `BallTracker` escolhe qual é a bola e mon
 
 Detecção. O YOLO devolve os candidatos a bola por quadro. Cada caixa passa por um filtro: precisa ser
 quase quadrada e ter tamanho compatível com uma bola (medido como fração da altura do quadro, para
-tolerar zoom). Isso descarta artefatos como a marca do pênalti e o círculo central.
+tolerar zoom). O limite de aspecto foi medido e mantido (candidatos colados a jogador entre 0,67 e 1,62, nenhum acima de 2,0, e afrouxar para 2,2/2,5/3,0 dá a mesma taxa). O que o filtro NÃO faz é separar a marca do pênalti vazia de uma bola parada em cima dela; isso é trabalho do movimento, no rastreador. Também entraram os limites reais: 0,004 a 0,06 da altura e aspecto 0,5 a 2,0.
 
 Rastreamento. A `BallTracker` decide qual candidato é a bola usando continuidade de movimento. Ela prevê
 onde a bola deveria estar, pela velocidade dos dois últimos pontos, e escolhe o candidato mais próximo
-dessa previsão; a confiança serve só de desempate. Um candidato longe demais para o tempo decorrido é
-rejeitado. Quando a bola some por poucos quadros, a posição é interpolada; quando some por muitos, o
+dessa previsão; a confiança serve só de desempate. ...rejeitado, com um gate de 3000 pixels por segundo e margem de 1,5, que é alvo preliminar herdado da escrita do rastreador e não número medido em clipe do parceiro. Quando a bola some por até cinco quadros (`max_gap_frames`), a posição é interpolada; também entrou o quadrado sintético de 10 pixels do ponto interpolado.; quando some por muitos, o
 trecho vira perda e o rastreador recomeça na detecção seguinte. Cada quadro recebe um estado:
 `detected`, `interpolated` ou `missing`.
 
-Essa escolha por movimento é o que impede a marca do pênalti, parada e fora da trajetória, de roubar o
-rastreamento, mesmo quando tem confiança maior que a bola.
+Escolher por movimento é o que DEVERIA impedir isso; medido, o rastreador não sustenta sozinho: ganhou 1 clipe em 24 na dobra de ajuste (indistinguível de ruído) e no clipe 4996262 preferiu um borrão imóvel de confiança 0,367 ao candidato certo de 0,493, terminando a 131,8 px do finalizador contra zero sem o rastreador. Link para a página do instante.
 
 ## Pré-processamento
 
-Hoje o pré-processamento é só o que o YOLO faz internamente: letterbox para o `imgsz`, BGR para RGB,
-normalização e formato de tensor. Não há pré-processamento próprio da bola ainda; ele está planejado
-(recorte de região de interesse e realce de objeto pequeno). A única alavanca em uso é a resolução de
-entrada (`imgsz`), que importa porque a bola ocupa poucos pixels.
+O módulo declara o pré-processamento que precisa, em vez de aceitar o que o YOLO faria sozinho:
+`PreprocessSpec(width=1920, height=1088, color="bgr", letterbox=True, normalize="none")`, em
+`edge/modules/ball/module.py`. As caixas voltam ao quadro original por
+`edge.frames.preprocess.to_source_box`, com o tamanho da fonte, antes do filtro de forma, e é isso
+que impede a coordenada do letterbox de vazar para o evento.
+
+A alavanca principal deixou de ser só a resolução de entrada. O detector ladrilha o quadro 2 por 2
+com 100 px de sobreposição (`sobreposicao_px = 100`) e roda cada pedaço a `imgsz` 1600, com NMS a
+IoU 0,1 (`nms_iou = 0.1`) para juntar a mesma bola detectada em pedaços vizinhos. Medido sobre a
+dobra de ajuste, 24 clipes: quadro inteiro a 1280 dá 12, inteiro a 1920 dá 15, ladrilho 2x2 a 1280
+dá 18 e ladrilho 2x2 a 1600 dá 19. A sobreposição existe porque sem ela a bola na junção sai partida
+em duas meias caixas e o filtro de forma a descarta.
+
+Não há recorte de região de interesse nem realce de objeto pequeno, que eram o plano anterior: o
+ladrilho ocupou esse lugar e resolveu o mesmo problema, que é a bola ocupar poucos pixels.
 
 ## Ajuste fino do detector
 
@@ -50,8 +59,7 @@ uma classe (`ball`).
 
 O treino parte do YOLOv8n do COCO e treina uma classe em `imgsz` 1280. Precisa de GPU. Foi treinado numa
 RTX A6000; em máquina compartilhada o gargalo é a RAM do sistema, não a VRAM (batch 48 com 4 workers
-rodou estável). No SoccerNet, o mAP50 chegou a cerca de 0,47 e estabilizou por volta da época 10. Esse
-número é proxy; o que decide é o alvo real.
+rodou estável). No SoccerNet, o mAP50 chegou a cerca de 0,47 e estabilizou por volta da época 10. Esse número é proxy do próprio treino e não foi refeito desde então; o que decide é o alvo real.
 
 ## Resultados no alvo real (Footstats)
 
@@ -76,7 +84,7 @@ sem poluir:
 | 0,15 | 73% | 78% | 0 |
 | 0,05 | 77% | 81% | 0 |
 
-Em `conf 0,05` a cobertura sobe para 81% com zero falsos positivos. É o ponto de operação recomendado.
+Em `conf 0,05` a cobertura sobe para 81% neste corte de 15 s, mas esse não é o ponto de operação em vigor: a configuração de produção usa 0,10, e 0,05 foi medido e recusado sobre os 38 clipes anotados, porque leva a contagem de candidatos por quadro de 1 para 3,5 sem mover `body_part`.
 
 ## Como rodar
 
@@ -84,7 +92,7 @@ Treino (precisa de GPU):
 
 ```bash
 uv sync --extra training
-uv run python training/run.py --stages download,convert
+cd src; uv run python models/ball/run.py --stages download,convert (e o mesmo para o estágio train)
 uv run python training/run.py --stages train --device 0 --batch 48 --workers 4
 ```
 
@@ -98,8 +106,7 @@ uv run python scripts/track_ball_clip.py corte.mp4 saida_coco.mp4 \
 ```
 
 Use `--ball-class 0` com o modelo ajustado (uma classe) e `--ball-class 32` com o COCO. O modelo treinado
-está em `weights/ball_yolov8n.pt`. A lógica de conversão do dataset está em `edge.ball.dataset`, com
-testes em `src/tests/edge/`.
+está em `weights/ball_yolov8n.pt`. A lógica está em `edge/modules/ball/dataset.py`, com 6 testes em `src/tests/edge/modules/ball/test_dataset_soccernet.py`; a pasta do módulo tem 44 testes, medidos em 28/08/2026.
 
 Os cortes da Footstats e os vídeos anotados são material restrito do parceiro e não entram no
 repositório. Esta página descreve só métricas agregadas.

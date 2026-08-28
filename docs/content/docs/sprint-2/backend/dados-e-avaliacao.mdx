@@ -18,7 +18,7 @@ só como o que a avaliação faz com elas.
 ## Onde se encaixa no fluxo
 
 ```text
-   data/footstats/  (restrito, fora do git)     config/  (versionado, 4 e 137 linhas)
+   data/footstats/  (restrito, fora do git)     src/config/  (versionado, 127 e 4 linhas)
    ┌─────────────────────────────┐        ┌──────────────────────────────────┐
    │ tabela de finalizacoes      │        │ labels.toml   qual coluna e o    │
    │ tabela de xG                │        │               gabarito, e o grao │
@@ -336,8 +336,7 @@ O que se ganha é um caminho curto e auditável: 852 linhas executáveis no paco
 382 são o catálogo, os rótulos, a partição, a avaliação e a procedência, e 470 são as ferramentas de
 anotação e diagnóstico que chegaram nesta sprint. Nenhuma delas traz serviço, banco ou dependência
 que a placa carregue à toa. A configuração que decide a população, o gabarito e a partição cabe em
-dois arquivos TOML de 137 e 4 linhas, que aparecem no diff da revisão, e o `compose.yaml` monta
-`config/` como volume, então quem opera troca a tabela de rótulos sem tocar em código.
+dois arquivos TOML de 127 e 4 linhas, que aparecem no diff da revisão, e o `compose.yaml` monta `src/config/` como volume somente-leitura, então quem opera troca a tabela de rótulos sem tocar em código.
 
 **A desvantagem principal é que a aritmética das métricas é nossa, e é ela que pode estar errada
 sem ninguém notar.** O comando roda, imprime uma tabela bem formatada, e a decisão de aceitar ou

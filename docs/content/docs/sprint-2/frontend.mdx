@@ -288,10 +288,7 @@ não baixou seria trocar o essencial pelo acessório.
 
 A Figura 6 é a fase `pronto` com tudo o que ela pode ter: o vídeo anotado da visão superior, as
 métricas da etapa `shot` em grade de duas colunas e as outras seis etapas em acordeão fechado.
-As três métricas da figura vêm da configuração de exemplo que `src/tests/api/test_metricas.py`
-monta, e não do `config/pipeline.toml` do repositório, que não declara feature nenhuma: são
-uma medida em metros, uma leitura ausente e uma categoria, que é exatamente o conjunto de casos
-que a tela precisa distinguir.
+As três métricas da figura vêm da configuração de exemplo que `src/tests/api/test_metricas.py` monta: uma medida em metros, uma leitura ausente e uma categoria, que é exatamente o conjunto de casos que a tela precisa distinguir. A captura é anterior às duas features que `src/config/pipeline.toml` declara hoje, `body_part` e `type_of_play`, e por isso não as mostra: rodando a configuração do repositório contra o clipe sintético nesta base, a grade traz essas duas, `body_part` como indisponível e `type_of_play` com o valor `individual`.
 
 <div style={{ textAlign: "center" }}>
   <sup>Figura 6 - A tela de resultado</sup>
@@ -524,10 +521,9 @@ serviço pode renomear um campo sem que nenhuma tela mude, porque a tradução m
 segundos sem navegador de verdade, com 133 testes em 15 arquivos.
 
 **A desvantagem principal é o tamanho do pacote, e ela tem número.** O build de produção de hoje
-sai com 362,47 kB de JavaScript, 118,64 kB comprimidos, em um único pedaço, mais 14,78 kB de CSS,
+sai com 362,35 kB de JavaScript, 118,58 kB comprimidos, em um único pedaço, mais 14,78 kB de CSS,
 a partir de 387 módulos. Numa cópia da aplicação fora do repositório, trocando o acordeão do MUI
-por um `details` nativo e nada mais, o mesmo build sai com 251,31 kB, 80,44 kB comprimidos, a
-partir de 58 módulos. Ou seja, MUI e Emotion custam 111,16 kB, 38,20 kB comprimidos, e 329 dos 387
+por um `details` nativo e nada mais, o mesmo build sai com 251,24 kB, 80,40 kB comprimidos, a partir de 58 módulos. Ou seja, MUI e Emotion custam 111,11 kB, 38,18 kB comprimidos, e 329 dos 387
 módulos, para um componente. O experimento mede o custo, não propõe a troca: o `details` nativo
 perde a animação e o tratamento de foco que o MUI traz prontos, e a troca também obrigaria a
 reescrever a `style-src` da CSP, já que `unsafe-inline` está lá por causa do Emotion.
@@ -538,11 +534,7 @@ pertençam à mesma conta. Limpar os dados do navegador tem o mesmo efeito. Não
 lista sem adivinhar identificadores, e adivinhar é exatamente o que o 404 do serviço existe para
 impedir.
 
-**A desvantagem da consulta a cada 5 s é que ela é o tempo de espera.** Com os sete módulos de
-percepção em stub, a análise da fixture sintética termina em dezenas de milissegundos, então o que
-a pessoa espera é o próximo tique do relógio, e não o processamento. Isso se inverte com modelo de
-verdade, e é a razão de não valer a pena ajustar o intervalo agora: o número certo depende de uma
-medição que ainda não existe.
+**A desvantagem da consulta a cada 5 s é que ela é o tempo de espera.** Com a configuração que o serviço carrega por padrão, `src/config/pipeline.toml`, em que só o módulo `shot` tem implementação real e os outros seis são stub, as sete etapas da fixture sintética somam 14,3 ms medidos em 28/08/2026, então o que a pessoa espera é o próximo tique do relógio, e não o processamento. Isso se inverte com `src/config/pipeline.models.toml`, que roda cinco das sete espécies com peso de verdade, e é a razão de não valer a pena ajustar o intervalo agora: o número certo depende de uma medição contra vídeo de partida que ainda não existe. Qual módulo é real e qual é stub está em [o que fica para a próxima sprint](./o-que-falta).
 
 **A desvantagem do endereço assado no build é uma imagem por ambiente.** É barato enquanto há um
 ambiente, e vira incômodo no dia em que houver homologação e produção com a mesma versão de
@@ -569,8 +561,7 @@ resultado e ver o vídeo anotado e as três métricas da configuração de exemp
 nenhuma das duas suítes cobre, e não roda sozinha.
 
 **Nenhum número desta página fala de vídeo real de partida.** Os tamanhos de pacote e os tempos de
-suíte são medidas da interface; o tempo que a pessoa vai esperar depende dos sete módulos de
-percepção, que hoje são stubs. Nada aqui deve ser lido como evidência sobre o
+suíte são medidas da interface; o tempo que a pessoa vai esperar depende dos sete módulos de percepção, e a configuração que o serviço carrega por padrão roda seis deles como stub. Nada aqui deve ser lido como evidência sobre o
 [RNF-01](/docs/sprint-1/requisitos/nao-funcionais).
 
 **O campo `frame` está escrito dos dois lados e nunca foi exercido com dado real.** O contrato
@@ -593,8 +584,7 @@ como par `eslint` de `^3` a `^9`, e este projeto está no ESLint 10.8.1. A audit
 
 ## Como sabemos que funciona
 
-Os quatro portões desta parte, mais o formato, rodados em 28/08/2026 nesta base, numa estação de
-trabalho macOS `aarch64` com Node 26.7.0:
+Os quatro portões desta parte, mais o formato, rodados em 28/08/2026 nesta base de dentro de `src/interface`, numa estação de trabalho macOS `aarch64` com Node 26.7.0:
 
 ```bash
 npm run lint          # eslint, sem nada a reportar
@@ -606,7 +596,7 @@ npm run build         # o pacote medido em Trade-offs
 
 A cobertura sai junto do `npm run test`, porque o script liga `--coverage`, e o piso está
 declarado no `vite.config.ts`: 90% de linha, 82% de ramo. A medição de hoje é 96,03% de linha e
-89,84% de ramo, sobre todos os arquivos de `src/` menos os testes e o `main.tsx`, que só chama
+89,84% de ramo, sobre todos os arquivos de `src/interface/src` menos os testes, a declaração de tipos do Vite e o `main.tsx`, que só chama
 `createRoot`. Cinco jobs do CI rodam esses cinco comandos, e um sexto constrói a imagem e a
 exercita com `curl`.
 
@@ -629,12 +619,12 @@ estar. A zona de envio continua sendo um `div` clicável, e nenhuma regra autom�
 | Rota que liste os vídeos de uma conta | Publicar a rota no serviço, sobre `store.videos_de`, que já existe e não tem consumidor, e trocar `videoCache` por ela; o teste é entrar na mesma conta num navegador que nunca enviou nada e ver a lista completa |
 | Teste automático dos dois lados juntos | Subir o serviço e a imagem do frontend num job e repetir por script o fluxo que hoje é feito à mão, do registro ao vídeo anotado na tela |
 | `frame` de demonstração por etapa | O serviço passa a preencher o campo; o teste é abrir a etapa no acordeão e ver o quadro, sem mudança de contrato, já que a tela aceita `data:` e base64 cru |
-| `metricas` com conteúdo em produção | Declarar a primeira feature real em `config/pipeline.toml` e conferir na tela que a unidade exibida é a que a `FeatureSpec` declara, que o float sai com duas casas e que leitura ausente aparece como indisponível, e não como zero |
+| Métrica contínua exercida na tela | As duas features que `src/config/pipeline.toml` declara não cobrem o caso do número com casa decimal: no clipe sintético `body_part` sai indisponível e `type_of_play` sai como texto. O teste é declarar a primeira feature que meça em unidade contínua e conferir na tela que a unidade exibida é a que a `FeatureSpec` declara, que o float sai com duas casas e que leitura ausente aparece como indisponível, e não como zero |
 | Foco tratado na troca de rota | Dar `tabIndex` de menos um ao título de cada tela e focá-lo quando o caminho muda; o teste é navegar e conferir que o próximo `Tab` continua de onde a pessoa está, e não do topo |
 | Zona de envio alcançável pelo teclado | Reavaliar o `eslint-plugin-jsx-a11y` quando ele aceitar o ESLint 10, e enquanto isso dar papel e tratador de teclado à área; o teste é chegar nela por `Tab` e abrir o seletor pelo `Enter` |
 | Progresso ou notificação do processamento | Depende de o serviço publicar etapa corrente ou posição na fila; o teste é a tela dizer em que etapa o clipe está em vez de girar sem número |
 | Intervalo de consulta escolhido por medição | Medir o tempo de um clipe real com o primeiro modelo de verdade e só então mexer nos 5 s, para não trocar um número inventado por outro |
-| Redução do pacote | Decidir entre `details` nativo e importação seletiva do MUI, comparando com os 362,47 kB de hoje e conferindo se a `style-src` da CSP pode fechar junto |
+| Redução do pacote | Decidir entre `details` nativo e importação seletiva do MUI, comparando com os 362,35 kB de hoje e conferindo se a `style-src` da CSP pode fechar junto |
 
 ## Referências
 
