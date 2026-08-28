@@ -10,6 +10,49 @@ descrito em [o serviço HTTP](/docs/sprint-2/backend/servico-http), da
 TypeScript sobre Vite, e não conhece nem vídeo nem modelo: para ela, a análise é uma sequência de
 chamadas HTTP e quatro estados possíveis.
 
+## Da concepção à tela
+
+Antes de existir código houve um wireframe de baixa fidelidade, feito no papel para fixar o fluxo
+de interação antes que ele custasse implementação. Ele está na Figura 1, e vale menos pelo que
+acertou do que pelo que foi descartado depois.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 1 - Wireframe de baixa fidelidade</sup>
+
+  <img
+    src="/sprint2/frontend/wireframe.jpg"
+    alt="Fotografia de uma folha de papel com quatro telas desenhadas a caneta, ligadas por setas: a seleção do arquivo, a confirmação com informações do vídeo, o carregamento e o resultado com métricas. Ao redor, anotações de erros previstos, o limite de tamanho corrigido de 2 GB para 500 MB e depois para 128 MB, e a palavra cache sobre a segunda tela."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
+A proposta original tinha quatro telas: seleção do arquivo, confirmação do vídeo, carregamento e
+resultado. Duas caíram, e cada queda tem motivo.
+
+**A confirmação separada saiu porque a própria área de seleção já mostra o arquivo escolhido e
+oferece trocá-lo.** Uma tela a mais para dizer "é este mesmo?" cobrava um clique sem acrescentar
+informação nenhuma.
+
+**A tela de carregamento saiu quando o processamento virou assíncrono.** No desenho original o
+vídeo ia para um armazenamento de objetos e a inferência acontecia dentro da requisição, como no
+[iLovePDF](https://www.ilovepdf.com/): quem enviava esperava na frente da tela. Com modelo de
+visão computacional de verdade esse tempo deixa de ser aceitável, e a decisão foi devolver o
+identificador na hora e acompanhar o estado na Home. A tela de carregamento não desapareceu por
+completo: ela sobrevive na fase que espera o 409 do resultado, para quem abre o endereço antes de
+a análise terminar.
+
+Três coisas do papel chegaram inteiras. O teto de tamanho, que aparece riscado duas vezes na
+fotografia, de 2 GB para 500 MB e finalmente para 128 MB, é o mesmo que o serviço aplica na porta.
+O cache anotado sobre a segunda tela virou o índice em `localStorage` que a Home usa para saber o
+que foi enviado. E a lista de erros no canto esquerdo, erro interno, arquivo grande demais, formato
+não suportado e serviço fora do ar, é a tabela de mensagens de `ErroHttp`, hoje com seis status em
+vez de quatro.
+
+O que o papel não previu foi a autenticação. Ela entrou depois, quando o serviço passou a ter
+conta de usuário e posse do vídeo, e trouxe junto a tela de login e o botão de sair.
+
 ## Onde se encaixa no fluxo
 
 O desenho abaixo é a posição da interface, não o do sistema todo. Ele mostra a árvore de
@@ -71,6 +114,21 @@ comportamento sem saber que ele existe.
 
 ## Fluxo de dados
 
+Antes de qualquer coisa há a porta, na Figura 2. O mesmo formulário entra e cria conta, e o
+botão embaixo alterna entre os dois modos.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 2 - Entrar ou criar conta</sup>
+
+  <img
+    src="/sprint2/frontend/login.png"
+    alt="Tela de login centralizada, com os campos Email e Senha, a dica de mínimo de 12 caracteres embaixo da senha, o botão Entrar em preto e o link Criar uma conta."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
 Entra um arquivo de vídeo escolhido no disco de quem usa, com teto de 128 MB, piso de um byte e
 tipo começando em `video/`. Sai uma tela com o vídeo anotado, o resultado da etapa `shot` e as
 outras seis etapas em acordeão. Entre as duas pontas há cinco endereços distintos, um deles
@@ -103,6 +161,22 @@ export function validateVideoFile(file: File): string | null {
 
 O piso de um byte existe porque o `PUT` do serviço responde 400 para corpo vazio, e recusar aqui
 troca uma viagem de rede por uma mensagem imediata.
+
+A área de envio da Figura 3 é o ponto de entrada de quem já entrou. Ela é maior que um botão
+por decisão de usabilidade, e o botão dentro dela existe porque a área grande sozinha não é
+alcançável pelo teclado, o que está registrado em Riscos.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 3 - A área de envio, sem nada enviado ainda</sup>
+
+  <img
+    src="/sprint2/frontend/home-vazia.png"
+    alt="Tela inicial com o título Adicione o vídeo da finalização, uma área tracejada com ícone de envio, os formatos aceitos, o tamanho máximo de 128 MB e o botão Selecionar vídeo."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
 
 Passando na validação, o envio são duas chamadas. A primeira reserva o identificador e recebe o
 endereço; a segunda leva o binário para lá:
@@ -153,6 +227,34 @@ Enquanto o vídeo não terminou, o cartão não é link; quando termina, ele vir
 alcançável pelo teclado, inclusive quando o desfecho foi `Falhou`, porque é na tela de resultado
 que mora o motivo.
 
+A Figura 4 mostra a lista logo depois do envio, e a Figura 5 mostra o mesmo cartão quando a
+análise falhou: o ponto colorido muda, o texto muda e o cartão continua clicável, porque o
+motivo da falha está do outro lado.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 4 - Acompanhamento do processamento</sup>
+
+  <img
+    src="/sprint2/frontend/home-processando.png"
+    alt="A mesma tela inicial, agora com a seção Processamentos embaixo e um cartão com o nome do arquivo e o estado Pendente ao lado de um ponto cinza."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 5 - O cartão de uma análise que falhou</sup>
+
+  <img
+    src="/sprint2/frontend/home-lista.png"
+    alt="Seção Processamentos com um cartão do arquivo clipe-corrompido.mp4, o estado Falhou ao lado de um ponto vermelho e a seta que leva ao resultado."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
 A tela de resultado tem cinco fases, e o que decide entre elas é o status da recusa:
 
 ```text
@@ -183,6 +285,55 @@ A seta que sai do `GET .../render` diz "com ou sem o vídeo" porque o download d
 tratamento próprio: qualquer falha nele vira `render = null` e a tela segue para `pronto`. O vídeo
 é material de apoio, e perder a análise inteira, que já chegou com 200, por causa de um mp4 que
 não baixou seria trocar o essencial pelo acessório.
+
+A Figura 6 é a fase `pronto` com tudo o que ela pode ter: o vídeo anotado da visão superior, as
+métricas da etapa `shot` em grade de duas colunas e as outras seis etapas em acordeão fechado.
+As três métricas da figura vêm da configuração de exemplo que `src/tests/api/test_metricas.py`
+monta, e não do `config/pipeline.toml` do repositório, que não declara feature nenhuma: são
+uma medida em metros, uma leitura ausente e uma categoria, que é exatamente o conjunto de casos
+que a tela precisa distinguir.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 6 - A tela de resultado</sup>
+
+  <img
+    src="/sprint2/frontend/resultado.png"
+    alt="Tela de resultado com o título Seu vídeo foi analisado com sucesso, o nome do arquivo, a situação e o número de etapas, o vídeo da visão superior com o campo à esquerda e a projeção à direita, três métricas em grade e seis etapas em acordeão fechado."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
+A Figura 7 mostra uma etapa aberta. Quando o resultado principal mediu alguma coisa, o acordeão
+aponta para lá; quando não mediu, ele diz isso, em vez de mandar procurar numa seção vazia.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 7 - Uma etapa aberta no acordeão</sup>
+
+  <img
+    src="/sprint2/frontend/resultado-etapa.png"
+    alt="A mesma tela de resultado com a etapa Detecção da bola expandida, mostrando a frase de que as métricas aparecem em Análise da finalização."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
+
+E a Figura 8 é o desfecho que a rubrica cobra que exista e apareça: a análise que não fechou,
+com o motivo que o serviço registrou, e não uma tela de erro genérica.
+
+<div style={{ textAlign: "center" }}>
+  <sup>Figura 8 - Uma análise que não fechou</sup>
+
+  <img
+    src="/sprint2/frontend/resultado-falhou.png"
+    alt="Tela de resultado com o título Não conseguimos medir esta finalização, o nome do arquivo, a situação Falhou, zero etapas e a mensagem de que o arquivo enviado não abriu como vídeo."
+    style={{ display: "block", margin: "1rem auto", maxWidth: "100%" }}
+  />
+
+  <sub>Fonte: Os autores (2026)</sub>
+</div>
 
 ### A tradução de nomes
 
