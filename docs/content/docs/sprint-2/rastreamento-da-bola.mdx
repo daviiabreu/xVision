@@ -18,11 +18,19 @@ tolerar zoom). O limite de aspecto foi medido e mantido (candidatos colados a jo
 
 Rastreamento. A `BallTracker` decide qual candidato é a bola usando continuidade de movimento. Ela prevê
 onde a bola deveria estar, pela velocidade dos dois últimos pontos, e escolhe o candidato mais próximo
-dessa previsão; a confiança serve só de desempate. ...rejeitado, com um gate de 3000 pixels por segundo e margem de 1,5, que é alvo preliminar herdado da escrita do rastreador e não número medido em clipe do parceiro. Quando a bola some por até cinco quadros (`max_gap_frames`), a posição é interpolada; também entrou o quadrado sintético de 10 pixels do ponto interpolado.; quando some por muitos, o
-trecho vira perda e o rastreador recomeça na detecção seguinte. Cada quadro recebe um estado:
+dessa previsão; a confiança serve só de desempate. Um candidato distante demais é rejeitado por
+um gate de 3000 pixels por segundo, com margem de 1,5. Esse valor é preliminar, herdado da escrita
+do rastreador, e ainda não foi medido em clipe do parceiro. Quando a bola some por até cinco
+quadros (`max_gap_frames`), a posição é interpolada e representada por um quadrado sintético de
+10 pixels; quando a ausência ultrapassa esse limite, o trecho vira perda e o rastreador recomeça
+na detecção seguinte. Cada quadro recebe um estado:
 `detected`, `interpolated` ou `missing`.
 
-Escolher por movimento é o que DEVERIA impedir isso; medido, o rastreador não sustenta sozinho: ganhou 1 clipe em 24 na dobra de ajuste (indistinguível de ruído) e no clipe 4996262 preferiu um borrão imóvel de confiança 0,367 ao candidato certo de 0,493, terminando a 131,8 px do finalizador contra zero sem o rastreador. Link para a página do instante.
+A escolha por movimento deveria impedir falsos positivos imóveis, mas o rastreador não sustentou
+esse ganho sozinho: venceu em 1 dos 24 clipes da dobra de ajuste, resultado indistinguível de ruído,
+e no clipe 4996262 preferiu um borrão imóvel de confiança 0,367 ao candidato correto de 0,493,
+terminando a 131,8 px do finalizador, contra zero sem o rastreador. O diagnóstico completo está em
+[detecção do instante da finalização](./97-deteccao-do-instante-da-finalizacao).
 
 ## Pré-processamento
 
@@ -86,7 +94,7 @@ sem poluir:
 
 Em `conf 0,05` a cobertura sobe para 81% neste corte de 15 s, mas esse não é o ponto de operação em vigor: a configuração de produção usa 0,10, e 0,05 foi medido e recusado sobre os 38 clipes anotados, porque leva a contagem de candidatos por quadro de 1 para 3,5 sem mover `body_part`.
 
-## Como rodar
+## Como executar
 
 Treino (precisa de GPU):
 
@@ -111,7 +119,7 @@ está em `weights/ball_yolov8n.pt`. A lógica está em `edge/modules/ball/datase
 Os cortes da Footstats e os vídeos anotados são material restrito do parceiro e não entram no
 repositório. Esta página descreve só métricas agregadas.
 
-## Próximos passos
+## Ainda não implementado
 
 - Validar em mais cortes reais, principalmente replay, close e gráficos, onde os dois modelos caem.
 - Testar o `yolov8s` se o recall precisar de mais um degrau.

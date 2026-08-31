@@ -1,5 +1,5 @@
 ---
-title: Como sabemos que funciona, e o que falta
+title: Como sabemos que funciona e o que falta
 description: Os quatro portões e o que cada um prova, o que a mutação encontrou embaixo de 96% de cobertura de linha, e as sete frentes que continuam abertas
 ---
 
@@ -266,7 +266,11 @@ mais, foi confirmada em parte: a suíte de conformidade, que são sete testes he
 linhas, passou a rodar contra os cinco adaptadores reais sem nenhum ajuste no contrato do módulo, e
 nenhum dos sete falhou. O que ela não previa é que cada adaptador ainda precisa dos próprios testes
 de travessia até a API do Ultralytics, escritos à mão, porque a conformidade cobra o contrato e
-nunca a acurácia. Falta o `field`, cujo modelo de keypoints do campo já existe e está declarado em `src/models/manifests/field/`, de onde o render da visão superior já o consome, e o que falta é ligá-lo no lugar do stub; e falta o `identity`, que ficou de fora de propósito por não bloquear nenhuma das sete métricas declaradas. O experimento que fecha cada um está em [o que fica para a próxima sprint](../o-que-falta).
+nunca a acurácia. Falta o `field`, cujo modelo de keypoints do campo já existe e está declarado em
+`src/models/manifests/field/`, de onde o render da visão superior já o consome, e o que falta é
+ligá-lo no lugar do stub; falta também o `identity`, necessário para preencher `team` e permitir o
+cálculo de `marked`. O experimento que fecha cada um está em
+[o que fica para a próxima sprint](../o-que-falta).
 
 **Duas das sete métricas têm feature, e as outras cinco continuam saindo com cobertura zero no
 `eval`.** Isto é fato conferido em dois arquivos: `src/config/labels.toml` declara sete entradas `[[metric]]`, e `src/config/pipeline.toml` e `src/config/pipeline.models.toml` declaram as mesmas duas seções `[features.*]`,
@@ -280,7 +284,7 @@ sprint 3 é que declarar `[features.marked]` faz a cobertura daquela linha sair 
 experimento é rodar `xvision eval` antes e depois da declaração e comparar as duas linhas da mesma
 métrica. O critério não é o valor da acurácia, é a cobertura deixar de ser zero com a linha de base
 de maioria aparecendo ao lado, como descrito em
-[o dado do parceiro, e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao). O quadro
+[o dado do parceiro e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao). O quadro
 inteiro das sete métricas, com o que falta em cada uma, está em
 [o que fica para a próxima sprint](../o-que-falta).
 

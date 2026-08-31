@@ -7,9 +7,14 @@ A borda é a parte do backend que abre o clipe de vídeo e produz o evento de fi
 metade que vai para a Jetson, e a metade de baixo da
 [arquitetura do backend](/docs/sprint-2/backend).
 
-Abertura reescrita: o projeto vive em `src/` e os comandos rodam de lá; `config/pipeline.toml` tem só `shot` real (`edge.modules.shot:BallBreakShot`) e seis stubs; `config/pipeline.models.toml` sobe cinco das sete (`players`, `ball`, `tracking`, `pose`, `shot`); `field` e `identity` são stub nas duas; duas features declaradas, `body_part` e `type_of_play`. Link para ../o-que-falta. Isso é deliberado. É o que permite que a plataforma exista, seja
-exercitada de ponta a ponta e seja medida antes de qualquer modelo. Toda medida de tempo desta
-página, por consequência, é custo da plataforma e não custo de inferir.
+O projeto vive em `src/`, e os comandos rodam a partir desse diretório. `config/pipeline.toml` tem
+apenas o `shot` real (`edge.modules.shot:BallBreakShot`) e seis stubs;
+`config/pipeline.models.toml` ativa cinco das sete espécies (`players`, `ball`, `tracking`, `pose` e
+`shot`), enquanto `field` e `identity` permanecem como stubs nas duas configurações. As features
+declaradas são `body_part` e `type_of_play`, como resume
+[o quadro consolidado da sprint](../o-que-falta). Essa separação é deliberada: permite exercitar a
+plataforma de ponta a ponta e medir sua estrutura antes de qualquer modelo. Toda medida de tempo
+desta página, por consequência, representa o custo da plataforma, não o custo de inferência.
 
 ## Onde se encaixa no fluxo
 
@@ -370,7 +375,7 @@ de 60 quadros de incerteza. Medido lendo as tabelas de finalizações e de event
 impacto é direto sobre o [RNF-03](/docs/sprint-1/requisitos/nao-funcionais): a grade de 5 m sozinha
 já contribui com erro absoluto médio de 1,25 m, então abaixo dessa faixa o número mede o rótulo e
 não o modelo, e o grão de 1 s é o piso equivalente para o erro de instante. A derivação está em
-[o dado do parceiro, e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao).
+[o dado do parceiro e o número honesto](/docs/sprint-2/backend/dados-e-avaliacao).
 
 **Parte do material não abre.** Dos 633 clipes entregues, 24 têm 261 bytes cada e não abrem como
 vídeo, provavelmente truncados no envio. Os 609 restantes são todos 1920x1080, H.264, yuv420p, com

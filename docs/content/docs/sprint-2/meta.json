@@ -2,14 +2,14 @@
 	"title": "Sprint 2",
 	"pages": [
 		"planejamento",
-		"jogadores",
 		"backend",
 		"frontend",
-		"visao-superior",
-		"marcacao",
-		"line_tracking",
+		"jogadores",
 		"rastreamento-da-bola",
+		"line_tracking",
+		"visao-superior",
 		"97-deteccao-do-instante-da-finalizacao",
+		"marcacao",
 		"o-que-falta",
 		"slides"
 	]

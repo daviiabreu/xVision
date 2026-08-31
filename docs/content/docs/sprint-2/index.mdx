@@ -4,8 +4,8 @@ description: Primeira versão funcional, integração do pipeline e extração d
 ---
 
 A Sprint 2 transforma as decisões técnicas da proposta em uma primeira versão funcional. Os
-componentes de campo, bola, jogadores e instante da finalização serão desenvolvidos primeiro para
-desbloquear as métricas, enquanto backend e frontend avançam em paralelo.
+componentes de campo, bola, jogadores e instante da finalização foram priorizados para desbloquear
+as métricas, enquanto backend e frontend avançaram em paralelo.
 
 <Callout type="idea" title="Foco da sprint">
 
@@ -15,14 +15,11 @@ frontend. Adaptação e otimização no hardware de borda permanecerão para uma
 
 </Callout>
 
-## Organização da sprint
+## Da organização ao fluxo integrado
 
 <Cards>
   <Card title="Planejamento da Sprint 2" href="./planejamento">
     Objetivos, responsáveis, dependências, cronograma, integração, riscos e critérios de conclusão.
-  </Card>
-  <Card title="Jogadores" href="./jogadores">
-    Documenta detecção, tracking, identificação por equipe, resultados observados e limitações.
   </Card>
   <Card title="Backend e pipeline" href="./backend">
     Contratos, orquestração, borda, serviço HTTP, dados, avaliação e limites da plataforma.
@@ -31,21 +28,29 @@ frontend. Adaptação e otimização no hardware de borda permanecerão para uma
     As quatro telas, o envio pelo binário cru, a consulta do andamento e o que a tela ainda não
     mostra.
   </Card>
-  <Card title="Detecção do instante da finalização" href="./97-deteccao-do-instante-da-finalizacao">
-    O gabarito manual de 38 clipes, a correção da percepção da bola e a medição contra a dobra
-    reservada.
+</Cards>
+
+## Da percepção às métricas
+
+<Cards>
+  <Card title="Jogadores" href="./jogadores">
+    Documenta detecção, tracking, identificação por equipe, resultados observados e limitações.
   </Card>
   <Card title="Rastreamento da bola" href="./rastreamento-da-bola">
     O detector, o filtro de forma e a escolha por continuidade de movimento.
   </Card>
-  <Card title="Detecção de jogadores e visão superior" href="./visao-superior">
-    Rastreio, identificação de equipe e a projeção do campo pela homografia.
-  </Card>
-  <Card title="Marcação" href="./marcacao">
-    Quem marca quem num quadro, a partir de posição e equipe.
-  </Card>
-  <Card title="Segmentação de linhas" href="./line_tracking">
+  <Card title="Keypoints do campo e homografia" href="./line_tracking">
     Os keypoints do campo que sustentam a homografia.
+  </Card>
+  <Card title="Visão superior do campo" href="./visao-superior">
+    Rastreio, identificação de equipe e projeção dos jogadores pela homografia.
+  </Card>
+  <Card title="Detecção do instante da finalização" href="./97-deteccao-do-instante-da-finalizacao">
+    O gabarito manual de 38 clipes, a correção da percepção da bola e a medição contra a dobra
+    reservada.
+  </Card>
+  <Card title="Marcação" href="./marcacao/marcacao">
+    Quem marca quem num quadro, a partir de posição e equipe.
   </Card>
 </Cards>
 

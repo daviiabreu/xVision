@@ -18,7 +18,7 @@ O fluxo de ponta a ponta existe e roda: um clipe entra pela tela, o serviço enf
 processa e o resultado volta com o vídeo anotado. As três frentes que a rubrica cobra estão de pé,
 com responsabilidades separadas.
 
-| frente | estado |
+| Frente | Estado |
 | --- | --- |
 | interface | quatro telas, envio do binário cru, consulta do andamento e exibição do resultado |
 | serviço | oito rotas sob `/v1`, autenticação por conta, fila com teto, posse do vídeo e recuperação de queda |
@@ -68,14 +68,18 @@ quando `team` vem nulo, que é o caso enquanto `identity` for stub, e em que uni
 de marcação, porque ele é declarado em metros e sem homografia a posição sai em pixel. Comparar
 metro com pixel produziria número errado em silêncio, então a feature depende do `field`.
 
-O experimento, quando as duas decisões estiverem tomadas: declarar `[features.marked]`, rodar `xvision run --all --config config/pipeline.models.toml` e depois `xvision eval` sobre a execução, comparando a acurácia com a coluna `maioria` que o próprio comando imprime [...] Restringir a medida a uma dobra ainda pede o gabarito recortado à mão em `--truth`, porque o `xvision eval` não tem `--dobra` e só o `eval-ball` tem., que para uma
-métrica booleana é o que separa medir de acertar por sorte.
+Quando as duas decisões estiverem tomadas, o experimento será declarar `[features.marked]`, rodar
+`xvision run --all --config config/pipeline.models.toml` e depois `xvision eval` sobre a execução,
+comparando a acurácia com a coluna `maioria` que o próprio comando imprime. Restringir a medida a
+uma dobra ainda exige passar em `--truth` um gabarito recortado manualmente, porque `xvision eval`
+não possui `--dobra`, opção disponível apenas em `eval-ball`. Para uma métrica booleana, essa
+comparação é o que separa medir de acertar por sorte.
 
 ## O refinamento do que já existe
 
 As duas métricas medidas não estão prontas, estão medidas. O que cada uma precisa:
 
-| o que | como será testado |
+| O que | Como será testado |
 | --- | --- |
 | `body_part` sobre uma dobra reservada | O número atual sai da população inteira: 0,339 de acurácia contra maioria de 0,522 nos 604 clipes com rótulo, e 0,472 contra 0,417 nos 36 clipes cobertos quando o instante vem anotado. Nenhum dos dois é holdout, e o `xvision eval` não separa dobra, então o passo é recortar o gabarito por dobra e passá-lo em `--truth` |
 | `type_of_play` com o qualificador de bola parada | Hoje ele decide por movimento da bola antes do contato. Os qualificadores 22 a 26 do parceiro distinguem falta de escanteio, e a hipótese é que a distinção não sai de vídeo |

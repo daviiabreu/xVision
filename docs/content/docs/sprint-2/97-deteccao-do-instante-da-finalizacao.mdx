@@ -112,8 +112,12 @@ quando esse rótulo vale muito mais como conjunto de teste.
 segmentos que passam por ele, que se encontram trivialmente nele: o refino era um arredondamento
 disfarçado. O teste pegou, e a correção move o instante para dentro do intervalo entre amostras.
 
-**`shooter_track_id` sai sempre ausente.** ... enquanto ela rodava na janela ancorada no `shot` a dependência fechava ciclo no grafo ... Com os conjuntos uniformes o ciclo deixou de existir, e o campo continua ausente por um motivo mais simples: o `shot` decide sobre a trajetória da bola e não sobre caixa de jogador. O contrato deixa o campo opcional, `edge.modules.records` cobra só `frame_index` ... Quem precisa saber de
-quem é o chute identifica o jogador mais próximo da bola no quadro do contato.
+**`shooter_track_id` sai sempre ausente.** Quando o tracking rodava em uma janela ancorada no
+`shot`, essa dependência fechava um ciclo no grafo. A uniformização dos conjuntos removeu o ciclo,
+mas o campo continua ausente por um motivo mais simples: o `shot` decide sobre a trajetória da bola,
+não sobre caixas de jogadores. O contrato deixa o campo opcional e `edge.modules.records` cobra
+apenas `frame_index`; quem precisa saber de quem é o chute identifica o jogador mais próximo da
+bola no quadro do contato.
 
 **A pose recorta o finalizador em vez de olhar o quadro inteiro.** Medido num clipe do parceiro, o
 estimador de pose encontrou 2 pessoas onde o detector de jogadores encontrou 14, porque jogador de
@@ -206,7 +210,7 @@ Sobre os 604 clipes do conjunto, com a cadeia completa e nenhuma falha. As cinco
 O pipeline saiu de zero evento para 604. A cadeia de percepção roda de ponta a ponta em vídeo real
 e o instante quase nunca cai no ramo de degradação.
 
-## As duas features falharam, e quatro configurações dizem o mesmo
+## As duas features falharam e quatro configurações dizem o mesmo
 
 | Configuração do detector e da amostragem | Acurácia de `body_part` |
 | --- | --- |
@@ -232,7 +236,7 @@ O `type_of_play` piorou quando a bola passou a ser amostrada a 15 fps, de 0,504 
 esperado e é uma admissão: os limiares de velocidade da árvore de decisão foram escolhidos para
 amostragem a 5 fps e nunca foram calibrados contra medida nenhuma.
 
-## Por que elas falharam, e o que isso descarta
+## Por que elas falharam e o que isso descarta
 
 Três hipóteses foram levantadas antes do gabarito e as três morreram contra medição.
 
@@ -283,7 +287,7 @@ O `body_part` dá exatamente a mesma acurácia nas duas execuções, e discorda 
 divisão de 8 contra 8, ou seja p igual a 1,0000. É um nulo tão limpo quanto este conjunto permite
 observar. **O instante nunca foi a causa dele.**
 
-## A causa do `body_part` está antes, e é a bola
+## A causa do `body_part` está antes e é a bola
 
 Com o instante certo em mãos, a pergunta passou a ser o que a percepção vê no quadro do contato.
 Numa finalização a bola está em contato com o finalizador por definição, então a detecção tem que
@@ -331,10 +335,13 @@ disco desde a sprint anterior sem nenhuma configuração apontando para ele.
 
 Três outros defeitos de configuração vieram junto, todos medidos:
 
-- O pré-processamento reduzia 1920 por 1080 a 1280 por 736 ... o que levava a bola de 13,5 a 9,0 pixels de lado. [...] Hoje a `PreprocessSpec` da espécie é 1920 por 1088, o múltiplo de 32 acima de 1080. Nove pixels é uma célula do nível P3 do YOLOv8, que tem passo 8. Medido no
+- O pré-processamento reduzia 1920 por 1080 a 1280 por 736, o que levava a bola de 13,5 a 9,0
+  pixels de lado. Hoje a `PreprocessSpec` da espécie é 1920 por 1088, o múltiplo de 32 acima de
+  1080. Nove pixels é uma célula do nível P3 do YOLOv8, que tem passo 8. Medido no
   quadro do contato, o candidato de maior confiança acerta 4 vezes em 38 a 1280 e entre 14 e 18 a
   1920.
-- A confiança mínima era 0,25 e estava cravada em código, sem caminho pela configuração. [...] Hoje ela chega pela entrada `[modules.ball]` do TOML e a produção roda a 0,10. A confiança
+- A confiança mínima era 0,25 e estava cravada em código, sem caminho pela configuração. Hoje
+  ela chega pela entrada `[modules.ball]` do TOML e a produção roda a 0,10. A confiança
   mediana da bola correta é 0,154, com primeiro quartil em 0,096, então o limiar apaga os candidatos
   certos em 21 a 23 dos 38 quadros de contato.
 - O rastreador piora o resultado em vez de melhorar. Ele ancora no candidato de maior confiança e
@@ -388,7 +395,7 @@ limite de resolução que a posição. A hipótese deixou de ser hipótese: é o
 média numa janela de meia-largura 0,25 s em torno do contato. O que ela vale está medido mais
 abaixo, e não é vitória: a regra empata com o preditor constante e não passa dele.
 
-## O que foi corrigido, e quanto cada correção valeu
+## O que foi corrigido e quanto cada correção valeu
 
 As correções foram calibradas contra as dobras 0 a 2 do gabarito, 24 clipes, e a dobra reservada
 ficou fora até o fim. Isso importa porque quase toda correção aqui é escolha de limiar ou de peso, e
@@ -438,7 +445,7 @@ sete espécies a crescer um método que `field` e `identity` não usam.
 Os dois têm a mesma forma e é a que mais custa caro: **a mudança parece aplicada, o número sai, e o
 número é do estado anterior.** Nenhum dos dois levantaria erro.
 
-## Ladrilhar o quadro, e por que a resolução é a alavanca
+## Ladrilhar o quadro e por que a resolução é a alavanca
 
 A bola tem cerca de 13 pixels de lado no quadro de 1920 por 1080. O pré-processamento reduzia isso a
 1280 por 736, uma escala de 0,667, o que leva a bola a 8,7 pixels: exatamente uma célula do nível P3
@@ -679,7 +686,11 @@ claramente da distância, que é a regra que estava em produção e é a pior de
 maioria com significância neste conjunto. O que destrava isso é gabarito e não algoritmo, e o número
 está calculado acima.
 
-As espécies `field` e `identity` continuam stub. O `field` é card de outra pessoa e ... o que mantém `marked` e `occupied_area` fora do alcance. O `identity` não bloqueia nenhuma ... O quadro das sete métricas declaradas em `config/labels.toml`, com o que falta em cada uma e como cada hipótese será testada, está em [o que fica para a próxima sprint](./o-que-falta).
+As espécies `field` e `identity` continuam stub. Sem o `field`, o pipeline não fornece coordenadas
+em metros, o que impede `occupied_area` e a comparação do raio usada por `marked`; sem o `identity`,
+o campo `team` permanece nulo, o que também impede `marked`. O quadro das sete métricas declaradas
+em `config/labels.toml`, com o que falta em cada uma e como cada hipótese será testada, está em
+[o que fica para a próxima sprint](./o-que-falta).
 
 O ajuste fino do peso em dado da própria competição não foi feito. O peso em uso é treinado em bola
 de futebol de transmissão de outra fonte, e o SAHI reporta que o ganho do ladrilho quase triplica

@@ -11,7 +11,8 @@ transformação entre o plano do gramado visto pela câmera e o plano de um camp
 é um vídeo composto: à esquerda, o frame original com rastreamento; à direita, as mesmas pessoas
 posicionadas em um mapa visto de cima.
 
-mesmo texto, mais uma frase: Ele não roda só na mão: `src/api/render.py` importa `process_video` deste script, e é esse vídeo que a rota `GET /v1/videos/{id}/render` devolve.
+O fluxo também está integrado ao serviço HTTP: `src/api/render.py` importa `process_video`, e a rota
+`GET /v1/videos/{id}/render` devolve o vídeo produzido pelo script.
 
 ## O mapa já existe
 
@@ -88,7 +89,7 @@ No frame original, a anotação é a mesma usada pelo módulo de participantes: 
 
 ![Vídeo final com rastreamento, equipes e visão superior](/sprint2/top-view/visao-superior-times.png)
 
-*Figura 2. Resultado da pipeline: o vídeo original fica à esquerda e o mapa superior à direita.
+*Figura 1. Resultado da pipeline: o vídeo original fica à esquerda e o mapa superior à direita.
 O azul, o amarelo e a etiqueta com papel e confiança são a aparência anterior ao commit `78492de`; as linhas amarelas são o campo virtual reprojetado.*
 
 Os pontos verdes sobre o gramado são os keypoints de homografia aceitos para aquele frame. Cada um
