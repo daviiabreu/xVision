@@ -1,0 +1,27 @@
+# Release 0.2.0
+
+Primeira versão funcional do Edge xG. A Sprint 2 leva o projeto da proposta documentada para um
+fluxo executável de ponta a ponta: a interface envia um clipe, o serviço acompanha o processamento,
+a borda produz percepções e métricas, e o resultado volta com um vídeo anotado para inspeção.
+
+A entrega continua parcial. Os limites abaixo registram o que ainda não sustenta uso em produção
+nem a promessa completa das sete métricas do parceiro.
+
+## What's New
+
+- Contrato versionado do evento de finalização, pipeline de percepção e execução por CLI, com
+  procedência da configuração, dos módulos e do commit em cada resultado.
+- Serviço HTTP sob `/v1` com autenticação por conta e token de serviço, posse do vídeo, upload
+  binário, fila limitada, consulta de estado, resultado estruturado e acesso protegido ao render.
+- Interface React com login, envio de clipe, acompanhamento do processamento, resultado por etapa
+  e reprodução do vídeo anotado da visão superior.
+- Implementações reais de detecção e tracking de jogadores e bola, pose, instante da finalização,
+  identificação de equipes, marcação e projeção dos jogadores no campo.
+- Features de `body_part` e `type_of_play` ligadas à avaliação, além da feature experimental
+  `crowded`, que conta jogadores num raio real quando bola e jogadores possuem `pitch_xy`.
+- Ferramentas de avaliação que comparam cada resultado com a linha de base de maioria e separam a
+  qualidade da bola, do instante e da feature final.
+- Ambiente reproduzível com Docker Compose, imagem da API validada no CI e topologia declarada em
+  Terraform sem aplicação automática em provedor.
+- Documentação da Sprint 2 para frontend, backend, percepção, modelos, resultados observados,
+  riscos e trabalho ainda não implementado.
