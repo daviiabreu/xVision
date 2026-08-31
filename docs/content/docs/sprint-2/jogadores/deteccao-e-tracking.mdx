@@ -37,6 +37,22 @@ O peso público foi escolhido para a execução da v0 porque as funções são �
 para a inspeção visual. Os scripts de treinamento e análise desenvolvidos por Yasmim foram mantidos
 para experimentos posteriores, sem substituir a baseline atual.
 
+### Métricas de treinamento do detector
+
+O treinamento rodou por 149 épocas (~16,6 min) e convergiu de forma estável a partir da época ~50,
+sem sinais de overfitting nas perdas de validação.
+
+| Métrica | Valor na última época | Melhor valor observado |
+| --- | --- | --- |
+| Precisão (B) | 0,989 | 0,996 (época 69) |
+| Recall (B) | 0,975 | 0,981 (época 120) |
+| mAP50 (B) | 0,984 | 0,993 (época 101) |
+| mAP50-95 (B) | 0,725 | 0,733 (época 119) |
+
+Na média das últimas 10 épocas, precisão, recall, mAP50 e mAP50-95 se mantêm em 0,987 / 0,976 /
+0,989 / 0,727, respectivamente, indicando que o modelo já havia estabilizado bem antes do fim do
+treino.
+
 ## Tracking com ByteTrack
 
 O tracking usa `model.track` com ByteTrack e mantém `persist=True` dentro de cada clipe. O
