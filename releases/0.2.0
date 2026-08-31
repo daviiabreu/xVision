@@ -4,8 +4,7 @@ Primeira versão funcional do Edge xG. A Sprint 2 leva o projeto da proposta doc
 fluxo executável de ponta a ponta: a interface envia um clipe, o serviço acompanha o processamento,
 a borda produz percepções e métricas, e o resultado volta com um vídeo anotado para inspeção.
 
-A entrega continua parcial. Os limites abaixo registram o que ainda não sustenta uso em produção
-nem a promessa completa das sete métricas do parceiro.
+A entrega continua parcial.
 
 ## What's New
 
