@@ -1,0 +1,205 @@
+---
+title: Detecção de área lotada (crowded)
+description: Pipeline completo de "quantos jogadores estão perto do lance na finalização" — dos clipes brutos aos metros reais de campo via homografia, com a calibração e as limitações medidas
+---
+
+"Crowded" responde uma pergunta simples: no instante da finalização, a área ao redor do lance estava
+congestionada de jogadores? A resposta é um booleano por corte, pensado como insumo pro cálculo de xG — um
+chute contestado por uma defesa lotada tem uma leitura de risco diferente de um chute livre.
+
+O pipeline (`scripts/crowded_pipeline.py`) roda três modelos reais treinados pelo projeto — jogador+bola,
+bola dedicada, e linhas de campo — sobre os 633 clipes de finalização baixados do Playbook xG, e decide
+crowded/não-crowded a partir da contagem de jogadores num raio real (metros) ao redor da bola ou, quando
+ela não é detectada, do par de jogadores de times diferentes mais próximo entre si.
+
+## Como funciona
+
+### 1. Coleta de dados
+
+`scripts/baixar_cortes_footstats.py` autentica na API do Playbook xG (Cognito) e baixa os 633 clipes de
+finalização junto com o metadado de cada um — minuto, time, resultado (gol/no gol/fora/bloqueada/trave),
+zona do campo. Um `.gitignore` dedicado mantém vídeo e derivados fora do repositório (conteúdo restrito do
+parceiro).
+
+### 2. Gabarito manual
+
+`scripts/anotar_clips.py` (app Streamlit) sorteia uma amostra estratificada por resultado do chute — 32
+clipes anotados à mão com o frame exato da finalização e se a área estava lotada ou não. Sem esse gabarito
+não dá pra saber se qualquer heurística acerta.
+
+### 3. Detecção
+
+`crowded_pipeline.py` roda, por frame:
+
+- **Jogadores e bola**: `football-player-detection.pt` (modelo público do repositório `roboflow/sports`,
+  4 classes: bola, goleiro, jogador, juiz). Juiz é descartado pelo próprio papel da detecção.
+- **Bola (prioritário)**: `ball_yolov8n.pt`, detector dedicado single-class a 1280px, treinado pelo time no
+  SoccerNet — mais sensível que a classe "ball" do modelo combinado, que entra como segunda tentativa.
+- **Campo**: `pitch-keypoints-yolo11n-pose.pt` detecta os keypoints do campo; `cv2.findHomography` resolve
+  a transformação para coordenadas reais (cm). Testado nos 32 clipes anotados: **32/32 com homografia
+  resolvida**, mesmo em cortes fechados no lance.
+
+### 4. Âncora e raio
+
+```bash
+bola detectada (dedicada -> combinada)?
+  sim -> âncora = posição da bola
+  não -> âncora = ponto médio do par de jogadores de times diferentes
+         mais próximo entre si (cor do torso + K-means)
+
+homografia resolvida?
+  sim -> raio em METROS reais de campo (via projeção da bola/jogadores)
+  não -> raio em pixels, escalado pela altura mediana das caixas do frame
+```
+
+`crowded = (jogadores dentro do raio) >= threshold`.
+
+## Modelos usados — proveniência
+
+Nenhum peso vem no git (`*.pt` é ignorado de propósito — política do projeto pra conteúdo derivado de
+dado restrito). Os três foram localizados e verificados por sha256 antes do uso:
+
+| modelo | peso | sha256 conferido | origem |
+|---|---|---|---|
+| Jogador + bola | `football-player-detection.pt` (137 MB) | ✅ | Google Drive (link no manifesto `models/players/*.toml`) |
+| Campo / homografia | `pitch-keypoints-yolo11n-pose.pt` (6,6 MB) | ✅ | commitado em `feature/line_tracking`, `git show` |
+| Bola dedicada | `ball_yolov8n.pt` (6,3 MB) | ✅ | commitado em `feat/ball-tracking`, `git show` |
+
+Os dois últimos não têm link de download direto (só uma Merge Request do GitLab) — foram recuperados
+direto do histórico de commit das branches dos colegas, já que o peso tinha sido versionado ali antes de
+ser absorvido pelo padrão atual do projeto (`src/edge/participants/`, ex-`xvision-players-yolo`).
+
+## Calibração e resultados
+
+Contra as 32 anotações manuais, cada mudança de abordagem foi testada e medida — não assumida:
+
+| abordagem | acurácia | cobertura | observação |
+|---|---|---|---|
+| Heurística inicial (YOLO genérico COCO, par mais próximo, pixels) | 81,2% | 32/32 | detector genérico, sem homografia |
+| Bola real (combinada), raio em pixels | 71,9% | 32/32 | primeira tentativa com modelo real |
+| Bola real, raio em metros (homografia) | 68,8% | 32/32 | mesma limitação, não é a unidade |
+| Corredor bola→gol (metros reais) | 65,0% | 20/32 | preciso mas conservador — 0 falso positivo, muitos falso negativo |
+| Bola dedicada + combinada + fallback, metros reais (calibrado) | **59,4%** | 32/32 | versão final |
+
+A acurácia caiu a cada tentativa "mais correta" — padrão consistente demais pra ser só ruído de sinal
+ruim. A leitura mais provável: **32 amostras é pouco pra calibrar com confiança** (o threshold ótimo bateu
+no valor mínimo testado em 3 das 5 rodadas, sintoma de busca em grade ajustando ruído) e o detector
+genérico original, mais barulhento, acabava correlacionando por acidente "câmera mais aberta" com "cena
+mais lotada de verdade" — não é um sinal geométrico real. A versão final foi mantida mesmo com acurácia
+bruta menor porque é a única fisicamente defensável (metros reais, não um artefato de detecção ruidosa) e
+é a que bate com a unidade que a feature oficial (`src/edge/features/crowded.py`) já usa.
+
+Matriz de confusão da versão final (radius_m=6,5, threshold=1):
+
+| | manual: crowded | manual: não crowded |
+|---|---|---|
+| **predito: crowded** | 18 (VP) | 10 (FP) |
+| **predito: não crowded** | 3 (FN) | 1 (VN) |
+
+23/32 clipes usaram a bola como âncora; 9/32 caíram no fallback por cor (bola não detectada nesse frame
+exato — instante de contato costuma ser o momento mais difícil pra detectar a bola, borrada ou sob o pé do
+chutador).
+
+### Rodada em produção (633 clipes)
+
+`python scripts/crowded_pipeline.py --full` roda o mesmo pipeline em todo o dataset, com checkpoint
+parcial a cada 10 clipes (sobrevive a interrupção). Saída em `scripts/cortes/crowded_metadados.csv`
+(geral) e replicada por partida em `<match_id>/crowded_metadados.csv`.
+
+## Pontos positivos
+
+- Três modelos **reais e verificados** (sha256 contra o manifesto do projeto), não um substituto genérico.
+- Cascata de fallback sem ponto único de falha: bola dedicada → bola combinada → par por cor; homografia
+  → pixels. Nunca quebra, sempre degrada com um motivo explícito (`skip_reason`).
+- Homografia resolve em **100% dos 32 clipes testados**, mesmo em cortes fechados — não era garantido.
+- Pipeline em metros reais de campo é a mesma unidade que a feature oficial (`crowded.py`) já usa —
+  quando os módulos reais forem plugados em `config/pipeline.toml`, a lógica se transfere sem reescrever.
+- Dashboard de inspeção visual (`scripts/avaliar_crowded.py`) com carregamento progressivo e as duas
+  âncoras desenhadas lado a lado, pra auditoria humana rápida.
+
+## Pontos negativos / Limitações
+
+- **59,4% de acurácia calibrada é baixo**, e a amostra de calibração (32 clipes, 20-25 com bola) é pequena
+  demais pra separar sinal real de ruído com confiança.
+- A bola, no instante exato da finalização, tende a estar **na borda da disputa** (saindo do pé do
+  chutador), não no centro dela — um viés geométrico que nenhuma das variações testadas resolveu de
+  verdade.
+- O detector de campo/homografia (`pitch-keypoints`) e o de bola dedicada (`ball_yolov8n`) foram
+  recuperados de commits de branches de colegas, não de um canal de distribuição oficial — se esses pesos
+  forem removidos ou re-treinados, a proveniência atual (hash fixo) quebra silenciosamente.
+- `threshold=1` é um limiar pouco discriminativo (qualquer 1 jogador em 6,5m já conta) — foi o que a
+  calibração encontrou, não uma escolha de design confortável.
+- A definição "corredor bola→gol" (interferência direta na linha de tiro) é conceitualmente mais correta
+  pro que se quer medir, mas cobre só 20/32 clipes (precisa de bola detectada) e é ainda mais conservadora.
+
+## Exemplos visuais
+
+![Verdadeiro positivo: bola real como âncora, contagem correta de crowded](/sprint2/crowded/01-verdadeiro-positivo.png)
+**Verdadeiro positivo** — bola detectada (★ amarela), vários jogadores no raio de 6,5m, corretamente
+marcado como crowded.
+
+![Verdadeiro negativo: bola real, área de fato aberta](/sprint2/crowded/02-verdadeiro-negativo.png)
+**Verdadeiro negativo** — bola detectada, nenhum jogador dentro do raio, corretamente marcado como não
+crowded.
+
+![Falso positivo: contagem alta mas cena não é lotada segundo o gabarito](/sprint2/crowded/03-falso-positivo.png)
+**Falso positivo** — 12 jogadores contados no raio (câmera mais aberta, mais gente em campo capturada),
+mas o anotador humano não classificou a jogada como lotada. Ilustra o viés de "câmera aberta = mais
+detecções" que contamina a contagem bruta.
+
+![Falso negativo: bola na borda da disputa, contagem zerada](/sprint2/crowded/04-falso-negativo.png)
+**Falso negativo** — bola detectada na borda do lance (saindo do pé do chutador), zero jogadores no raio
+de 6,5m ao redor dela, mesmo com a área manualmente marcada como lotada. É o padrão mais comum de erro do
+pipeline.
+
+![Fallback: sem bola detectada, âncora pelo par mais próximo entre times](/sprint2/crowded/05-fallback-sem-bola.png)
+**Fallback sem bola** — bola não detectada nesse frame; a âncora (✚ laranja) usa o par de jogadores de
+times diferentes mais próximo entre si, com o raio desenhado ao redor dele.
+
+## Próximos passos
+
+- **Ampliar a amostra anotada** (32 → 100+) antes de recalibrar radius_m/threshold com confiança
+  estatística real — a prioridade mais alta, já que todas as comparações acima foram feitas numa amostra
+  pequena demais pra ser conclusiva.
+- **Revisar a definição de "crowded"** com quem vai consumir o dado — densidade ao redor da bola,
+  corredor de bloqueio direto, ou uma combinação, dependendo do que o modelo de xG downstream precisa.
+- **Plugar os módulos reais em `config/pipeline.toml`** (`modules.players`/`ball`/`field` hoje continuam
+  em `StubPlayers`/`StubBall`/`StubField`) — isso conecta `src/edge/features/crowded.py` (a feature
+  oficial, já escrita e testada, 6/6 testes) a dado real pela primeira vez.
+- **Formalizar a proveniência dos pesos de bola e campo** — hoje dependem de terem sido commitados
+  incidentalmente numa branch; migrar pra um canal de distribuição igual ao do modelo de jogador
+  (manifesto com link de download direto).
+- Investigar se suavizar a contagem por confiança de detecção (em vez de contagem binária por caixa)
+  reduz o viés de "câmera aberta" observado no falso positivo acima.
+
+## Como rodar
+
+```bash
+# validação contra o gabarito (32 clipes anotados), com os parâmetros calibrados
+python scripts/crowded_pipeline.py
+
+# busca em grade radius_m x threshold (instável com 32 amostras — usar com cautela)
+python scripts/crowded_pipeline.py --calibrate
+
+# produção: todos os 633 clipes
+python scripts/crowded_pipeline.py --full
+
+# produção, só um teste rápido com os N primeiros
+python scripts/crowded_pipeline.py --full --limit 100
+
+# dashboard de inspeção visual, com as duas âncoras lado a lado
+streamlit run scripts/avaliar_crowded.py
+```
+
+Requer os pesos em `var/models/{players,ball,field}/` (ver proveniência acima) e as dependências do
+`edge` (`PYTHONPATH=src`, já que reaproveita `src/models/top_view/homography_view.py` pra homografia).
+
+## Referências
+
+- [Rastreamento da bola](/docs/sprint-2/rastreamento-da-bola) — o detector de bola dedicado usado aqui.
+- [Line tracking](/docs/sprint-2/line_tracking) — o modelo de campo/homografia usado aqui.
+- [Detecção do instante da finalização](/docs/sprint-2/97-deteccao-do-instante-da-finalizacao) — resolve
+  o mesmo problema que o offset heurístico de 3,08s aproxima nos clipes sem anotação manual.
+- `src/edge/features/crowded.py` — a feature oficial, no contrato de percepção do time.
+- `scripts/crowded_pipeline.py`, `scripts/anotar_clips.py`, `scripts/avaliar_crowded.py`,
+  `scripts/baixar_cortes_footstats.py` — o código-fonte de tudo descrito nesta página.

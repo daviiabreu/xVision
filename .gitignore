@@ -203,5 +203,10 @@ src/models/line_tracking/runs/*
 *.tfvars
 .terraform/
 
+# Ferramental do sprint (scripts/) — vídeos, tokens de sessão e derivados
+scripts/copa-tokens.json
+scripts/cortes/
+scripts/cortes.zip
+
 # worktrees temporarios de agentes
 .claude/worktrees/
