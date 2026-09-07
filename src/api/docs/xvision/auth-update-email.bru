@@ -1,0 +1,21 @@
+meta {
+  name: 6 update email
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/v1/auth/me
+  body: json
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}
+
+body:json {
+  {
+    "email": "novo-email@sou.inteli.edu.br",
+    "senha_atual": "uma-senha-longa-de-verdade"
+  }
+}

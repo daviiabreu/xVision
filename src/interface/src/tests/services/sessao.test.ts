@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apagarSessao, guardarSessao, lerSessao, SESSAO_PERDIDA } from "../../services/sessao";
+import {
+  apagarSessao,
+  atualizarNomeDaSessao,
+  guardarSessao,
+  lerSessao,
+  SESSAO_PERDIDA,
+} from "../../services/sessao";
 
 beforeEach(() => localStorage.clear());
 
@@ -46,9 +52,30 @@ describe("sessao", () => {
     window.removeEventListener(SESSAO_PERDIDA, ouvinte);
   });
 
-  it("guarda a conta, que e o que separa o cache de videos entre pessoas", () => {
-    guardarSessao("t", 3600, 7);
+  it("guarda a conta e o nome para identificar a sessao na interface", () => {
+    guardarSessao("t", 3600, 7, "analista@exemplo.com");
 
     expect(lerSessao()?.conta).toBe(7);
+    expect(lerSessao()?.nome).toBe("analista@exemplo.com");
+  });
+
+  it("continua lendo uma sessao antiga que ainda nao tinha nome", () => {
+    localStorage.setItem(
+      "sessao",
+      JSON.stringify({ token: "t", expiraEm: Math.floor(Date.now() / 1000) + 3600, conta: 7 }),
+    );
+
+    expect(lerSessao()?.nome).toBeNull();
+  });
+
+  it("atualiza o nome sem trocar o token nem a expiracao", () => {
+    guardarSessao("t", 3600, 7, "antigo@exemplo.com");
+    const antes = lerSessao();
+
+    const atualizada = atualizarNomeDaSessao("novo@exemplo.com");
+
+    expect(atualizada?.nome).toBe("novo@exemplo.com");
+    expect(atualizada?.token).toBe("t");
+    expect(atualizada?.expiraEm).toBe(antes?.expiraEm);
   });
 });

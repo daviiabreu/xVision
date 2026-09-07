@@ -28,13 +28,19 @@ e mandaria o frontend consultar para sempre um estado que nunca muda.
 | --- | --- |
 | `POST /v1/videos/upload-url` | reserva o identificador e devolve o endereço de envio |
 | `PUT /v1/videos/upload/{token}` | recebe o binário cru e enfileira o processamento |
-| `GET /v1/videos/status/{id}` | responde um dos quatro valores do enum do frontend |
+| `GET /v1/videos` | lista os vídeos da conta, do mais recente para o mais antigo |
+| `GET /v1/videos/status/{id}` | responde situação, etapa, progresso e posição na fila |
 | `GET /v1/videos/{id}` | devolve uma linha por etapa, ou o motivo, quando terminou |
 | `GET /health` | diz se o serviço subiu |
 | `GET /` | lista as versões que o serviço responde |
-| `POST /v1/auth/registro` | cria uma conta de usuário |
+| `POST /v1/auth/register` | cria uma conta de usuário |
 | `POST /v1/auth/login` | troca email e senha por uma sessão |
-| `GET /v1/auth/eu` | diz quem o serviço acha que você é |
+| `GET /v1/auth/me` | diz quem o serviço acha que você é |
+| `GET /v1/auth/me/statistics` | agrega as situações de todos os vídeos da conta |
+| `PATCH /v1/auth/me` | troca o email depois de confirmar a senha atual |
+| `POST /v1/auth/password/change` | troca a senha e emite uma nova sessão |
+| `POST /v1/auth/password/forgot` | envia um link de recuperação quando SMTP está configurado |
+| `POST /v1/auth/password/reset` | consome o link e define uma nova senha |
 
 ## Autenticação
 
@@ -73,6 +79,10 @@ confundir HS256 com RS256. Aqui os dois lados são o mesmo processo e o algoritm
 negociar algoritmo só acrescentaria superfície. Senha usa `hashlib.scrypt`, da biblioteca padrão,
 com sal por senha: nenhuma dependência nova, e um vazamento do banco não entrega as senhas.
 
+A sessão carrega a versão atual da credencial. Trocar ou redefinir a senha incrementa essa versão,
+invalida todas as sessões anteriores e devolve uma sessão nova no fluxo autenticado. Trocar email
+ou senha também invalida links de recuperação que ainda não foram usados.
+
 ## Versionamento
 
 O contrato mora sob `/v1`. Rota de operação fica fora dele: um orquestrador que consulta
@@ -84,12 +94,9 @@ um router novo e manter o antigo respondendo, em vez de editar seis strings e de
 produção qual ficou para trás. Um teste recusa rota de contrato registrada fora do router, e
 outro recusa a versão do documento discordar do prefixo da URL.
 
-**Para o frontend isso não é mudança de código.** O `videoService.ts` monta as chamadas como
-`${VITE_API_URL}/v1/videos/upload-url`, e o endereço do `PUT` chega na resposta como caminho
-relativo, também com a versão dentro. Por isso `VITE_API_URL` aponta para a raiz do serviço
-(`http://host`, sem `/v1` e sem barra no fim), que é o que o `compose.yaml` e o
-`src/interface/Dockerfile` já usam: com `/v1` na variável, o caminho devolvido dobraria o prefixo
-e o `PUT` cairia em 404.
+O `videoService.ts` chama caminhos sob `/v1`. No `compose.yaml`, o navegador usa a mesma origem do
+frontend e o Nginx encaminha `/v1/` para a API. Durante o desenvolvimento com Vite,
+`VITE_API_URL=http://localhost:8080` aponta para a raiz do serviço, sem `/v1` no fim.
 
 Quem chamar sem versão recebe 404, e `GET /` diz para onde ir, porque chamada sem versão é o
 erro mais provável de quem integra.
@@ -100,6 +107,10 @@ ocupada isso acontecia sempre, mesmo sem simultaneidade, porque a janela era a f
 Bastava um cliente repetir depois de um timeout de rede, e o segundo envio apagava o arquivo que
 o worker do primeiro estava lendo. Envio interrompido no meio deixa o vídeo em `Falhou`; para
 tentar de novo, peça outro endereço.
+
+Uma reserva que nunca recebe o `PUT` expira após `XVISION_UPLOAD_RESERVATION_TTL_S`, 900 segundos
+por padrão. A próxima leitura do trabalho o marca como `Falhou`; o token antigo responde 409 e não
+entra na fila.
 
 O envio tem um caminho só, o `PUT` do binário cru, que é o que
 `src/interface/src/services/videoService.ts` chama e o que transmite o arquivo direto para o
@@ -137,10 +148,16 @@ vídeo corrompido no meio, que é o caso que mais aparece.
 | `XVISION_VAR_DIR` | `var` | onde ficam o banco e os arquivos enviados |
 | `XVISION_CONFIG_DIR` | `config` | onde o serviço procura `pipeline.toml` |
 | `XVISION_API_MAX_FILA` | `32` | trabalhos aceitos esperando a vez |
+| `XVISION_STATUS_RETRY_S` | `2` | intervalo sugerido ao frontend para consultar novamente |
+| `XVISION_UPLOAD_RESERVATION_TTL_S` | `900` | prazo entre reservar e iniciar o envio |
 | `XVISION_LOG_LEVEL` | `INFO` | nível do log |
 | `XVISION_AUTH_SECRET` | **obrigatória** | assina a sessão; sem ela o serviço não sobe |
 | `XVISION_AUTH_TTL_S` | `28800` | validade da sessão, em segundos |
 | `XVISION_API_TOKEN` | ausente | se definida, semeia um token de serviço na subida (mínimo 32 caracteres) |
+| `XVISION_TRUST_PROXY` | `0` | aceita a origem encaminhada somente atrás do proxy controlado |
+| `XVISION_PUBLIC_URL` | ausente | raiz usada no link de recuperação de senha |
+| `XVISION_SMTP_*` | ausente | conexão e remetente usados pela recuperação de senha |
+| `XVISION_PASSWORD_RESET_TTL_S` | `1800` | validade do link de recuperação |
 
 O serviço **recusa a subir** com configuração quebrada, em vez de subir verde e falhar em toda
 requisição. Um `XVISION_API_MAX_UPLOAD_MB=128MB`, com o sufixo a mais, passava por toda sonda de
@@ -166,6 +183,10 @@ preço está nomeado: um arquivo não se replica, então no dia em que o serviç
 mais de uma instância isto vira Postgres. A troca fica contida porque nenhum chamador
 conhece SQL, só as funções de `src/api/store.py`.
 
+No Compose, `/var/xvision` é um volume nomeado compartilhado pela API e pela execução de borda. Um
+serviço de inicialização copia sem sobrescrever o conteúdo do antigo `./var` antes de subir a API,
+o que preserva bancos e artefatos de uma instalação anterior à adoção do volume.
+
 O esquema é versionado por `PRAGMA user_version`, e `MIGRACOES` é uma tupla em que o índice é a
 versão: acrescentar uma migração é acrescentar uma string no fim. `CREATE TABLE IF NOT EXISTS`
 sozinho cria banco novo e não conserta banco velho, e sem versão a coluna nova só faltaria em
@@ -187,9 +208,9 @@ uv run python -m api.export
 Há teste que falha quando o arquivo versionado e o que o código gera divergem, e outro
 que falha quando uma rota recusa com um código que o contrato não documenta.
 
-## Ainda não implementado
+## Evidências por etapa
 
-O campo `frame` de cada resultado responde `null`: a imagem de demonstração depende da
-visualização, que não entra nesta sprint. E `metricas` só é preenchida quando houver
-feature declarada em `config/pipeline.toml`, o que acontece quando os modelos entrarem.
-Até lá a lista vem vazia, e vem vazia de propósito, não por falha.
+Cada resultado pode incluir um `frame` em formato Data URL JPEG. A imagem é extraída do clipe e
+recebe a sobreposição disponível para a etapa, como caixas, trajetória, pose, bola ou geometria do
+campo. Etapas sem percepção visual retornam o quadro original. Falha ao gerar a imagem não altera o
+resultado do pipeline: `frame` fica nulo e o restante do contrato continua disponível.

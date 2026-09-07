@@ -13,7 +13,7 @@ from api import PREFIXO, VERSAO, VERSAO_MAIOR, create_app
 
 from .apoio import cliente_autenticado
 
-OPERACAO = frozenset({"/", "/health"})
+OPERACAO = frozenset({"/", "/bruno.zip", "/health"})
 
 
 def caminhos() -> set[str]:
@@ -67,3 +67,4 @@ def test_an_unversioned_call_finds_the_way_instead_of_a_bare_404() -> None:
     assert raiz["atual"] == PREFIXO
     assert PREFIXO in raiz["versoes"]
     assert raiz["docs"] == "/docs"
+    assert raiz["bruno"] == "/bruno.zip"

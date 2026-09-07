@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Login from "../../pages/Login/Login";
@@ -17,7 +18,11 @@ const entrou = vi.fn();
 const EU = { id: 7, tipo: "usuario" as const, nome: "analista@exemplo.com" };
 
 function montar() {
-  render(<Login onEntrou={entrou} />);
+  render(
+    <MemoryRouter>
+      <Login onEntrou={entrou} />
+    </MemoryRouter>,
+  );
 }
 
 async function preencher(senha = "uma-senha-longa-de-verdade") {
@@ -49,9 +54,9 @@ describe("Login", () => {
     vi.mocked(autenticar).mockResolvedValue(EU);
     montar();
 
-    await userEvent.click(screen.getByRole("button", { name: "Criar uma conta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
     await preencher();
-    await userEvent.click(screen.getByRole("button", { name: "Criar conta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Criar conta e entrar" }));
 
     expect(registrar).toHaveBeenCalledTimes(1);
     expect(autenticar).toHaveBeenCalledTimes(1);
@@ -103,8 +108,24 @@ describe("Login", () => {
     expect(screen.getByLabelText("Email")).toHaveAttribute("autocomplete", "email");
     expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "current-password");
 
-    await userEvent.click(screen.getByRole("button", { name: "Criar uma conta" }));
+    await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
 
     expect(screen.getByLabelText("Senha")).toHaveAttribute("autocomplete", "new-password");
+  });
+
+  it("leva para recuperacao de senha e para a documentacao da API", async () => {
+    montar();
+
+    expect(screen.getByRole("link", { name: "Esqueceu a senha?" })).toHaveAttribute(
+      "href",
+      "/forgot-password",
+    );
+    expect(screen.getByRole("link", { name: /Integre seus sistemas pela API/ })).toHaveAttribute(
+      "href",
+      "/api-docs",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
+    expect(screen.queryByRole("link", { name: "Esqueceu a senha?" })).toBeNull();
   });
 });

@@ -30,6 +30,7 @@ FLUTUANTE: TipoDeMetrica = "float"
 TEXTO: TipoDeMetrica = "text"
 
 VideoStatus = Literal["Pendente", "Em processamento", "Finalizado", "Falhou"]
+EtapaStatus = Literal["ok", "failed", "skipped"]
 
 
 class UploadUrlRequest(BaseModel):
@@ -63,6 +64,42 @@ class StatusResponse(BaseModel):
     motivo: str | None = Field(
         default=None, description="Por que falhou. Nulo em qualquer outro estado."
     )
+    etapa_atual: str | None = Field(
+        default=None, description="Etapa que o worker esta executando neste momento."
+    )
+    etapas_concluidas: int = Field(default=0, ge=0)
+    etapas_total: int = Field(default=0, ge=0)
+    progresso: int = Field(default=0, ge=0, le=100)
+    posicao_fila: int | None = Field(
+        default=None,
+        ge=1,
+        description="Posicao na fila quando ainda nao iniciou. Nula fora da espera.",
+    )
+    reconsultar_em_s: int | None = Field(
+        default=None,
+        ge=1,
+        description="Intervalo sugerido ao cliente. Nulo quando o estado e terminal.",
+    )
+
+
+class VideoResumo(StatusResponse):
+    id: int
+    nome_arquivo: str
+    content_type: str
+    criado_em: str
+    atualizado_em: str
+
+
+class ListaVideosResponse(BaseModel):
+    status: int = 200
+    videos: list[VideoResumo] = Field(default_factory=lambda: list[VideoResumo]())
+    total: int = Field(ge=0)
+    pendentes: int = Field(ge=0)
+    em_processamento: int = Field(ge=0)
+    finalizadas: int = Field(ge=0)
+    falhas: int = Field(ge=0)
+    limite: int = Field(ge=1)
+    deslocamento: int = Field(ge=0)
 
 
 class Metrica(BaseModel):
@@ -83,18 +120,25 @@ class Metrica(BaseModel):
 class Resultado(BaseModel):
     nome_processo: str
     status: bool = Field(description="Verdadeiro quando a etapa rodou sem falhar.")
+    situacao: EtapaStatus = Field(description="Desfecho completo da etapa no pipeline.")
+    motivo: str | None = Field(default=None, description="Motivo de falha ou de pulo da etapa.")
+    duracao_ms: float = Field(default=0, ge=0, description="Tempo observado para esta etapa.")
     frame: str | None = Field(
         default=None,
-        description="Imagem de demonstracao em base64. Nula enquanto a visualizacao nao entrar.",
+        description="Imagem JPEG de evidencia em data URL, quando a etapa produziu saida.",
     )
-    metricas: list[Metrica] = []
+    metricas: list[Metrica] = Field(default_factory=lambda: list[Metrica]())
 
 
 class ResultadoResponse(BaseModel):
     status: int = Field(description="Codigo HTTP repetido no corpo, como o contrato pede.")
     video_status: VideoStatus
+    nome_arquivo: str
+    content_type: str
+    criado_em: str
+    atualizado_em: str
     resultados: list[Resultado] = Field(
-        default=[], description="Vazio ate o video chegar em Finalizado."
+        default_factory=lambda: list[Resultado](), description="Vazio quando falhou."
     )
     motivo: str | None = Field(default=None, description="Preenchido apenas quando Falhou.")
     render_url: str | None = Field(
@@ -146,16 +190,51 @@ class LoginRequest(BaseModel):
     senha: str = Field(max_length=256)
 
 
+class EsqueciSenhaRequest(BaseModel):
+    email: Email = Field(max_length=254)
+
+
+class RedefinirSenhaRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=256)
+    senha: str = Field(min_length=SENHA_MINIMA, max_length=256)
+
+
+class AtualizarEmailRequest(BaseModel):
+    email: Email = Field(max_length=254)
+    senha_atual: str = Field(max_length=256)
+
+
+class AlterarSenhaRequest(BaseModel):
+    senha_atual: str = Field(max_length=256)
+    nova_senha: str = Field(min_length=SENHA_MINIMA, max_length=256)
+
+
+class MensagemResponse(BaseModel):
+    mensagem: str
+
+
 class PrincipalResponse(BaseModel):
     id: int
     tipo: Literal["usuario", "servico"]
     nome: str
 
 
+class EstatisticasContaResponse(BaseModel):
+    total: int = Field(ge=0)
+    pendentes: int = Field(ge=0)
+    em_processamento: int = Field(ge=0)
+    finalizadas: int = Field(ge=0)
+    falhas: int = Field(ge=0)
+
+
 class SessaoResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     expira_em: int = Field(description="Segundos ate a sessao deixar de valer.")
+
+
+class SessaoAtualizadaResponse(SessaoResponse):
+    mensagem: str
 
 
 class Erro(BaseModel):

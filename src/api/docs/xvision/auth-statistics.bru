@@ -1,0 +1,13 @@
+meta {
+  name: 8 account statistics
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/v1/auth/me/statistics
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

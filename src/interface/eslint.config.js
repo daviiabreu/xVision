@@ -19,4 +19,14 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/tests/**"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 50, skipBlankLines: true, skipComments: true, IIFEs: true },
+      ],
+    },
+  },
 ]);

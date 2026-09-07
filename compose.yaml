@@ -1,11 +1,36 @@
+name: xvision
+
 services:
+  state-init:
+    build:
+      context: .
+      args:
+        EXTRA: api
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /var/xvision
+        if [ -d /legacy-var ]; then
+          cp -an /legacy-var/. /var/xvision/
+        fi
+        chown -R 10001:10001 /var/xvision
+    volumes:
+      - ./var:/legacy-var:ro
+      - xvision-var:/var/xvision
+
   edge:
+    profiles: ["edge"]
     build:
       context: .
     volumes:
       - ./data/footstats:/data:ro
       - ./src/config:/app/src/config:ro
-      - ./var:/var/xvision
+      - xvision-var:/var/xvision
+    depends_on:
+      state-init:
+        condition: service_completed_successfully
 
   api:
     build:
@@ -23,37 +48,56 @@ services:
       - 0.0.0.0
       - --port
       - "8080"
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
+    depends_on:
+      state-init:
+        condition: service_completed_successfully
     environment:
       XVISION_CORS_ORIGINS: ${XVISION_CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       XVISION_AUTH_SECRET: ${XVISION_AUTH_SECRET:?copie o .env.example para .env e gere um segredo}
       XVISION_API_TOKEN: ${XVISION_API_TOKEN:-}
       XVISION_PIPELINE: ${XVISION_PIPELINE:-pipeline.toml}
+      XVISION_STATUS_RETRY_S: ${XVISION_STATUS_RETRY_S:-2}
+      XVISION_UPLOAD_RESERVATION_TTL_S: ${XVISION_UPLOAD_RESERVATION_TTL_S:-900}
+      XVISION_TRUST_PROXY: "1"
+      XVISION_PUBLIC_URL: ${XVISION_PUBLIC_URL:-http://localhost:3000}
+      XVISION_SMTP_HOST: ${XVISION_SMTP_HOST:-}
+      XVISION_SMTP_PORT: ${XVISION_SMTP_PORT:-587}
+      XVISION_SMTP_USER: ${XVISION_SMTP_USER:-}
+      XVISION_SMTP_PASSWORD: ${XVISION_SMTP_PASSWORD:-}
+      XVISION_SMTP_FROM: ${XVISION_SMTP_FROM:-}
+      XVISION_SMTP_STARTTLS: ${XVISION_SMTP_STARTTLS:-1}
+      XVISION_PASSWORD_RESET_TTL_S: ${XVISION_PASSWORD_RESET_TTL_S:-1800}
     volumes:
       - ./src/config:/app/src/config:ro
       - ./src/models/manifests:/app/src/models/manifests:ro
-      - ./var:/var/xvision
+      - xvision-var:/var/xvision
     healthcheck:
       test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./src/interface
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_API_URL: ""
     ports:
-      - "3000:3000"
+      - "${XVISION_FRONTEND_PORT:-3000}:3000"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  xvision-var:

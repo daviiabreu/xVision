@@ -1,0 +1,13 @@
+meta {
+  name: 4 list account videos
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/videos?limite=20&deslocamento=0
+}
+
+headers {
+  Authorization: Bearer {{token}}
+}

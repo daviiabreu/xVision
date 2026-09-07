@@ -95,6 +95,24 @@ MIGRACOES: tuple[str, ...] = (
     );
     ALTER TABLE videos ADD COLUMN principal_id INTEGER REFERENCES principais(id);
     """,
+    """
+    ALTER TABLE videos ADD COLUMN etapa_atual TEXT;
+    ALTER TABLE videos ADD COLUMN etapas_concluidas INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE videos ADD COLUMN etapas_total INTEGER NOT NULL DEFAULT 0;
+    """,
+    """
+    CREATE TABLE redefinicoes_senha (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        principal_id INTEGER NOT NULL REFERENCES principais(id),
+        token_hash TEXT NOT NULL UNIQUE,
+        expira_em INTEGER NOT NULL,
+        criado_em TEXT NOT NULL,
+        usado_em TEXT
+    );
+    CREATE INDEX idx_redefinicoes_senha_principal
+        ON redefinicoes_senha(principal_id, usado_em);
+    """,
+    "ALTER TABLE principais ADD COLUMN sessao_versao INTEGER NOT NULL DEFAULT 1;",
 )
 
 
@@ -138,6 +156,11 @@ class Video:
     motivo: str | None
     resultados: list[dict[str, Any]] | None
     principal_id: int | None
+    criado_em: str
+    atualizado_em: str
+    etapa_atual: str | None
+    etapas_concluidas: int
+    etapas_total: int
 
 
 def _agora() -> str:
@@ -173,6 +196,11 @@ def _para_video(linha: sqlite3.Row) -> Video:
         motivo=None if linha["motivo"] is None else str(linha["motivo"]),
         resultados=None if bruto is None else json.loads(str(bruto)),
         principal_id=(None if linha["principal_id"] is None else int(linha["principal_id"])),
+        criado_em=str(linha["criado_em"]),
+        atualizado_em=str(linha["atualizado_em"]),
+        etapa_atual=(None if linha["etapa_atual"] is None else str(linha["etapa_atual"])),
+        etapas_concluidas=int(linha["etapas_concluidas"]),
+        etapas_total=int(linha["etapas_total"]),
     )
 
 
@@ -217,6 +245,11 @@ def criar(
         motivo=None,
         resultados=None,
         principal_id=principal_id,
+        criado_em=agora,
+        atualizado_em=agora,
+        etapa_atual=None,
+        etapas_concluidas=0,
+        etapas_total=0,
     )
 
 
@@ -256,6 +289,23 @@ def reivindicar(token: str, caminho: Path | None = None) -> Video | None:
     return _para_video(linha)
 
 
+def expirar_reservas(
+    antes_de: str,
+    caminho: Path | None = None,
+    *,
+    motivo: str = "o endereco de envio expirou antes de receber o video",
+) -> int:
+    """Encerra reservas que nunca foram reivindicadas pelo cliente."""
+    agora = _agora()
+    with conexao(caminho) as conn:
+        cursor = conn.execute(
+            "UPDATE videos SET estado = ?, motivo = ?, atualizado_em = ? "
+            "WHERE estado = ? AND reivindicado_em IS NULL AND criado_em <= ?",
+            (FALHOU, motivo, agora, PENDENTE, antes_de),
+        )
+    return cursor.rowcount
+
+
 def marcar(
     identificador: int,
     estado: str,
@@ -285,16 +335,42 @@ def marcar(
                 f"De {atual!r} so se sai para {saidas}"
             )
         conn.execute(
-            "UPDATE videos SET estado = ?, motivo = ?, resultados = ?, atualizado_em = ? "
+            "UPDATE videos SET estado = ?, motivo = ?, resultados = ?, atualizado_em = ?, "
+            "etapa_atual = NULL, etapas_concluidas = CASE WHEN ? = ? THEN etapas_total "
+            "ELSE etapas_concluidas END "
             "WHERE id = ?",
             (
                 estado,
                 motivo,
                 None if resultados is None else json.dumps(resultados, ensure_ascii=False),
                 _agora(),
+                estado,
+                FINALIZADO,
                 identificador,
             ),
         )
+
+
+def marcar_progresso(
+    identificador: int,
+    etapa: str,
+    concluidas: int,
+    total: int,
+    caminho: Path | None = None,
+) -> None:
+    """Atualiza o progresso somente enquanto o video esta em processamento."""
+    if not etapa.strip():
+        raise StoreError("a etapa atual nao pode ser vazia")
+    if total <= 0 or concluidas < 0 or concluidas > total:
+        raise StoreError(f"progresso invalido: {concluidas} de {total}")
+    with conexao(caminho) as conn:
+        cursor = conn.execute(
+            "UPDATE videos SET etapa_atual = ?, etapas_concluidas = ?, etapas_total = ?, "
+            "atualizado_em = ? WHERE id = ? AND estado = ?",
+            (etapa, concluidas, total, _agora(), identificador, PROCESSANDO),
+        )
+        if cursor.rowcount != 1:
+            raise StoreError(f"o video {identificador} nao esta em processamento")
 
 
 def recuperaveis(caminho: Path | None = None) -> tuple[Video, ...]:
@@ -329,6 +405,16 @@ class PrincipalRow:
     nome: str
     senha_hash: str | None
     revogado_em: str | None
+    sessao_versao: int
+
+
+@dataclass(frozen=True)
+class VideoStatistics:
+    total: int
+    pendentes: int
+    em_processamento: int
+    finalizadas: int
+    falhas: int
 
 
 def _para_principal(linha: sqlite3.Row) -> PrincipalRow:
@@ -338,6 +424,7 @@ def _para_principal(linha: sqlite3.Row) -> PrincipalRow:
         nome=str(linha["nome"]),
         senha_hash=None if linha["senha_hash"] is None else str(linha["senha_hash"]),
         revogado_em=None if linha["revogado_em"] is None else str(linha["revogado_em"]),
+        sessao_versao=int(linha["sessao_versao"]),
     )
 
 
@@ -383,6 +470,116 @@ def principal_por_token(token_hash: str, caminho: Path | None = None) -> Princip
     return None if linha is None else _para_principal(linha)
 
 
+def atualizar_nome_principal(
+    identificador: int, nome: str, caminho: Path | None = None
+) -> PrincipalRow | None:
+    """Atualiza o identificador de login sem trocar a identidade que possui os videos."""
+    with conexao(caminho) as conn:
+        try:
+            cursor = conn.execute(
+                "UPDATE principais SET nome = ? "
+                "WHERE id = ? AND tipo = 'usuario' AND revogado_em IS NULL",
+                (nome, identificador),
+            )
+        except sqlite3.IntegrityError as erro:
+            raise NomeEmUso(f"{nome!r} ja esta em uso") from erro
+        if cursor.rowcount != 1:
+            return None
+        conn.execute(
+            "UPDATE redefinicoes_senha SET usado_em = ? "
+            "WHERE principal_id = ? AND usado_em IS NULL",
+            (_agora(), identificador),
+        )
+        linha = conn.execute("SELECT * FROM principais WHERE id = ?", (identificador,)).fetchone()
+    return _para_principal(linha)
+
+
+def atualizar_senha_principal(
+    identificador: int, senha_hash: str, caminho: Path | None = None
+) -> PrincipalRow | None:
+    agora = _agora()
+    with conexao(caminho) as conn:
+        cursor = conn.execute(
+            "UPDATE principais SET senha_hash = ?, sessao_versao = sessao_versao + 1 "
+            "WHERE id = ? AND tipo = 'usuario' AND revogado_em IS NULL",
+            (senha_hash, identificador),
+        )
+        if cursor.rowcount != 1:
+            return None
+        conn.execute(
+            "UPDATE redefinicoes_senha SET usado_em = ? "
+            "WHERE principal_id = ? AND usado_em IS NULL",
+            (agora, identificador),
+        )
+        linha = conn.execute("SELECT * FROM principais WHERE id = ?", (identificador,)).fetchone()
+    return _para_principal(linha)
+
+
+def criar_redefinicao_senha(
+    principal: PrincipalRow,
+    token_hash: str,
+    expira_em: int,
+    caminho: Path | None = None,
+) -> bool:
+    """Emite para a credencial solicitante ainda atual e invalida os pedidos anteriores."""
+    agora = _agora()
+    with conexao(caminho) as conn:
+        cursor = conn.execute(
+            "INSERT INTO redefinicoes_senha "
+            "(principal_id, token_hash, expira_em, criado_em) "
+            "SELECT id, ?, ?, ? FROM principais "
+            "WHERE id = ? AND nome = ? AND sessao_versao = ? "
+            "AND tipo = 'usuario' AND revogado_em IS NULL",
+            (token_hash, expira_em, agora, principal.id, principal.nome, principal.sessao_versao),
+        )
+        if cursor.rowcount != 1:
+            return False
+        conn.execute(
+            "UPDATE redefinicoes_senha SET usado_em = ? "
+            "WHERE principal_id = ? AND token_hash != ? AND usado_em IS NULL",
+            (agora, principal.id, token_hash),
+        )
+    return True
+
+
+def redefinir_senha(
+    token_hash: str,
+    senha_hash: str,
+    *,
+    agora: int,
+    caminho: Path | None = None,
+) -> bool:
+    """Consome o token uma vez e troca a senha na mesma transacao."""
+    usado_em = _agora()
+    with conexao(caminho) as conn:
+        cursor = conn.execute(
+            "UPDATE redefinicoes_senha SET usado_em = ? "
+            "WHERE token_hash = ? AND usado_em IS NULL AND expira_em > ? "
+            "AND principal_id IN ("
+            "SELECT id FROM principais WHERE tipo = 'usuario' AND revogado_em IS NULL"
+            ")",
+            (usado_em, token_hash, agora),
+        )
+        if cursor.rowcount != 1:
+            return False
+        linha = conn.execute(
+            "SELECT principal_id FROM redefinicoes_senha WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+        if linha is None:  # pragma: no cover - a linha acabou de ser atualizada
+            raise StoreError("a redefinicao consumida desapareceu")
+        conn.execute(
+            "UPDATE principais SET senha_hash = ?, sessao_versao = sessao_versao + 1 WHERE id = ?",
+            (senha_hash, int(linha["principal_id"])),
+        )
+        conn.execute(
+            "UPDATE redefinicoes_senha SET usado_em = ? "
+            "WHERE principal_id = ? AND usado_em IS NULL",
+            (usado_em, int(linha["principal_id"])),
+        )
+    return True
+
+
 def ler_principal(identificador: int, caminho: Path | None = None) -> PrincipalRow | None:
     with conexao(caminho) as conn:
         linha = conn.execute("SELECT * FROM principais WHERE id = ?", (identificador,)).fetchone()
@@ -403,9 +600,45 @@ def revogar_principal(identificador: int, caminho: Path | None = None) -> bool:
         return cursor.rowcount == 1
 
 
-def videos_de(principal_id: int, caminho: Path | None = None) -> tuple[Video, ...]:
+def videos_de(
+    principal_id: int,
+    caminho: Path | None = None,
+    *,
+    limite: int = 20,
+    deslocamento: int = 0,
+) -> tuple[Video, ...]:
     with conexao(caminho) as conn:
         linhas = conn.execute(
-            "SELECT * FROM videos WHERE principal_id = ? ORDER BY id", (principal_id,)
+            "SELECT * FROM videos WHERE principal_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (principal_id, limite, deslocamento),
         ).fetchall()
     return tuple(_para_video(linha) for linha in linhas)
+
+
+def contar_videos_de(principal_id: int, caminho: Path | None = None) -> int:
+    with conexao(caminho) as conn:
+        linha = conn.execute(
+            "SELECT COUNT(*) AS total FROM videos WHERE principal_id = ?", (principal_id,)
+        ).fetchone()
+    return int(linha["total"])
+
+
+def estatisticas_videos_de(principal_id: int, caminho: Path | None = None) -> VideoStatistics:
+    """Conta todos os videos por estado em uma consulta, sem depender da pagina carregada."""
+    with conexao(caminho) as conn:
+        linha = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN estado = ? THEN 1 ELSE 0 END) AS pendentes, "
+            "SUM(CASE WHEN estado = ? THEN 1 ELSE 0 END) AS em_processamento, "
+            "SUM(CASE WHEN estado = ? THEN 1 ELSE 0 END) AS finalizadas, "
+            "SUM(CASE WHEN estado = ? THEN 1 ELSE 0 END) AS falhas "
+            "FROM videos WHERE principal_id = ?",
+            (PENDENTE, PROCESSANDO, FINALIZADO, FALHOU, principal_id),
+        ).fetchone()
+    return VideoStatistics(
+        total=int(linha["total"] or 0),
+        pendentes=int(linha["pendentes"] or 0),
+        em_processamento=int(linha["em_processamento"] or 0),
+        finalizadas=int(linha["finalizadas"] or 0),
+        falhas=int(linha["falhas"] or 0),
+    )

@@ -6,6 +6,7 @@ const NOMES: Record<string, string> = {
   tracking: "Rastreamento",
   field: "Geometria do campo",
   identity: "Identificação de jogador",
+  assemble: "Montagem da percepção",
 };
 
 export function nomeDoProcesso(chave: string): string {

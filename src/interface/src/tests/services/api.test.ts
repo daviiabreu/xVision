@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiBlob, apiFetch, apiUpload, ErroHttp, NaoAutenticado } from "../../services/api";
+import {
+  apiBlob,
+  apiFetch,
+  apiPublicUrl,
+  apiUpload,
+  ErroHttp,
+  NaoAutenticado,
+} from "../../services/api";
 import { guardarSessao, lerSessao } from "../../services/sessao";
 import { ERROR_MESSAGES } from "../../utils/errorMessages";
+import { XMLHttpRequestMock } from "../xhrMock";
 
 const fetchMock = vi.fn();
 
@@ -23,11 +31,17 @@ beforeEach(() => {
   localStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  XMLHttpRequestMock.reset();
+  vi.stubGlobal("XMLHttpRequest", XMLHttpRequestMock);
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("api", () => {
+  it("monta links publicos na mesma API usada pelas chamadas", () => {
+    expect(apiPublicUrl("/docs")).toBe("http://api.test/docs");
+  });
+
   it("manda o Bearer quando ha sessao", async () => {
     guardarSessao("abc", 3600);
     responde(200);
@@ -90,10 +104,26 @@ describe("api", () => {
     [429, ERROR_MESSAGES.TOO_MANY_ATTEMPTS],
     [503, ERROR_MESSAGES.QUEUE_FULL],
   ])("o upload traduz o %i em vez de dizer que o servidor caiu", async (status, mensagem) => {
-    responde(status);
+    XMLHttpRequestMock.nextStatus = status;
+    XMLHttpRequestMock.nextResponseText = JSON.stringify({ detail: "detalhe cru do servico" });
     const arquivo = new File(["x"], "c.mp4", { type: "video/mp4" });
 
     await expect(apiUpload("/v1/videos/upload/t", arquivo)).rejects.toThrow(mensagem);
+  });
+
+  it("envia credencial e informa o progresso do upload", async () => {
+    guardarSessao("abc", 3600);
+    const progresso = vi.fn();
+    const arquivo = new File(["x"], "c.mp4", { type: "video/mp4" });
+
+    await apiUpload("/v1/videos/upload/t", arquivo, progresso);
+
+    const xhr = XMLHttpRequestMock.instances[0];
+    expect(xhr.method).toBe("PUT");
+    expect(xhr.headers.Authorization).toBe("Bearer abc");
+    expect(xhr.headers["Content-Type"]).toBe("video/mp4");
+    expect(progresso).toHaveBeenNthCalledWith(1, 50);
+    expect(progresso).toHaveBeenLastCalledWith(100);
   });
 
   it("recusa endereco de outra origem antes de mandar a credencial", async () => {
@@ -149,14 +179,15 @@ describe("api", () => {
     expect.assertions(2);
   });
 
-  it("recusa chamar em vez de montar 'undefined' quando o build saiu sem VITE_API_URL", async () => {
+  it("usa a mesma origem quando o build nao define uma API separada", async () => {
     vi.stubEnv("VITE_API_URL", "");
     vi.resetModules();
 
     const { apiFetch: semEndereco } = await import("../../services/api");
+    responde(200);
 
-    await expect(semEndereco("/v1/auth/me")).rejects.toThrow(ERROR_MESSAGES.API_URL_MISSING);
-    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(semEndereco("/v1/auth/me")).resolves.toBeInstanceOf(Response);
+    expect(fetchMock).toHaveBeenCalledWith("/v1/auth/me", expect.any(Object));
 
     vi.unstubAllEnvs();
     vi.resetModules();

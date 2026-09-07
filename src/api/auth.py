@@ -63,6 +63,14 @@ class Principal:
     nome: str
 
 
+@dataclass(frozen=True)
+class SessaoAssinada:
+    """Identidade e versao revogavel carregadas pela credencial de sessao."""
+
+    principal_id: int
+    versao: int
+
+
 def segredo() -> bytes:
     """Sem segredo o servico nao sobe, e nao inventa um padrao.
 
@@ -125,15 +133,15 @@ def hash_de_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def assinar(principal_id: int, agora: int | None = None) -> str:
+def assinar(principal_id: int, sessao_versao: int = 1, agora: int | None = None) -> str:
     momento = int(time.time()) if agora is None else agora
-    corpo = {"sub": principal_id, "exp": momento + validade()}
+    corpo = {"sub": principal_id, "ver": sessao_versao, "exp": momento + validade()}
     dados = _b64(json.dumps(corpo, separators=(",", ":"), sort_keys=True).encode())
     return f"{dados}.{_b64(_assinatura(dados))}"
 
 
-def verificar(token: str, agora: int | None = None) -> int:
-    """Devolve o principal do token, ou recusa com `TokenInvalido`. Nunca levanta outra coisa.
+def verificar(token: str, agora: int | None = None) -> SessaoAssinada:
+    """Devolve a sessao do token, ou recusa com `TokenInvalido`. Nunca levanta outra coisa.
 
     Toda falha sai como `TokenInvalido` de proposito. `binascii.Error` de base64 torto, `ValueError`
     de JSON quebrado e `KeyError` de campo ausente escapavam daqui e viravam 500 na fronteira HTTP,
@@ -155,12 +163,13 @@ def verificar(token: str, agora: int | None = None) -> int:
         corpo = cast("dict[str, Any]", json.loads(_de_b64(dados)))
         expiracao = int(corpo["exp"])
         principal = int(corpo["sub"])
+        versao = int(corpo["ver"])
     except (binascii.Error, ValueError, TypeError, KeyError) as erro:
         raise TokenInvalido("o corpo do token nao tem a forma esperada") from erro
     momento = int(time.time()) if agora is None else agora
     if expiracao <= momento:
         raise TokenInvalido("a sessao expirou")
-    return principal
+    return SessaoAssinada(principal_id=principal, versao=versao)
 
 
 def _assinatura(dados: str) -> bytes:

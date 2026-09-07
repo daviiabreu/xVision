@@ -1,75 +1,40 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import VideoProcessingCard from "../../pages/Home/components/VideoProcessingCard";
-import type { VideoStatus } from "../../services/videoService";
+import { resumo } from "../fixtures";
 
-const tentarDeNovo = vi.fn();
-const remover = vi.fn();
-
-function montar(status: VideoStatus | null, statusError = false) {
-  tentarDeNovo.mockClear();
-  remover.mockClear();
-
+function montar(parcial = {}) {
   render(
     <MemoryRouter>
-      <VideoProcessingCard
-        id={3}
-        name="treino.mp4"
-        status={status}
-        statusError={statusError}
-        onTentarDeNovo={tentarDeNovo}
-        onRemover={remover}
-      />
+      <VideoProcessingCard video={resumo(parcial)} />
     </MemoryRouter>,
   );
 }
 
 describe("VideoProcessingCard", () => {
-  it("vira um link quando a analise terminou, alcancavel pelo teclado", () => {
-    montar("Finalizado");
-
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/results/3");
+  it("leva ao resultado quando a analise terminou", () => {
+    montar();
+    expect(screen.getByRole("link", { name: /treino\.mp4/ })).toHaveAttribute("href", "/results/3");
   });
 
-  it("tambem leva ao resultado quando a analise falhou, que e onde mora o motivo", () => {
-    montar("Falhou");
-
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/results/3");
+  it("tambem abre o resultado falho, onde mora o diagnostico", () => {
+    montar({ videoStatus: "Falhou", reason: "bola ausente" });
+    expect(screen.getByRole("link", { name: /treino\.mp4/ })).toHaveAttribute("href", "/results/3");
+    expect(screen.getByText("bola ausente")).toBeInTheDocument();
   });
 
-  it.each<VideoStatus>(["Pendente", "Em processamento"])(
-    "nao oferece link enquanto esta em %s",
-    (status) => {
-      montar(status);
+  it("mostra etapa e progresso sem oferecer link enquanto processa", () => {
+    montar({ videoStatus: "Em processamento", currentStage: "ball", progress: 44 });
 
-      expect(screen.queryByRole("link")).toBeNull();
-      expect(screen.getByText(status)).toBeInTheDocument();
-    },
-  );
-
-  it("diz que nao conseguiu consultar, em vez de mostrar um estado inventado", () => {
-    montar(null, true);
-
-    expect(screen.getByText("Não foi possível consultar o status")).toBeInTheDocument();
     expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("Detecção da bola")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "44");
   });
 
-  it("oferece saida para o cartao que nao consegue consultar, em vez de deixa-lo preso", async () => {
-    montar(null, true);
-
-    await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
-    expect(tentarDeNovo).toHaveBeenCalledTimes(1);
-
-    await userEvent.click(screen.getByRole("button", { name: "Remover da lista" }));
-    expect(remover).toHaveBeenCalledTimes(1);
-  });
-
-  it("nao oferece essas acoes quando o status chegou", () => {
-    montar("Em processamento");
-
-    expect(screen.queryByRole("button")).toBeNull();
+  it("mostra a posicao na fila quando ainda esta pendente", () => {
+    montar({ videoStatus: "Pendente", queuePosition: 2, progress: 0 });
+    expect(screen.getByText("Posição 2 na fila")).toBeInTheDocument();
   });
 });

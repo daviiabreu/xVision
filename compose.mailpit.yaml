@@ -1,0 +1,19 @@
+services:
+  api:
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    environment:
+      XVISION_PUBLIC_URL: http://localhost:${XVISION_FRONTEND_PORT:-3000}
+      XVISION_SMTP_HOST: mailpit
+      XVISION_SMTP_PORT: "1025"
+      XVISION_SMTP_USER: ""
+      XVISION_SMTP_PASSWORD: ""
+      XVISION_SMTP_FROM: xvision@example.test
+      XVISION_SMTP_STARTTLS: "0"
+
+  mailpit:
+    image: axllent/mailpit:v1.31.1
+    ports:
+      - "127.0.0.1:${XVISION_MAILPIT_PORT:-8025}:8025"
+    restart: unless-stopped

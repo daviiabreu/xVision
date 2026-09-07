@@ -18,9 +18,16 @@ COLECAO = Path(__file__).resolve().parents[2] / "api" / "docs" / "xvision"
 REQUISICAO = {
     ("/", "get"): "versoes.bru",
     ("/health", "get"): "health.bru",
+    ("/bruno.zip", "get"): "bruno-download.bru",
     (f"{PREFIXO}/auth/register", "post"): "auth-register.bru",
     (f"{PREFIXO}/auth/login", "post"): "auth-login.bru",
+    (f"{PREFIXO}/auth/password/forgot", "post"): "auth-forgot-password.bru",
+    (f"{PREFIXO}/auth/password/reset", "post"): "auth-reset-password.bru",
+    (f"{PREFIXO}/auth/password/change", "post"): "auth-change-password.bru",
     (f"{PREFIXO}/auth/me", "get"): "auth-me.bru",
+    (f"{PREFIXO}/auth/me", "patch"): "auth-update-email.bru",
+    (f"{PREFIXO}/auth/me/statistics", "get"): "auth-statistics.bru",
+    (f"{PREFIXO}/videos", "get"): "listar-videos.bru",
     (f"{PREFIXO}/videos/upload-url", "post"): "pedir-url-de-envio.bru",
     (PREFIXO + "/videos/upload/{token}", "put"): "enviar-video.bru",
     (PREFIXO + "/videos/status/{video_id}", "get"): "consultar-status.bru",
@@ -65,5 +72,5 @@ def test_the_environment_declares_what_the_requests_read() -> None:
     """Requisicao que le variavel inexistente falha com URL vazia, que confunde mais que ajuda."""
     ambiente = (COLECAO / "environments" / "local.bru").read_text(encoding="utf-8")
 
-    for variavel in ("baseUrl", "videoPath"):
+    for variavel in ("baseUrl", "resetToken", "videoPath"):
         assert f"{variavel}:" in ambiente

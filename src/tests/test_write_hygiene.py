@@ -175,6 +175,24 @@ def test_the_compose_mounts_the_partner_data_read_only() -> None:
     assert "./data/footstats:/data:ro" in compose
 
 
+def test_the_api_is_only_published_through_the_frontend_proxy() -> None:
+    compose = (REPOSITORIO / "compose.yaml").read_text(encoding="utf-8")
+    api_service = compose.split("\n  api:", 1)[1].split("\n  frontend:", 1)[0]
+    frontend_image = (REPOSITORIO / "src/interface/Dockerfile").read_text(encoding="utf-8")
+
+    assert "\n    ports:" not in api_service
+    assert 'XVISION_TRUST_PROXY: "1"' in api_service
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in frontend_image
+
+
+def test_the_named_volume_imports_the_previous_bind_mount_before_the_api_starts() -> None:
+    compose = (REPOSITORIO / "compose.yaml").read_text(encoding="utf-8")
+
+    assert "  state-init:" in compose
+    assert "./var:/legacy-var:ro" in compose
+    assert "condition: service_completed_successfully" in compose
+
+
 def test_the_base_image_is_pinned_by_digest() -> None:
     """Tag se move. Sem digest, duas pessoas constroem ambientes diferentes do mesmo arquivo."""
 

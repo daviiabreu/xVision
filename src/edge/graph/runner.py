@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import platform
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
@@ -85,6 +85,7 @@ def run_pipeline(
     framesets: Mapping[str, FrameSet],
     provider: FrameSource,
     cache: PerceptionCache | None = None,
+    on_stage_start: Callable[[str, int, int], None] | None = None,
 ) -> RunResult:
     inference.reset()
     _refuse_unknown_framesets(modules, framesets)
@@ -95,7 +96,9 @@ def run_pipeline(
     comecou = agora.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     saidas: dict[str, ModuleOutput] = {}
     etapas: list[StageRun] = []
-    for kind in ordem:
+    for indice, kind in enumerate(ordem):
+        if on_stage_start is not None:
+            on_stage_start(kind, indice, len(ordem))
         etapa, saida = _run_stage(
             modules[kind], arestas[kind], clip, framesets, provider, saidas, cache
         )

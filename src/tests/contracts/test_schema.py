@@ -161,6 +161,17 @@ def test_schema_file_is_shipped_in_the_wheel(artefatos: tuple[Path, Path]) -> No
     )
 
 
+def test_the_bruno_collection_is_shipped_in_the_wheel(artefatos: tuple[Path, Path]) -> None:
+    wheel_path, _ = artefatos
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        nomes = set(wheel.namelist())
+
+    assert "api/docs/xvision/bruno.json" in nomes
+    assert "api/docs/xvision/pedir-url-de-envio.bru" in nomes
+    assert "api/docs/xvision/auth-reset-password.bru" in nomes
+
+
 def test_o_sdist_leva_so_o_pacote(artefatos: tuple[Path, Path]) -> None:
     _, sdist_path = artefatos
 

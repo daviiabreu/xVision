@@ -1,140 +1,183 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import Button from "../../../components/ui/Button";
+import Icon from "../../../components/ui/Icon";
+import ProgressBar from "../../../components/ui/ProgressBar";
 import { useVideos } from "../../../contexts/useVideos";
 import { useVideoUpload } from "../../../hooks/useVideoUpload";
-import { addCachedVideo } from "../../../services/videoCache";
 
 function VideoUpload() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const state = useUploadPanel();
+  return (
+    <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-[0_1px_2px_rgba(28,25,23,0.04)] sm:p-6">
+      <UploadHeader />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="sr-only"
+        aria-label="Selecionar vídeo"
+        onChange={state.onInputChange}
+      />
+      <UploadDropZone state={state} open={() => fileInputRef.current?.click()} />
+      {state.error && <UploadError error={state.error} />}
+      {state.isUploading && <UploadProgress progress={state.uploadProgress} />}
+      <Button
+        className="mt-5 w-full"
+        disabled={!state.file || state.isUploading}
+        onClick={() => void state.confirm()}
+      >
+        <Icon name="sparkles" className="h-4 w-4" />
+        {state.isUploading ? "Enviando..." : "Iniciar análise"}
+      </Button>
+    </section>
+  );
+}
+
+function useUploadPanel() {
+  const [dragging, setDragging] = useState(false);
   const { recarregar } = useVideos();
-  const { file, error, handleFileSelect, confirmVideo, isUploading } = useVideoUpload();
+  const { file, error, handleFileSelect, confirmVideo, isUploading, uploadProgress } =
+    useVideoUpload();
 
-  const abrirSeletor = () => fileInputRef.current?.click();
-
-  const handleConfirm = async () => {
-    const enviado = file;
+  const confirm = async () => {
     const videoId = await confirmVideo();
-
-    if (videoId === null || !enviado) {
-      return;
+    if (videoId !== null) {
+      await recarregar();
     }
-
-    addCachedVideo({ id: videoId, name: enviado.name });
-    await recarregar();
   };
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selecionado = event.target.files?.[0];
-
-    event.target.value = "";
-
+  const selecionar = (selecionado: File | undefined) => {
     if (selecionado) {
       handleFileSelect(selecionado);
     }
   };
 
+  const onInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    selecionar(event.target.files?.[0]);
+    event.target.value = "";
+  };
+
+  return {
+    dragging,
+    setDragging,
+    file,
+    error,
+    isUploading,
+    uploadProgress,
+    selecionar,
+    confirm,
+    onInputChange,
+  };
+}
+
+function UploadHeader() {
   return (
-    <section className="flex w-full max-w-2xl flex-col items-center text-center">
-      <h1 className="text-3xl font-semibold text-gray-900">
-        Adicione o <span className="font-bold text-amber-700">vídeo da finalização</span>
-      </h1>
-
-      <p className="mt-3 text-sm text-gray-500">
-        Selecione um arquivo de vídeo para iniciar a análise.
-      </p>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*"
-        className="hidden"
-        onChange={handleInputChange}
-      />
-
-      <div
-        onClick={abrirSeletor}
-        className="mt-8 flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 px-8 py-16 hover:bg-amber-50"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={1.5}
-          stroke="currentColor"
-          aria-hidden="true"
-          className="h-10 w-10 text-gray-400"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-9-12v12m0-12 3.75 3.75M12 4.5 8.25 8.25"
-          />
-        </svg>
-
-        {file ? (
-          <>
-            <p className="mt-4 text-base font-medium text-gray-700">{file.name}</p>
-
-            <p className="mt-2 text-sm text-gray-600">
-              {(file.size / (1024 * 1024)).toFixed(2)} MB
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="mt-4 text-base font-medium text-gray-700">Selecione seu vídeo</p>
-
-            <p className="mt-2 text-sm text-gray-600">
-              Exemplos de formatos aceitos: MP4, MOV e AVI.
-            </p>
-
-            <p className="mt-1 text-sm text-gray-600">Tamanho máximo: 128 MB</p>
-          </>
-        )}
-
-        {error && (
-          <p role="alert" className="mt-4 text-sm font-medium text-red-600">
-            {error}
-          </p>
-        )}
-
-        {file ? (
-          <div className="mt-6 flex gap-3">
-            <Button
-              variante="secundario"
-              disabled={isUploading}
-              onClick={(event) => {
-                event.stopPropagation();
-                abrirSeletor();
-              }}
-            >
-              Alterar vídeo
-            </Button>
-
-            <Button
-              disabled={isUploading}
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleConfirm();
-              }}
-            >
-              {isUploading ? "Enviando vídeo..." : "Confirmar vídeo"}
-            </Button>
-          </div>
-        ) : (
-          <Button
-            className="mt-6"
-            onClick={(event) => {
-              event.stopPropagation();
-              abrirSeletor();
-            }}
-          >
-            Selecionar vídeo
-          </Button>
-        )}
+    <div className="flex items-start gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fff8c5] text-amber-800">
+        <Icon name="upload" />
+      </span>
+      <div>
+        <h2 className="text-lg font-bold text-stone-950">Nova análise</h2>
+        <p className="mt-1 text-sm leading-5 text-stone-500">
+          Envie somente o clipe da finalização.
+        </p>
       </div>
-    </section>
+    </div>
   );
+}
+
+function UploadDropZone({
+  state,
+  open,
+}: {
+  state: ReturnType<typeof useUploadPanel>;
+  open: () => void;
+}) {
+  return (
+    <div
+      className={`mt-6 rounded-2xl border-2 border-dashed px-5 py-8 text-center transition ${
+        state.dragging ? "border-amber-500 bg-amber-50" : "border-stone-300 bg-stone-50"
+      }`}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        state.setDragging(true);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) {
+          state.setDragging(false);
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        state.setDragging(false);
+        state.selecionar(event.dataTransfer.files[0]);
+      }}
+    >
+      <UploadSelection file={state.file} />
+      <Button
+        variante="secundario"
+        tamanho="compacto"
+        className="mt-5"
+        disabled={state.isUploading}
+        onClick={open}
+      >
+        {state.file ? "Trocar arquivo" : "Escolher arquivo"}
+      </Button>
+    </div>
+  );
+}
+
+function UploadSelection({ file }: { file: File | null }) {
+  return (
+    <>
+      <Icon name="file-video" className="mx-auto h-9 w-9 text-stone-400" />
+      {file ? (
+        <>
+          <p className="mt-4 break-all text-sm font-semibold text-stone-900">{file.name}</p>
+          <p className="mt-1 text-xs text-stone-500">{formatarTamanho(file.size)}</p>
+        </>
+      ) : (
+        <>
+          <p className="mt-4 text-sm font-semibold text-stone-900">Arraste um vídeo até aqui</p>
+          <p className="mt-1 text-xs leading-5 text-stone-500">MP4, MOV ou AVI, até 128 MB</p>
+        </>
+      )}
+    </>
+  );
+}
+
+function UploadError({ error }: { error: string }) {
+  return (
+    <p
+      role="alert"
+      className="mt-4 flex gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700"
+    >
+      <Icon name="warning" className="mt-0.5 h-4 w-4 shrink-0" />
+      {error}
+    </p>
+  );
+}
+
+function UploadProgress({ progress }: { progress: number }) {
+  return (
+    <div className="mt-5" aria-live="polite">
+      <div className="mb-2 flex justify-between text-xs font-medium text-stone-600">
+        <span>Enviando vídeo</span>
+        <span>{progress}%</span>
+      </div>
+      <ProgressBar value={progress} label="Progresso do envio" />
+    </div>
+  );
+}
+
+function formatarTamanho(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default VideoUpload;

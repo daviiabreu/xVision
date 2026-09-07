@@ -84,8 +84,13 @@ def test_the_binary_upload_runs_the_pipeline_and_finishes(
     assert envio.json() == {"status": 202, "id": reserva["id"]}
     corpo = _terminar(cliente, reserva["id"])
     assert corpo["video_status"] == store.FINALIZADO
+    assert corpo["nome_arquivo"] == "clipe.mp4"
     nomes = {r["nome_processo"] for r in corpo["resultados"]}
     assert {"players", "ball", "field", "shot", "tracking"} <= nomes
+    concluidas = [r for r in corpo["resultados"] if r["situacao"] == "ok"]
+    assert concluidas
+    assert all(r["duracao_ms"] >= 0 for r in corpo["resultados"])
+    assert all(str(r["frame"]).startswith("data:image/jpeg;base64,") for r in concluidas)
 
 
 def test_the_status_route_walks_the_four_states_the_frontend_declares(
@@ -101,6 +106,12 @@ def test_the_status_route_walks_the_four_states_the_frontend_declares(
         "status": 200,
         "video_status": store.FINALIZADO,
         "motivo": None,
+        "etapa_atual": None,
+        "etapas_concluidas": 9,
+        "etapas_total": 9,
+        "progresso": 100,
+        "posicao_fila": None,
+        "reconsultar_em_s": None,
     }
 
 
@@ -114,6 +125,33 @@ def test_the_result_is_refused_while_the_video_has_not_finished(cliente: TestCli
 
     assert resposta.status_code == 409
     assert store.PENDENTE in resposta.json()["detail"]
+
+
+@pytest.mark.parametrize("status", [True, False])
+def test_results_saved_before_stage_metadata_remain_readable(
+    cliente: TestClient, status: bool
+) -> None:
+    identificador = cliente.post(
+        f"{PREFIXO}/videos/upload-url", json={"fileName": "legacy.mp4", "contentType": MP4}
+    ).json()["id"]
+    legado: dict[str, Any] = {
+        "nome_processo": "ball",
+        "status": status,
+        "frame": None,
+        "metricas": [],
+    }
+    store.marcar(identificador, store.PROCESSANDO)
+    store.marcar(identificador, store.FINALIZADO, resultados=[legado])
+
+    resposta = cliente.get(f"{PREFIXO}/videos/{identificador}")
+
+    assert resposta.status_code == 200
+    resultado = resposta.json()["resultados"][0]
+    assert resultado["status"] is status
+    assert resultado["situacao"] == ("ok" if status else "failed")
+    assert resultado["duracao_ms"] == 0
+    persistido = store.ler(identificador)
+    assert persistido is not None and persistido.resultados == [legado]
 
 
 def test_an_unknown_id_and_an_unknown_token_are_both_refused(cliente: TestClient) -> None:

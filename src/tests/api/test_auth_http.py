@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api
-from api import PREFIXO, auth, create_app, store
+from api import PREFIXO, auth, create_app, limites, store
 from edge.testing.make_clip import make_synthetic_clip
 
 from .apoio import cliente_autenticado
@@ -23,11 +23,13 @@ from .apoio import cliente_autenticado
 MP4 = "video/mp4"
 SENHA = "uma-senha-longa-de-verdade"
 
-ABERTAS = {("/", "get"), ("/health", "get")}
+ABERTAS = {("/", "get"), ("/health", "get"), ("/bruno.zip", "get")}
 SEM_BEARER = {
     (PREFIXO + "/videos/upload/{token}", "put"),
     (f"{PREFIXO}/auth/register", "post"),
     (f"{PREFIXO}/auth/login", "post"),
+    (f"{PREFIXO}/auth/password/forgot", "post"),
+    (f"{PREFIXO}/auth/password/reset", "post"),
 }
 
 
@@ -269,6 +271,27 @@ def test_the_service_refuses_to_start_without_a_signing_secret(
         pass
 
 
+@pytest.mark.parametrize(
+    ("variavel", "valor"),
+    [
+        ("XVISION_API_MAX_UPLOAD_MB", "abc"),
+        ("XVISION_API_MAX_UPLOAD_MB", "0"),
+        ("XVISION_STATUS_RETRY_S", "abc"),
+        ("XVISION_STATUS_RETRY_S", "-1"),
+    ],
+)
+def test_the_service_refuses_invalid_operational_limits_at_startup(
+    monkeypatch: pytest.MonkeyPatch, variavel: str, valor: str
+) -> None:
+    monkeypatch.setenv(variavel, valor)
+
+    with (
+        pytest.raises(RuntimeError, match=f"{variavel}.*inteiro positivo"),
+        TestClient(create_app()),
+    ):
+        pass
+
+
 @pytest.mark.parametrize("torto", ["abc.b", "A.b", "abc.bc", "a.b", ".", "..", "x."])
 def test_a_malformed_session_answers_401_and_not_500(anonimo: TestClient, torto: str) -> None:
     """Ausente, malformada, expirada e revogada respondem igual, e isso e promessa escrita.
@@ -394,7 +417,7 @@ def test_a_flood_of_wrong_passwords_is_cut_off_before_it_becomes_a_guess_machine
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Sem teto, o login e um oraculo que responde quantas vezes quiserem perguntar."""
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "3")
     api.zerar_tentativas()
     errada = {"email": "ninguem@inteli.edu.br", "senha": "senha-errada-mas-longa"}
 
@@ -408,7 +431,7 @@ def test_the_counter_resets_when_the_password_is_finally_right(
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Quem erra, corrige e volta a errar nao pode herdar a contagem da tentativa anterior."""
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "3")
     api.zerar_tentativas()
     email = "acerta@inteli.edu.br"
     anonimo.post(f"{PREFIXO}/auth/register", json={"email": email, "senha": SENHA})
@@ -430,7 +453,7 @@ def test_a_neighbour_account_is_not_locked_out_by_someone_elses_wrong_password(
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Teto so por origem entregaria o trancamento da conta alheia a quem divide o mesmo NAT."""
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "2")
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "2")
     api.zerar_tentativas()
     vizinho = "vizinho@inteli.edu.br"
     anonimo.post(f"{PREFIXO}/auth/register", json={"email": vizinho, "senha": SENHA})
@@ -449,8 +472,8 @@ def test_the_window_forgets_old_attempts_instead_of_banning_forever(
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Teto sem janela vira banimento permanente do endereco na primeira rajada."""
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "2")
-    monkeypatch.setenv(api.JANELA_ENV, "60")
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "2")
+    monkeypatch.setenv(limites.JANELA_ENV, "60")
     api.zerar_tentativas()
     errada = {"email": "esquece@inteli.edu.br", "senha": "senha-errada-mas-longa"}
 
@@ -472,7 +495,7 @@ def test_the_registration_is_capped_too_because_it_is_the_most_expensive_open_ro
     A chave e so a origem: cada chamada traz um email novo, entao uma chave que o incluisse
     nunca acumularia duas tentativas e o teto nao valeria nada.
     """
-    monkeypatch.setenv(api.REGISTROS_ENV, "3")
+    monkeypatch.setenv(limites.REGISTROS_ENV, "3")
     api.zerar_tentativas()
 
     codigos = [
@@ -493,7 +516,7 @@ def test_the_registration_cap_does_not_lock_the_login_of_who_just_signed_up(
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Os dois baldes sao separados: estourar o registro nao pode impedir de entrar."""
-    monkeypatch.setenv(api.REGISTROS_ENV, "2")
+    monkeypatch.setenv(limites.REGISTROS_ENV, "2")
     api.zerar_tentativas()
     email = "primeira@inteli.edu.br"
     assert (
@@ -519,8 +542,8 @@ def test_the_attempt_counter_does_not_grow_without_a_ceiling(
     anonimo: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A chave carrega o email, que quem chama escolhe: sem teto ela e memoria que so cresce."""
-    monkeypatch.setenv(api.JANELA_ENV, "60")
-    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 3)
+    monkeypatch.setenv(limites.JANELA_ENV, "60")
+    monkeypatch.setattr(limites, "CHAVES_MAXIMAS", 3)
     api.zerar_tentativas()
 
     for i in range(12):
@@ -541,8 +564,8 @@ def test_a_key_whose_window_expired_leaves_the_counter_instead_of_living_there_f
     chamada e satisfaz a assercao sozinho, e apagar a condicao de vencimento continuaria passando.
     Com 2 e duas chaves vivas, so a poda por vencimento pode tirar a terceira.
     """
-    monkeypatch.setenv(api.JANELA_ENV, "60")
-    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 2)
+    monkeypatch.setenv(limites.JANELA_ENV, "60")
+    monkeypatch.setattr(limites, "CHAVES_MAXIMAS", 2)
     api.zerar_tentativas()
     errada = {"email": "some-daqui@inteli.edu.br", "senha": "senha-errada-mas-longa"}
 
@@ -550,7 +573,7 @@ def test_a_key_whose_window_expired_leaves_the_counter_instead_of_living_there_f
     assert len(api.chaves_de_tentativa()) == 1
 
     daqui_a_pouco = time.monotonic() + 61
-    monkeypatch.setattr(api.time, "monotonic", lambda: daqui_a_pouco)
+    monkeypatch.setattr(limites.time, "monotonic", lambda: daqui_a_pouco)
     for numero in range(3):
         anonimo.post(
             f"{PREFIXO}/auth/login",
@@ -572,9 +595,9 @@ def test_the_expiry_sweep_runs_before_the_size_eviction_and_not_instead_of_it(
     duas metades de `_varrer`, e ele existe porque a primeira versao deste teste passava com a
     poda por vencimento apagada.
     """
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "10")
-    monkeypatch.setenv(api.JANELA_ENV, "60")
-    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 1)
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "10")
+    monkeypatch.setenv(limites.JANELA_ENV, "60")
+    monkeypatch.setattr(limites, "CHAVES_MAXIMAS", 1)
     api.zerar_tentativas()
     errada = "senha-errada-mas-longa"
 
@@ -584,7 +607,7 @@ def test_the_expiry_sweep_runs_before_the_size_eviction_and_not_instead_of_it(
         )
 
     daqui_a_pouco = time.monotonic() + 61
-    monkeypatch.setattr(api.time, "monotonic", lambda: daqui_a_pouco)
+    monkeypatch.setattr(limites.time, "monotonic", lambda: daqui_a_pouco)
     anonimo.post(f"{PREFIXO}/auth/login", json={"email": "leve@inteli.edu.br", "senha": errada})
     anonimo.post(f"{PREFIXO}/auth/login", json={"email": "gatilho@inteli.edu.br", "senha": errada})
 
@@ -604,8 +627,8 @@ def test_the_flood_does_not_evict_the_key_that_is_being_counted(
     `dict` mantem ordem de primeira insercao, e nem `_erradas[chave] = recentes` nem o `append`
     movem a chave para o fim: a chave da vitima, criada antes de tudo, era a primeira a cair.
     """
-    monkeypatch.setenv(api.TENTATIVAS_ENV, "3")
-    monkeypatch.setattr(api, "CHAVES_MAXIMAS", 4)
+    monkeypatch.setenv(limites.TENTATIVAS_ENV, "3")
+    monkeypatch.setattr(limites, "CHAVES_MAXIMAS", 4)
     api.zerar_tentativas()
     alvo = {"email": "alvo@inteli.edu.br", "senha": "senha-errada-mas-longa"}
 

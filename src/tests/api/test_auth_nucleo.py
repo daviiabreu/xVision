@@ -58,7 +58,7 @@ def test_a_malformed_stored_hash_refuses_instead_of_exploding(corrompido: str) -
 
 
 def test_a_session_token_round_trips() -> None:
-    assert auth.verificar(auth.assinar(42)) == 42
+    assert auth.verificar(auth.assinar(42, 7)) == auth.SessaoAssinada(42, 7)
 
 
 def test_a_tampered_token_is_refused() -> None:
@@ -87,7 +87,7 @@ def test_an_expired_session_is_refused() -> None:
     with pytest.raises(auth.TokenInvalido, match="expirou"):
         auth.verificar(antigo, agora=1_000_000 + auth.validade() + 1)
 
-    assert auth.verificar(antigo, agora=1_000_000 + 1) == 3
+    assert auth.verificar(antigo, agora=1_000_000 + 1).principal_id == 3
 
 
 @pytest.mark.parametrize("lixo", ["", "sem-ponto", "a.b.c", "..", "!!!.???"])
@@ -180,7 +180,7 @@ def test_a_session_that_expires_exactly_now_is_already_invalid() -> None:
     token = auth.assinar(1, agora=emitido_em)
     expira_em = emitido_em + auth.validade()
 
-    assert auth.verificar(token, agora=expira_em - 1) == 1
+    assert auth.verificar(token, agora=expira_em - 1).principal_id == 1
 
     with pytest.raises(auth.TokenInvalido, match="expirou"):
         auth.verificar(token, agora=expira_em)

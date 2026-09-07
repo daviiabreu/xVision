@@ -1,57 +1,69 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { VideoContext } from "../../contexts/videoContext";
 import VideoProcessingList from "../../pages/Home/components/VideoProcessingList";
+import { resumo } from "../fixtures";
 
 const recarregar = vi.fn().mockResolvedValue(undefined);
-const remover = vi.fn();
 
-const EM_ERRO = { id: 42, name: "treino.mp4", status: null, statusError: true };
-
-function montar(videos = [EM_ERRO]) {
+function montar({
+  videos = [resumo()],
+  loading = false,
+  error = null,
+}: {
+  videos?: ReturnType<typeof resumo>[];
+  loading?: boolean;
+  error?: string | null;
+} = {}) {
   render(
     <MemoryRouter>
-      <VideoContext.Provider value={{ videos, recarregar, remover }}>
+      <VideoContext.Provider
+        value={{
+          videos,
+          total: videos.length,
+          statistics: { pending: 0, processing: 0, completed: videos.length, failed: 0 },
+          loading,
+          error,
+          recarregar,
+        }}
+      >
         <VideoProcessingList />
       </VideoContext.Provider>
     </MemoryRouter>,
   );
 }
 
-beforeEach(() => {
-  recarregar.mockClear();
-  remover.mockClear();
-});
-
 describe("VideoProcessingList", () => {
-  it("nao ocupa espaco quando nada foi enviado", () => {
-    montar([]);
-
-    expect(screen.queryByText("Processamentos")).toBeNull();
+  it("mostra um estado vazio que explica onde o primeiro item aparecera", () => {
+    montar({ videos: [] });
+    expect(screen.getByText("Nenhuma análise ainda")).toBeInTheDocument();
   });
 
-  it("liga o botao de tentar de novo ao provedor", async () => {
-    montar();
+  it("filtra por nome e por situacao", async () => {
+    montar({ videos: [resumo(), resumo({ id: 4, name: "erro.mp4", videoStatus: "Falhou" })] });
 
+    await userEvent.type(screen.getByRole("searchbox", { name: "Buscar por arquivo" }), "erro");
+    expect(screen.getByText("erro.mp4")).toBeInTheDocument();
+    expect(screen.queryByText("treino.mp4")).toBeNull();
+
+    await userEvent.clear(screen.getByRole("searchbox", { name: "Buscar por arquivo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finalizado" }));
+    expect(screen.getByText("treino.mp4")).toBeInTheDocument();
+    expect(screen.queryByText("erro.mp4")).toBeNull();
+  });
+
+  it("oferece nova tentativa quando a lista falha", async () => {
+    montar({ videos: [], error: "sem conexão" });
+    expect(screen.getByRole("alert")).toHaveTextContent("sem conexão");
     await userEvent.click(screen.getByRole("button", { name: "Tentar de novo" }));
-
-    expect(recarregar).toHaveBeenCalledTimes(1);
+    expect(recarregar).toHaveBeenCalled();
   });
 
-  it("remove o video que a pessoa descartou, e nao outro", async () => {
+  it("anuncia mudancas automaticas na lista", () => {
     montar();
-
-    await userEvent.click(screen.getByRole("button", { name: "Remover da lista" }));
-
-    expect(remover).toHaveBeenCalledWith(42);
-  });
-
-  it("anuncia a lista para quem usa leitor de tela, porque ela muda sozinha", () => {
-    montar();
-
     expect(screen.getByText("treino.mp4").closest("[aria-live]")).toHaveAttribute(
       "aria-live",
       "polite",

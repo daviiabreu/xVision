@@ -13,11 +13,11 @@ escreve relatorio.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from contracts import Clip, ShotEvent
+from contracts import Clip, Perception, ShotEvent
 from contracts.events import make_shot_id
 from contracts.schema import SCHEMA_VERSION
 from edge.cache.perception import PerceptionCache
@@ -60,6 +60,7 @@ class ClipResult:
     event: ShotEvent
     stages: tuple[StageRun, ...]
     shot_source: str | None
+    perception: Perception
 
 
 class _Shot:
@@ -83,9 +84,15 @@ def process_clip(
     provider: FrameSource,
     extractors: Sequence[FeatureExtractor],
     cache: PerceptionCache | None = None,
+    on_stage_start: Callable[[str, int, int], None] | None = None,
 ) -> ClipResult:
     execucao = run_pipeline(
-        clip=clip, modules=modules, framesets=framesets, provider=provider, cache=cache
+        clip=clip,
+        modules=modules,
+        framesets=framesets,
+        provider=provider,
+        cache=cache,
+        on_stage_start=on_stage_start,
     )
     _check_assembly(execucao)
     contato = _contact(execucao, clip)
@@ -98,7 +105,12 @@ def process_clip(
         features=run_features(extractors, execucao.perception, contato, execucao.outputs),
         pipeline=execucao.pipeline,
     )
-    return ClipResult(event=evento, stages=execucao.stages, shot_source=_source(execucao))
+    return ClipResult(
+        event=evento,
+        stages=execucao.stages,
+        shot_source=_source(execucao),
+        perception=execucao.perception,
+    )
 
 
 def _source(execucao: RunResult) -> str | None:

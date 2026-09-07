@@ -26,7 +26,7 @@ describe("Metric", () => {
   it("arredonda o float em vez de despejar as casas do modelo", () => {
     render(<Metric metric={metrica({ value: 12.3456789, unit: "m" })} />);
 
-    expect(screen.getByText("12.35")).toBeInTheDocument();
+    expect(screen.getByText("12,35")).toBeInTheDocument();
   });
 
   it("marca a medida de baixa confianca, que a borda promete nao entregar como medida", () => {
@@ -45,7 +45,7 @@ describe("Metric", () => {
   it("diz indisponivel quando a feature nao pode ser medida", () => {
     render(<Metric metric={metrica({ value: null, status: "unavailable" })} />);
 
-    expect(screen.getByText("indisponível")).toBeInTheDocument();
+    expect(screen.getByText("Indisponível")).toBeInTheDocument();
   });
 
   it("mostra a categoria medida, e nao 'indisponível'", () => {

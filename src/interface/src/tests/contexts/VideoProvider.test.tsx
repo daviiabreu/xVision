@@ -1,29 +1,33 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useVideos } from "../../contexts/useVideos";
 import { VideoProvider } from "../../contexts/VideoProvider";
-import { guardarSessao } from "../../services/sessao";
-import { addCachedVideo, getCachedVideos } from "../../services/videoCache";
-import { getVideoStatus, type VideoStatus } from "../../services/videoService";
+import { getVideos } from "../../services/videoService";
+import { resumo } from "../fixtures";
+
+const ZERO_STATISTICS = { pending: 0, processing: 0, completed: 0, failed: 0 };
 
 vi.mock("../../services/videoService", async (original) => ({
   ...(await original<typeof import("../../services/videoService")>()),
-  getVideoStatus: vi.fn(),
+  getVideos: vi.fn(),
 }));
 
 function Sonda() {
-  const { videos, recarregar, remover } = useVideos();
-
+  const { videos, total, statistics, loading, error, recarregar } = useVideos();
   return (
     <div>
-      <span>{videos.map((v) => `${v.name}:${v.status ?? "erro"}`).join("|")}</span>
+      <span>
+        {loading
+          ? "carregando"
+          : videos.map((video) => `${video.name}:${video.videoStatus}`).join("|")}
+      </span>
+      <span>total:{total}</span>
+      <span>finalizadas:{statistics.completed}</span>
+      <span>erro:{error ?? "nenhum"}</span>
       <button type="button" onClick={() => void recarregar()}>
         recarregar
-      </button>
-      <button type="button" onClick={() => remover(1)}>
-        remover
       </button>
     </div>
   );
@@ -37,131 +41,144 @@ function montar() {
   );
 }
 
-beforeEach(() => {
-  localStorage.clear();
-  vi.mocked(getVideoStatus).mockReset();
-  guardarSessao("t", 3600, 1);
-  addCachedVideo({ id: 1, name: "c.mp4" });
-});
-
+beforeEach(() => vi.mocked(getVideos).mockReset());
 afterEach(() => vi.useRealTimers());
 
 describe("VideoProvider", () => {
-  it("consulta de novo ate a analise terminar", async () => {
-    vi.mocked(getVideoStatus)
-      .mockResolvedValueOnce({ video_status: "Pendente", motivo: null })
-      .mockResolvedValue({ video_status: "Finalizado", motivo: null });
+  it("carrega lista e total do servidor", async () => {
+    vi.mocked(getVideos).mockResolvedValue({
+      videos: [resumo()],
+      total: 8,
+      statistics: { pending: 1, processing: 2, completed: 4, failed: 1 },
+    });
+    montar();
+
+    expect(await screen.findByText("treino.mp4:Finalizado")).toBeInTheDocument();
+    expect(screen.getByText("total:8")).toBeInTheDocument();
+    expect(screen.getByText("finalizadas:4")).toBeInTheDocument();
+  });
+
+  it("consulta novamente no intervalo indicado enquanto ha processamento", async () => {
+    vi.mocked(getVideos)
+      .mockResolvedValueOnce({
+        videos: [resumo({ videoStatus: "Em processamento", progress: 40, retryAfterSeconds: 2 })],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, processing: 1 },
+      })
+      .mockResolvedValue({
+        videos: [resumo()],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, completed: 1 },
+      });
 
     vi.useFakeTimers();
     montar();
-
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(screen.getByText("c.mp4:Pendente")).toBeInTheDocument();
+    expect(screen.getByText("treino.mp4:Em processamento")).toBeInTheDocument();
 
-    await act(async () => void (await vi.advanceTimersByTimeAsync(5000)));
-    expect(screen.getByText("c.mp4:Finalizado")).toBeInTheDocument();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
+    expect(screen.getByText("treino.mp4:Finalizado")).toBeInTheDocument();
   });
 
-  it("para de consultar depois do estado terminal", async () => {
-    vi.mocked(getVideoStatus).mockResolvedValue({ video_status: "Finalizado", motivo: null });
-
+  it("para de consultar quando todos estao em estado terminal", async () => {
+    vi.mocked(getVideos).mockResolvedValue({
+      videos: [resumo()],
+      total: 1,
+      statistics: { ...ZERO_STATISTICS, completed: 1 },
+    });
     vi.useFakeTimers();
     montar();
-
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(screen.getByText("c.mp4:Finalizado")).toBeInTheDocument();
 
-    const chamadas = vi.mocked(getVideoStatus).mock.calls.length;
-    await act(async () => void (await vi.advanceTimersByTimeAsync(20000)));
-
-    expect(vi.mocked(getVideoStatus).mock.calls.length).toBe(chamadas);
+    const chamadas = vi.mocked(getVideos).mock.calls.length;
+    await act(async () => void (await vi.advanceTimersByTimeAsync(30000)));
+    expect(getVideos).toHaveBeenCalledTimes(chamadas);
   });
 
-  it("marca o erro sem derrubar a lista quando a consulta falha", async () => {
-    vi.mocked(getVideoStatus).mockImplementation(async () => {
-      throw new Error("caiu");
-    });
-
-    montar();
-
-    expect(await screen.findByText("c.mp4:erro")).toBeInTheDocument();
-  });
-
-  it("para de consultar o que so devolve erro, em vez de bater no servico para sempre", async () => {
-    vi.mocked(getVideoStatus).mockRejectedValue(new Error("caiu"));
-
+  it("continua consultando depois de uma falha transitoria durante o processamento", async () => {
+    vi.mocked(getVideos)
+      .mockResolvedValueOnce({
+        videos: [resumo({ videoStatus: "Em processamento", retryAfterSeconds: 2 })],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, processing: 1 },
+      })
+      .mockRejectedValueOnce(new Error("sem conexão"))
+      .mockResolvedValue({
+        videos: [resumo()],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, completed: 1 },
+      });
     vi.useFakeTimers();
     montar();
-
     await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    expect(screen.getByText("c.mp4:erro")).toBeInTheDocument();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
+    expect(screen.getByText("treino.mp4:Em processamento")).toBeInTheDocument();
 
-    const chamadas = vi.mocked(getVideoStatus).mock.calls.length;
-    await act(async () => void (await vi.advanceTimersByTimeAsync(60000)));
+    await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
 
-    expect(vi.mocked(getVideoStatus).mock.calls.length).toBe(chamadas);
+    expect(screen.getByText("treino.mp4:Finalizado")).toBeInTheDocument();
+    expect(screen.getByText("erro:nenhum")).toBeInTheDocument();
   });
 
-  it("continua consultando o que ainda roda mesmo com outro em erro", async () => {
-    addCachedVideo({ id: 2, name: "d.mp4" });
-    vi.mocked(getVideoStatus).mockImplementation(async (id: number) => {
-      if (id === 1) {
-        throw new Error("caiu");
-      }
-      return { video_status: "Pendente", motivo: null };
+  it("expoe o erro sem inventar uma lista", async () => {
+    const resposta = {
+      total: 0,
+      statistics: ZERO_STATISTICS,
+    } as Awaited<ReturnType<typeof getVideos>>;
+    Object.defineProperty(resposta, "videos", {
+      get: () => {
+        throw new Error("resposta inválida");
+      },
     });
-
-    vi.useFakeTimers();
+    vi.mocked(getVideos).mockResolvedValue(resposta);
     montar();
 
-    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
-    const chamadas = vi.mocked(getVideoStatus).mock.calls.length;
-
-    await act(async () => void (await vi.advanceTimersByTimeAsync(5000)));
-
-    expect(vi.mocked(getVideoStatus).mock.calls.length).toBeGreaterThan(chamadas);
+    expect(await screen.findByText("erro:resposta inválida")).toBeInTheDocument();
+    expect(screen.getByText("total:0")).toBeInTheDocument();
   });
 
-  it("descarta a resposta que chega fora de ordem, em vez de sobrescrever a mais nova", async () => {
-    const pendentes: ((valor: { video_status: VideoStatus; motivo: null }) => void)[] = [];
-    vi.mocked(getVideoStatus).mockImplementation(
-      () => new Promise((resolve) => pendentes.push(resolve)),
-    );
-
+  it("permite uma nova tentativa manual", async () => {
+    vi.mocked(getVideos)
+      .mockRejectedValueOnce(new Error("sem conexão"))
+      .mockResolvedValue({
+        videos: [resumo()],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, completed: 1 },
+      });
     montar();
-    await act(async () => await Promise.resolve());
+    await screen.findByText("erro:sem conexão");
 
-    addCachedVideo({ id: 2, name: "d.mp4" });
-    await act(async () => {
-      screen.getByRole("button", { name: "recarregar" }).click();
-      await Promise.resolve();
-    });
-
-    expect(pendentes).toHaveLength(3);
-
-    await act(async () => {
-      pendentes[1]({ video_status: "Pendente", motivo: null });
-      pendentes[2]({ video_status: "Pendente", motivo: null });
-      await Promise.resolve();
-    });
-    expect(screen.getByText("c.mp4:Pendente|d.mp4:Pendente")).toBeInTheDocument();
-
-    await act(async () => {
-      pendentes[0]({ video_status: "Finalizado", motivo: null });
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText("c.mp4:Pendente|d.mp4:Pendente")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "recarregar" }));
+    expect(await screen.findByText("treino.mp4:Finalizado")).toBeInTheDocument();
   });
 
-  it("remove do indice local o video que a pessoa descarta", async () => {
-    vi.mocked(getVideoStatus).mockRejectedValue(new Error("caiu"));
-
+  it("descarta resposta antiga que chega depois de uma atualizacao", async () => {
+    let responderPrimeira!: (value: Awaited<ReturnType<typeof getVideos>>) => void;
+    vi.mocked(getVideos)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            responderPrimeira = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        videos: [resumo({ name: "novo.mp4" })],
+        total: 1,
+        statistics: { ...ZERO_STATISTICS, completed: 1 },
+      });
     montar();
-    await screen.findByText("c.mp4:erro");
+    await waitFor(() => expect(getVideos).toHaveBeenCalledTimes(1));
 
-    await userEvent.click(screen.getByRole("button", { name: "remover" }));
+    fireEvent.click(screen.getByRole("button", { name: "recarregar" }));
+    await waitFor(() => expect(getVideos).toHaveBeenCalledTimes(2));
 
-    expect(getCachedVideos()).toEqual([]);
+    expect(await screen.findByText("novo.mp4:Finalizado")).toBeInTheDocument();
+
+    responderPrimeira({
+      videos: [resumo({ name: "antigo.mp4" })],
+      total: 1,
+      statistics: { ...ZERO_STATISTICS, completed: 1 },
+    });
+    await waitFor(() => expect(screen.queryByText("antigo.mp4:Finalizado")).toBeNull());
   });
 });

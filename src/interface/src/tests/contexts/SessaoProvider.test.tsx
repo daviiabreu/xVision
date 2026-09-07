@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -7,13 +7,17 @@ import { useSessao } from "../../contexts/useSessao";
 import { apagarSessao, guardarSessao } from "../../services/sessao";
 
 function Sonda() {
-  const { autenticado, sair } = useSessao();
+  const { autenticado, nome, atualizarNome, sair } = useSessao();
 
   return (
     <div>
       <span>{autenticado ? "dentro" : "fora"}</span>
+      <span>{nome ?? "sem nome"}</span>
       <button type="button" onClick={sair}>
         sair
+      </button>
+      <button type="button" onClick={() => atualizarNome("novo@exemplo.com")}>
+        atualizar nome
       </button>
     </div>
   );
@@ -31,11 +35,12 @@ beforeEach(() => localStorage.clear());
 
 describe("SessaoProvider", () => {
   it("nasce autenticado quando ha sessao valida", () => {
-    guardarSessao("t", 3600, 1);
+    guardarSessao("t", 3600, 1, "analista@exemplo.com");
 
     montar();
 
     expect(screen.getByText("dentro")).toBeInTheDocument();
+    expect(screen.getByText("analista@exemplo.com")).toBeInTheDocument();
   });
 
   it("nasce fora quando nao ha sessao", () => {
@@ -49,7 +54,7 @@ describe("SessaoProvider", () => {
     montar();
     expect(screen.getByText("dentro")).toBeInTheDocument();
 
-    apagarSessao();
+    act(() => apagarSessao());
 
     expect(await screen.findByText("fora")).toBeInTheDocument();
   });
@@ -62,5 +67,15 @@ describe("SessaoProvider", () => {
 
     expect(screen.getByText("fora")).toBeInTheDocument();
     expect(localStorage.getItem("sessao")).toBeNull();
+  });
+
+  it("reflete o novo email no contexto e no storage", async () => {
+    guardarSessao("t", 3600, 1, "antigo@exemplo.com");
+    montar();
+
+    await userEvent.click(screen.getByRole("button", { name: "atualizar nome" }));
+
+    expect(screen.getByText("novo@exemplo.com")).toBeInTheDocument();
+    expect(localStorage.getItem("sessao")).toContain("novo@exemplo.com");
   });
 });

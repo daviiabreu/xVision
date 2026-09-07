@@ -63,7 +63,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["api", "cli", "contracts", "edge", "mlops"]
-exclude = ["api/docs/xvision", "api/docs/README.md"]
+exclude = ["api/docs/README.md"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["api", "cli", "contracts", "edge", "mlops", "pyproject.toml"]

@@ -4,19 +4,28 @@ import {
   enviarVideo,
   getProcessedVideo,
   getRenderVideo,
+  getVideos,
   getVideoStatus,
   terminou,
 } from "../../services/videoService";
+import { XMLHttpRequestMock } from "../xhrMock";
 
 const fetchMock = vi.fn();
 
 const RESULTADO = {
   status: 200,
   video_status: "Finalizado",
+  nome_arquivo: "c.mp4",
+  content_type: "video/mp4",
+  criado_em: "2026-09-01T12:00:00Z",
+  atualizado_em: "2026-09-01T12:01:00Z",
   resultados: [
     {
       nome_processo: "shot",
       status: true,
+      situacao: "ok",
+      motivo: null,
+      duracao_ms: 41,
       frame: null,
       metricas: [
         {
@@ -42,7 +51,15 @@ const RESULTADO = {
         },
       ],
     },
-    { nome_processo: "ball", status: false, frame: null, metricas: [] },
+    {
+      nome_processo: "ball",
+      status: false,
+      situacao: "failed",
+      motivo: "bola ausente",
+      duracao_ms: 12,
+      frame: null,
+      metricas: [],
+    },
   ],
   motivo: null,
   render_url: "/v1/videos/7/render",
@@ -65,6 +82,8 @@ beforeEach(() => {
   localStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+  XMLHttpRequestMock.reset();
+  vi.stubGlobal("XMLHttpRequest", XMLHttpRequestMock);
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -79,8 +98,10 @@ describe("videoService", () => {
     expect(video.videoStatus).toBe("Finalizado");
     expect(video.reason).toBeNull();
     expect(video.renderUrl).toBe("/v1/videos/7/render");
+    expect(video.name).toBe("c.mp4");
     expect(video.results.map((r) => r.name)).toEqual(["shot", "ball"]);
     expect(video.results[1].ok).toBe(false);
+    expect(video.results[1].reason).toBe("bola ausente");
   });
 
   it("traduz cada campo da metrica, inclusive o status que a borda promete", async () => {
@@ -108,6 +129,9 @@ describe("videoService", () => {
         {
           nome_processo: "shot",
           status: true,
+          situacao: "ok",
+          motivo: null,
+          duracao_ms: 1,
           frame: null,
           metricas: [
             {
@@ -132,10 +156,21 @@ describe("videoService", () => {
     respondeJson({
       ...RESULTADO,
       resultados: [
-        { nome_processo: "ball", status: true, frame: "QUJD", metricas: [] },
+        {
+          nome_processo: "ball",
+          status: true,
+          situacao: "ok",
+          motivo: null,
+          duracao_ms: 1,
+          frame: "QUJD",
+          metricas: [],
+        },
         {
           nome_processo: "field",
           status: true,
+          situacao: "ok",
+          motivo: null,
+          duracao_ms: 1,
           frame: "data:image/webp;base64,QUJD",
           metricas: [],
         },
@@ -151,7 +186,16 @@ describe("videoService", () => {
   it("aguenta etapa sem a lista de metricas, que o contrato declara com valor padrao", async () => {
     respondeJson({
       ...RESULTADO,
-      resultados: [{ nome_processo: "ball", status: true, frame: null }],
+      resultados: [
+        {
+          nome_processo: "ball",
+          status: true,
+          situacao: "ok",
+          motivo: null,
+          duracao_ms: 1,
+          frame: null,
+        },
+      ],
     });
 
     const [etapa] = (await getProcessedVideo(7)).results;
@@ -184,14 +228,12 @@ describe("videoService", () => {
 
   it("reserva o endereco e manda o binario cru para ele, sem passar por base64", async () => {
     const arquivo = new File(["conteudo"], "c.mp4", { type: "video/mp4" });
-    fetchMock
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 7, uploadUrl: "/v1/videos/upload/tok" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: 202, id: 7 }), { status: 202 }));
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 7, uploadUrl: "/v1/videos/upload/tok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
     await expect(enviarVideo(arquivo)).resolves.toBe(7);
 
@@ -199,19 +241,66 @@ describe("videoService", () => {
       fileName: "c.mp4",
       contentType: "video/mp4",
     });
-    expect(chamada(1)[0]).toBe("http://api.test/v1/videos/upload/tok");
-    expect(chamada(1)[1].method).toBe("PUT");
-    expect(chamada(1)[1].body).toBe(arquivo);
+    const envio = XMLHttpRequestMock.instances[0];
+    expect(envio.url).toBe("http://api.test/v1/videos/upload/tok");
+    expect(envio.method).toBe("PUT");
+    expect(envio.body).toBe(arquivo);
   });
 
   it("consulta o status no endereco que o servico publica", async () => {
-    respondeJson({ status: 200, video_status: "Em processamento", motivo: null });
-
-    await expect(getVideoStatus(3)).resolves.toMatchObject({
+    respondeJson({
+      status: 200,
       video_status: "Em processamento",
       motivo: null,
+      etapa_atual: "ball",
+      etapas_concluidas: 3,
+      etapas_total: 9,
+      progresso: 33.3,
+      posicao_fila: null,
+      reconsultar_em_s: 2,
+    });
+
+    await expect(getVideoStatus(3)).resolves.toMatchObject({
+      videoStatus: "Em processamento",
+      currentStage: "ball",
+      completedStages: 3,
+      progress: 33.3,
     });
     expect(chamada()[0]).toBe("http://api.test/v1/videos/status/3");
+  });
+
+  it("lista os videos da conta e traduz progresso, fila e metadados", async () => {
+    respondeJson({
+      total: 1,
+      pendentes: 1,
+      em_processamento: 0,
+      finalizadas: 0,
+      falhas: 0,
+      videos: [
+        {
+          id: 8,
+          nome_arquivo: "fila.mp4",
+          content_type: "video/mp4",
+          criado_em: "2026-09-01T12:00:00Z",
+          atualizado_em: "2026-09-01T12:00:01Z",
+          video_status: "Pendente",
+          motivo: null,
+          etapa_atual: null,
+          etapas_concluidas: 0,
+          etapas_total: 9,
+          progresso: 0,
+          posicao_fila: 2,
+          reconsultar_em_s: 2,
+        },
+      ],
+    });
+
+    await expect(getVideos()).resolves.toMatchObject({
+      total: 1,
+      statistics: { pending: 1, processing: 0, completed: 0, failed: 0 },
+      videos: [{ id: 8, name: "fila.mp4", queuePosition: 2, totalStages: 9 }],
+    });
+    expect(chamada()[0]).toBe("http://api.test/v1/videos?limite=100&deslocamento=0");
   });
 
   it("devolve null quando o servico nao tem render, sem derrubar quem chamou", async () => {

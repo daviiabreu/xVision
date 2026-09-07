@@ -1,106 +1,110 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VideoContext } from "../../contexts/videoContext";
 import VideoUpload from "../../pages/Home/components/VideoUpload";
-import { guardarSessao } from "../../services/sessao";
-import { getCachedVideos } from "../../services/videoCache";
 import { enviarVideo } from "../../services/videoService";
 import { ERROR_MESSAGES } from "../../utils/errorMessages";
 
 vi.mock("../../services/videoService", () => ({ enviarVideo: vi.fn() }));
 
 const recarregar = vi.fn().mockResolvedValue(undefined);
-const remover = vi.fn();
 
 function montar() {
   return render(
-    <VideoContext.Provider value={{ videos: [], recarregar, remover }}>
+    <VideoContext.Provider
+      value={{
+        videos: [],
+        total: 0,
+        statistics: { pending: 0, processing: 0, completed: 0, failed: 0 },
+        loading: false,
+        error: null,
+        recarregar,
+      }}
+    >
       <VideoUpload />
     </VideoContext.Provider>,
   );
 }
 
 function clipe(nome = "c.mp4", tipo = "video/mp4", tamanho = 1024): File {
-  const f = new File(["x"], nome, { type: tipo });
-  Object.defineProperty(f, "size", { value: tamanho });
-
-  return f;
+  const file = new File(["x"], nome, { type: tipo });
+  Object.defineProperty(file, "size", { value: tamanho });
+  return file;
 }
 
 async function escolher(arquivo: File) {
-  const entrada = document.querySelector('input[type="file"]') as HTMLInputElement;
-  await userEvent.upload(entrada, arquivo);
+  await userEvent.upload(screen.getByLabelText("Selecionar vídeo"), arquivo);
 }
 
 beforeEach(() => {
-  localStorage.clear();
-  guardarSessao("t", 3600, 1);
   vi.mocked(enviarVideo).mockReset();
   recarregar.mockClear();
 });
 
 describe("VideoUpload", () => {
-  it("mostra o arquivo escolhido e oferece confirmar", async () => {
+  it("permite selecionar pelo controle acessivel e iniciar a analise", async () => {
     montar();
     await escolher(clipe());
 
     expect(screen.getByText("c.mp4")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmar vídeo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Iniciar análise" })).toBeEnabled();
   });
 
-  it("recusa o arquivo grande e nao deixa nada armado para envio", async () => {
+  it("aceita arrastar e soltar um clipe", () => {
+    const { container } = montar();
+    const area =
+      container.querySelector("[ondrop]") ??
+      screen.getByText("Arraste um vídeo até aqui").parentElement;
+    fireEvent.drop(area!, { dataTransfer: { files: [clipe("arrastado.mp4")] } });
+    expect(screen.getByText("arrastado.mp4")).toBeInTheDocument();
+  });
+
+  it("recusa arquivo grande antes do envio", async () => {
     montar();
     await escolher(clipe("grande.mp4", "video/mp4", 200 * 1024 * 1024));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.VIDEO_TOO_LARGE);
-    expect(screen.queryByRole("button", { name: "Confirmar vídeo" })).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent(ERROR_MESSAGES.VIDEO_TOO_LARGE);
+    expect(screen.getByRole("button", { name: "Iniciar análise" })).toBeDisabled();
   });
 
-  it("recusa arquivo vazio antes de subir, em vez de receber 400 do servico", async () => {
-    montar();
-    await escolher(clipe("vazio.mp4", "video/mp4", 0));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.VIDEO_EMPTY);
-    expect(enviarVideo).not.toHaveBeenCalled();
-  });
-
-  it("limpa a selecao depois do envio, para o mesmo clipe nao ir duas vezes", async () => {
+  it("limpa a selecao e recarrega a lista depois do envio", async () => {
     vi.mocked(enviarVideo).mockResolvedValue(7);
     montar();
     await escolher(clipe());
+    await userEvent.click(screen.getByRole("button", { name: "Iniciar análise" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Confirmar vídeo" }));
-
-    expect(await screen.findByText("Selecione seu vídeo")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Confirmar vídeo" })).toBeNull();
+    expect(await screen.findByText("Arraste um vídeo até aqui")).toBeInTheDocument();
     expect(enviarVideo).toHaveBeenCalledTimes(1);
     expect(recarregar).toHaveBeenCalled();
   });
 
-  it("grava o video no indice local, que e a unica lista de envios que existe", async () => {
-    vi.mocked(enviarVideo).mockResolvedValue(7);
-    montar();
-    await escolher(clipe());
-
-    await userEvent.click(screen.getByRole("button", { name: "Confirmar vídeo" }));
-
-    await screen.findByText("Selecione seu vídeo");
-    expect(getCachedVideos()).toEqual([{ id: 7, name: "c.mp4" }]);
-  });
-
-  it("mostra a mensagem da falha e mantem o arquivo para nova tentativa", async () => {
-    vi.mocked(enviarVideo).mockImplementation(async () => {
-      throw new Error(ERROR_MESSAGES.QUEUE_FULL);
+  it("mostra progresso real reportado pelo transporte", async () => {
+    let liberar!: (id: number) => void;
+    let relatarProgresso: ((percentual: number) => void) | undefined;
+    vi.mocked(enviarVideo).mockImplementation(async (_file, onProgress) => {
+      relatarProgresso = onProgress;
+      return await new Promise<number>((resolve) => {
+        liberar = resolve;
+      });
     });
     montar();
     await escolher(clipe());
+    await userEvent.click(screen.getByRole("button", { name: "Iniciar análise" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Confirmar vídeo" }));
+    await waitFor(() => expect(enviarVideo).toHaveBeenCalledOnce());
+    act(() => relatarProgresso?.(37));
+    expect(await screen.findByText("37%")).toBeInTheDocument();
+    await act(async () => liberar(7));
+  });
+
+  it("mantem o arquivo para nova tentativa quando o envio falha", async () => {
+    vi.mocked(enviarVideo).mockRejectedValue(new Error(ERROR_MESSAGES.QUEUE_FULL));
+    montar();
+    await escolher(clipe());
+    await userEvent.click(screen.getByRole("button", { name: "Iniciar análise" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.QUEUE_FULL);
     expect(screen.getByText("c.mp4")).toBeInTheDocument();
-    expect(getCachedVideos()).toEqual([]);
   });
 });

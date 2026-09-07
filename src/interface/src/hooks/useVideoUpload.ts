@@ -8,6 +8,7 @@ export function useVideoUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   function handleFileSelect(selectedFile: File) {
     const validationError = validateVideoFile(selectedFile);
@@ -26,14 +27,14 @@ export function useVideoUpload() {
     try {
       setError(null);
       setIsUploading(true);
+      setUploadProgress(0);
 
-      const id = await enviarVideo(enviado);
+      const id = await enviarVideo(enviado, setUploadProgress);
 
       setFile((atual) => (atual === enviado ? null : atual));
 
       return id;
     } catch (erro) {
-      console.error(erro);
       setError(erro instanceof Error ? erro.message : ERROR_MESSAGES.VIDEO_UPLOAD_FAILED);
 
       return null;
@@ -42,5 +43,5 @@ export function useVideoUpload() {
     }
   }
 
-  return { file, error, isUploading, handleFileSelect, confirmVideo };
+  return { file, error, isUploading, uploadProgress, handleFileSelect, confirmVideo };
 }

@@ -50,9 +50,13 @@ def principal_de(credencial: str) -> store.PrincipalRow:
 
 def _por_sessao(credencial: str) -> store.PrincipalRow | None:
     try:
-        return store.ler_principal(auth.verificar(credencial))
+        sessao = auth.verificar(credencial)
     except auth.AuthError:
         return None
+    linha = store.ler_principal(sessao.principal_id)
+    if linha is None or linha.sessao_versao != sessao.versao:
+        return None
+    return linha
 
 
 def _por_token(credencial: str) -> store.PrincipalRow | None:

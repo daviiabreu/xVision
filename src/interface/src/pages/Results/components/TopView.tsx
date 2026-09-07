@@ -4,16 +4,24 @@ interface TopViewProps {
 
 function TopView({ src }: TopViewProps) {
   return (
-    <section className="w-full text-left">
-      <h2 className="text-xl font-semibold text-gray-900">Visão superior</h2>
-
-      <p className="mt-2 text-sm text-gray-500">
-        À esquerda, cada jogador detectado e o rastro do movimento. À direita, a posição projetada
-        no gramado a partir da geometria do campo.
-      </p>
-
-      <div className="mt-5 overflow-hidden rounded-sm border border-gray-200 bg-black">
-        <video src={src} controls playsInline preload="metadata" className="block h-auto w-full" />
+    <section className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-[0_1px_2px_rgba(28,25,23,0.04)]">
+      <div className="p-5 sm:p-6">
+        <p className="text-xs font-bold tracking-wide text-amber-700 uppercase">
+          Evidência consolidada
+        </p>
+        <h2 className="mt-1 text-xl font-bold text-stone-950">Visão superior</h2>
+        <p className="mt-2 text-sm leading-6 text-stone-500">
+          Compare as detecções no clipe com as posições projetadas no campo.
+        </p>
+      </div>
+      <div className="bg-stone-950">
+        <video
+          src={src}
+          controls
+          playsInline
+          preload="metadata"
+          className="block aspect-video h-auto w-full object-contain"
+        />
       </div>
     </section>
   );

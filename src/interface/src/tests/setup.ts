@@ -32,3 +32,22 @@ Object.defineProperty(globalThis, "localStorage", {
   value: new MemoriaStorage(),
   configurable: true,
 });
+
+Object.defineProperty(globalThis, "scrollTo", {
+  value: () => undefined,
+  configurable: true,
+  writable: true,
+});
+
+Object.defineProperty(globalThis, "requestAnimationFrame", {
+  value: (callback: FrameRequestCallback) =>
+    window.setTimeout(() => callback(performance.now()), 0),
+  configurable: true,
+  writable: true,
+});
+
+Object.defineProperty(globalThis, "cancelAnimationFrame", {
+  value: (id: number) => window.clearTimeout(id),
+  configurable: true,
+  writable: true,
+});

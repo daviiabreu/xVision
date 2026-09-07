@@ -8,13 +8,13 @@ interface MetricGridProps {
 
 function MetricGrid({ result, vazio }: MetricGridProps) {
   if (result.metrics.length === 0) {
-    return <p className="pt-4 text-sm text-gray-500">{vazio}</p>;
+    return <p className="rounded-xl bg-stone-50 p-4 text-sm leading-6 text-stone-500">{vazio}</p>;
   }
 
   return (
-    <div className="grid grid-cols-2 gap-x-12 gap-y-6 pt-4">
-      {result.metrics.map((metric, indice) => (
-        <Metric key={`${result.name}-${metric.name}-${indice}`} metric={metric} />
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {result.metrics.map((metric, index) => (
+        <Metric key={`${result.name}-${metric.name}-${index}`} metric={metric} />
       ))}
     </div>
   );

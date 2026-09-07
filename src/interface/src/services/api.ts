@@ -1,7 +1,11 @@
 import { ERROR_MESSAGES } from "../utils/errorMessages";
 import { apagarSessao, lerSessao } from "./sessao";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
+export function apiPublicUrl(caminho: string): string {
+  return `${API_URL}${caminho}`;
+}
 
 const MENSAGENS: Record<number, string> = {
   400: ERROR_MESSAGES.VIDEO_EMPTY,
@@ -34,15 +38,13 @@ export class NaoAutenticado extends ErroHttp {
 }
 
 function alvoDe(caminho: string): string {
-  if (!API_URL) {
-    throw new ErroHttp(0, "VITE_API_URL", ERROR_MESSAGES.API_URL_MISSING);
-  }
-
   if (!caminho.startsWith("http")) {
-    return `${API_URL}${caminho}`;
+    return apiPublicUrl(caminho);
   }
 
-  if (new URL(caminho).origin !== new URL(API_URL).origin) {
+  const origemEsperada = API_URL ? new URL(API_URL).origin : window.location.origin;
+
+  if (new URL(caminho).origin !== origemEsperada) {
     throw new ErroHttp(0, caminho, ERROR_MESSAGES.UNEXPECTED_ADDRESS);
   }
 
@@ -112,10 +114,45 @@ export async function apiBlob(caminho: string): Promise<Blob | null> {
   }
 }
 
-export function apiUpload(caminho: string, arquivo: File): Promise<Response> {
-  return pedir(caminho, {
-    method: "PUT",
-    headers: { "Content-Type": arquivo.type },
-    body: arquivo,
+export function apiUpload(
+  caminho: string,
+  arquivo: File,
+  onProgress?: (percentage: number) => void,
+): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const sessao = lerSessao();
+    xhr.open("PUT", alvoDe(caminho));
+    xhr.setRequestHeader("Content-Type", arquivo.type);
+    if (sessao) {
+      xhr.setRequestHeader("Authorization", `Bearer ${sessao.token}`);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress?.(Math.round((event.loaded * 100) / event.total));
+      }
+    };
+    xhr.onerror = () => reject(new Error(ERROR_MESSAGES.NO_CONNECTION));
+    xhr.onload = () => {
+      const detalhe = (() => {
+        try {
+          return comoTexto((JSON.parse(xhr.responseText) as { detail?: unknown }).detail);
+        } catch {
+          return "";
+        }
+      })();
+      if (xhr.status === 401) {
+        apagarSessao();
+        reject(new NaoAutenticado(detalhe));
+        return;
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new ErroHttp(xhr.status, detalhe));
+        return;
+      }
+      onProgress?.(100);
+      resolve(new Response(xhr.responseText || null, { status: xhr.status }));
+    };
+    xhr.send(arquivo);
   });
 }

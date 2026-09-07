@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 
 from api import PREFIXO, create_app, render, store
 from edge.paths import var_dir
-from edge.testing.make_clip import make_synthetic_clip
 
 from .apoio import cliente_autenticado
 
@@ -66,11 +65,6 @@ def test_o_endereco_do_render_sai_relativo_e_sem_o_host_do_cliente(
 ) -> None:
     corpo = _reservar(cliente)
     video_id = int(str(corpo["id"]))
-    cliente.put(
-        str(corpo["uploadUrl"]),
-        content=make_synthetic_clip(tmp_path / "c.mp4").read_bytes(),
-        headers={"Content-Type": "video/mp4"},
-    )
     store.marcar(video_id, "Em processamento")
     store.marcar(video_id, "Finalizado")
     destino = render.render_path(video_id)

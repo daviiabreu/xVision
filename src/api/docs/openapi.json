@@ -8,7 +8,7 @@
   "paths": {
     "/": {
       "get": {
-        "summary": "Lista as versoes que o servico responde.",
+        "summary": "Lista as versoes da API.",
         "description": "Lista as versoes que este servico responde.\n\nExiste para que uma chamada sem versao, que e o erro mais provavel de quem integra, encontre\no caminho em vez de receber 404 seco.",
         "operationId": "raiz__get",
         "responses": {
@@ -29,7 +29,7 @@
     },
     "/health": {
       "get": {
-        "summary": "Diz se o servico subiu.",
+        "summary": "Sonda de saude.",
         "description": "Diz se o servico subiu.",
         "operationId": "health_health_get",
         "responses": {
@@ -50,12 +50,28 @@
         }
       }
     },
+    "/bruno.zip": {
+      "get": {
+        "summary": "Colecao Bruno.",
+        "operationId": "colecao_bruno_bruno_zip_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/register": {
       "post": {
         "tags": [
           "/v1"
         ],
-        "summary": "Cria uma conta de usuario.",
+        "summary": "Cria uma conta.",
         "description": "Cria a conta, e recusa email repetido sem dizer que ele existe pelo tempo de resposta.\n\nO teto e por origem, e nao por par (origem, email) como no login: aqui o email e novo a cada\nchamada, entao uma chave que o incluisse nunca acumularia duas tentativas. Esta e a rota nao\nautenticada mais cara do servico, porque roda `scrypt` e grava uma linha, e sem teto ela\naceitava trabalho ate o pool de threads do Starlette encher.\n\nA contagem inclui o cadastro que deu certo, porque ele custa o mesmo `scrypt` do que falhou, e\npor isso o teto e o de `REGISTROS_ENV` e nao o do login. `REGISTROS_PADRAO` sai do preco medido\ndo trabalho, 17 ms de CPU por derivacao nesta maquina: cem chamadas em 300 s sao 1,7 s de CPU\npor origem na janela, menos de 1% de um nucleo. O numero e alto porque atras de um NAT a origem\ne uma so para a turma inteira, e vinte cadastros em cinco minutos trancariam a demonstracao.",
         "operationId": "_rota_registro_v1_auth_register_post",
         "requestBody": {
@@ -117,7 +133,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Troca email e senha por uma sessao.",
+        "summary": "Inicia uma sessao.",
         "description": "Email desconhecido e senha errada respondem igual, e demoram igual.\n\nRespondendo diferente, a rota vira lista de emails cadastrados. Por isso a senha e conferida\nmesmo quando a conta nao existe: sem isso, o caminho do email desconhecido volta antes de\nrodar o `scrypt` e o tempo de resposta conta a diferenca sozinho.\n\nA contagem de erradas vive em memoria do processo. Com mais de uma replica cada uma conta a\nsua, e o teto efetivo multiplica; resolver isso pede estado compartilhado, que so se paga\nquando existir a segunda replica.",
         "operationId": "_rota_login_v1_auth_login_post",
         "requestBody": {
@@ -179,7 +195,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Diz quem o servico acha que voce e.",
+        "summary": "Identifica a credencial.",
         "description": "Diz quem o servico acha que voce e, que e o que um cliente precisa para depurar sessao.",
         "operationId": "_rota_eu_v1_auth_me_get",
         "responses": {
@@ -204,6 +220,397 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Atualiza o email.",
+        "operationId": "_rota_atualizar_email_v1_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtualizarEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrincipalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O corpo da requisicao chegou vazio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A credencial nao representa uma conta de usuario.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ja existe conta com esse email, ou o video ja saiu da fila.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/password/forgot": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Envia redefinicao.",
+        "description": "Responde igual para email conhecido e desconhecido, sem enumerar contas.",
+        "operationId": "_rota_esqueci_senha_v1_auth_password_forgot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EsqueciSenhaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensagemResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A fila esta cheia. O cabecalho Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/password/reset": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Redefine a senha.",
+        "operationId": "_rota_redefinir_senha_v1_auth_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedefinirSenhaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensagemResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O corpo da requisicao chegou vazio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/me/statistics": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Agrega analises.",
+        "operationId": "_rota_estatisticas_conta_v1_auth_me_statistics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstatisticasContaResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/password/change": {
+      "post": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Troca a senha.",
+        "operationId": "_rota_alterar_senha_v1_auth_password_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlterarSenhaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessaoAtualizadaResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O corpo da requisicao chegou vazio.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A credencial nao representa uma conta de usuario.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Chamadas demais vindas deste endereco. Retry-After diz quando voltar.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/videos": {
+      "get": {
+        "tags": [
+          "/v1"
+        ],
+        "summary": "Lista os videos.",
+        "description": "Lista somente os videos da conta, do mais recente para o mais antigo.",
+        "operationId": "_rota_videos_v1_videos_get",
+        "parameters": [
+          {
+            "name": "limite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limite"
+            }
+          },
+          {
+            "name": "deslocamento",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Deslocamento"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaVideosResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credencial ausente, invalida, expirada ou revogada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Erro"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/videos/upload-url": {
@@ -211,7 +618,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Reserva um identificador e devolve o endereco de envio.",
+        "summary": "Reserva um envio.",
         "description": "Reserva um identificador e devolve o endereco para onde mandar o binario.",
         "operationId": "_rota_upload_url_v1_videos_upload_url_post",
         "requestBody": {
@@ -273,7 +680,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Recebe o binario do video e enfileira o processamento.",
+        "summary": "Recebe o video.",
         "description": "Recebe o binario do video e enfileira o processamento.",
         "operationId": "receber_v1_videos_upload__token__put",
         "parameters": [
@@ -376,7 +783,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Diz em que ponto o video esta.",
+        "summary": "Consulta o andamento.",
         "description": "Diz em que ponto o video esta, sem devolver o resultado.",
         "operationId": "_rota_status_v1_videos_status__video_id__get",
         "parameters": [
@@ -439,7 +846,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Devolve o resultado por etapa, quando o video ja terminou.",
+        "summary": "Devolve o resultado.",
         "description": "Devolve o resultado por etapa quando terminou, e o motivo quando falhou.\n\nRecusar `Falhou` com 409 dizendo \"ainda nao terminou\" era falso duas vezes: o video terminou,\ne a mensagem mandava o frontend continuar consultando um estado que nunca muda. Pior, o campo\n`motivo` so e preenchido em `Falhou`, entao ele era inalcancavel por qualquer rota e toda a\nhigiene de nao vazar caminho protegia um texto que ninguem lia.",
         "operationId": "_rota_resultado_v1_videos__video_id__get",
         "parameters": [
@@ -512,7 +919,7 @@
         "tags": [
           "/v1"
         ],
-        "summary": "Devolve o video anotado da analise.",
+        "summary": "Devolve o render.",
         "description": "Devolve o video anotado da analise, e 404 quando ele nao foi produzido.",
         "operationId": "_rota_render_v1_videos__video_id__render_get",
         "parameters": [
@@ -590,6 +997,47 @@
         "title": "Aceito",
         "description": "A resposta de quem so enfileirou: o trabalho comeca depois que esta resposta ja saiu."
       },
+      "AlterarSenhaRequest": {
+        "properties": {
+          "senha_atual": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Senha Atual"
+          },
+          "nova_senha": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 12,
+            "title": "Nova Senha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "senha_atual",
+          "nova_senha"
+        ],
+        "title": "AlterarSenhaRequest"
+      },
+      "AtualizarEmailRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "title": "Email"
+          },
+          "senha_atual": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Senha Atual"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "senha_atual"
+        ],
+        "title": "AtualizarEmailRequest"
+      },
       "Erro": {
         "properties": {
           "detail": {
@@ -604,6 +1052,58 @@
         "title": "Erro",
         "description": "A forma de toda recusa, para quem gera cliente a partir do contrato nao errar o tipo."
       },
+      "EsqueciSenhaRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "EsqueciSenhaRequest"
+      },
+      "EstatisticasContaResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "pendentes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pendentes"
+          },
+          "em_processamento": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Em Processamento"
+          },
+          "finalizadas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Finalizadas"
+          },
+          "falhas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Falhas"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "pendentes",
+          "em_processamento",
+          "finalizadas",
+          "falhas"
+        ],
+        "title": "EstatisticasContaResponse"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -616,6 +1116,68 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ListaVideosResponse": {
+        "properties": {
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "default": 200
+          },
+          "videos": {
+            "items": {
+              "$ref": "#/components/schemas/VideoResumo"
+            },
+            "type": "array",
+            "title": "Videos"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "pendentes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pendentes"
+          },
+          "em_processamento": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Em Processamento"
+          },
+          "finalizadas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Finalizadas"
+          },
+          "falhas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Falhas"
+          },
+          "limite": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limite"
+          },
+          "deslocamento": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Deslocamento"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "pendentes",
+          "em_processamento",
+          "finalizadas",
+          "falhas",
+          "limite",
+          "deslocamento"
+        ],
+        "title": "ListaVideosResponse"
       },
       "LoginRequest": {
         "properties": {
@@ -636,6 +1198,19 @@
           "senha"
         ],
         "title": "LoginRequest"
+      },
+      "MensagemResponse": {
+        "properties": {
+          "mensagem": {
+            "type": "string",
+            "title": "Mensagem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mensagem"
+        ],
+        "title": "MensagemResponse"
       },
       "Metrica": {
         "properties": {
@@ -728,6 +1303,28 @@
         ],
         "title": "PrincipalResponse"
       },
+      "RedefinirSenhaRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Token"
+          },
+          "senha": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 12,
+            "title": "Senha"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "senha"
+        ],
+        "title": "RedefinirSenhaRequest"
+      },
       "RegistroRequest": {
         "properties": {
           "email": {
@@ -762,6 +1359,35 @@
             "title": "Status",
             "description": "Verdadeiro quando a etapa rodou sem falhar."
           },
+          "situacao": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed",
+              "skipped"
+            ],
+            "title": "Situacao",
+            "description": "Desfecho completo da etapa no pipeline."
+          },
+          "motivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo",
+            "description": "Motivo de falha ou de pulo da etapa."
+          },
+          "duracao_ms": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Duracao Ms",
+            "description": "Tempo observado para esta etapa.",
+            "default": 0
+          },
           "frame": {
             "anyOf": [
               {
@@ -772,21 +1398,21 @@
               }
             ],
             "title": "Frame",
-            "description": "Imagem de demonstracao em base64. Nula enquanto a visualizacao nao entrar."
+            "description": "Imagem JPEG de evidencia em data URL, quando a etapa produziu saida."
           },
           "metricas": {
             "items": {
               "$ref": "#/components/schemas/Metrica"
             },
             "type": "array",
-            "title": "Metricas",
-            "default": []
+            "title": "Metricas"
           }
         },
         "type": "object",
         "required": [
           "nome_processo",
-          "status"
+          "status",
+          "situacao"
         ],
         "title": "Resultado"
       },
@@ -807,14 +1433,29 @@
             ],
             "title": "Video Status"
           },
+          "nome_arquivo": {
+            "type": "string",
+            "title": "Nome Arquivo"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "criado_em": {
+            "type": "string",
+            "title": "Criado Em"
+          },
+          "atualizado_em": {
+            "type": "string",
+            "title": "Atualizado Em"
+          },
           "resultados": {
             "items": {
               "$ref": "#/components/schemas/Resultado"
             },
             "type": "array",
             "title": "Resultados",
-            "description": "Vazio ate o video chegar em Finalizado.",
-            "default": []
+            "description": "Vazio quando falhou."
           },
           "motivo": {
             "anyOf": [
@@ -844,9 +1485,43 @@
         "type": "object",
         "required": [
           "status",
-          "video_status"
+          "video_status",
+          "nome_arquivo",
+          "content_type",
+          "criado_em",
+          "atualizado_em"
         ],
         "title": "ResultadoResponse"
+      },
+      "SessaoAtualizadaResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "bearer",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expira_em": {
+            "type": "integer",
+            "title": "Expira Em",
+            "description": "Segundos ate a sessao deixar de valer."
+          },
+          "mensagem": {
+            "type": "string",
+            "title": "Mensagem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expira_em",
+          "mensagem"
+        ],
+        "title": "SessaoAtualizadaResponse"
       },
       "SessaoResponse": {
         "properties": {
@@ -902,6 +1577,63 @@
             ],
             "title": "Motivo",
             "description": "Por que falhou. Nulo em qualquer outro estado."
+          },
+          "etapa_atual": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etapa Atual",
+            "description": "Etapa que o worker esta executando neste momento."
+          },
+          "etapas_concluidas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Etapas Concluidas",
+            "default": 0
+          },
+          "etapas_total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Etapas Total",
+            "default": 0
+          },
+          "progresso": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progresso",
+            "default": 0
+          },
+          "posicao_fila": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posicao Fila",
+            "description": "Posicao na fila quando ainda nao iniciou. Nula fora da espera."
+          },
+          "reconsultar_em_s": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconsultar Em S",
+            "description": "Intervalo sugerido ao cliente. Nulo quando o estado e terminal."
           }
         },
         "type": "object",
@@ -993,6 +1725,126 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VideoResumo": {
+        "properties": {
+          "status": {
+            "type": "integer",
+            "title": "Status",
+            "description": "Codigo HTTP repetido no corpo, como o contrato pede."
+          },
+          "video_status": {
+            "type": "string",
+            "enum": [
+              "Pendente",
+              "Em processamento",
+              "Finalizado",
+              "Falhou"
+            ],
+            "title": "Video Status",
+            "description": "Em que ponto o video esta."
+          },
+          "motivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo",
+            "description": "Por que falhou. Nulo em qualquer outro estado."
+          },
+          "etapa_atual": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etapa Atual",
+            "description": "Etapa que o worker esta executando neste momento."
+          },
+          "etapas_concluidas": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Etapas Concluidas",
+            "default": 0
+          },
+          "etapas_total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Etapas Total",
+            "default": 0
+          },
+          "progresso": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progresso",
+            "default": 0
+          },
+          "posicao_fila": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posicao Fila",
+            "description": "Posicao na fila quando ainda nao iniciou. Nula fora da espera."
+          },
+          "reconsultar_em_s": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconsultar Em S",
+            "description": "Intervalo sugerido ao cliente. Nulo quando o estado e terminal."
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "nome_arquivo": {
+            "type": "string",
+            "title": "Nome Arquivo"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "criado_em": {
+            "type": "string",
+            "title": "Criado Em"
+          },
+          "atualizado_em": {
+            "type": "string",
+            "title": "Atualizado Em"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "video_status",
+          "id",
+          "nome_arquivo",
+          "content_type",
+          "criado_em",
+          "atualizado_em"
+        ],
+        "title": "VideoResumo"
       }
     }
   }

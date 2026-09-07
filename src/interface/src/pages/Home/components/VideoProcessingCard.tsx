@@ -1,82 +1,97 @@
 import { Link } from "react-router-dom";
 
-import Button from "../../../components/ui/Button";
-import { terminou, type VideoStatus } from "../../../services/videoService";
+import Icon from "../../../components/ui/Icon";
+import ProgressBar from "../../../components/ui/ProgressBar";
+import StatusBadge from "../../../components/ui/StatusBadge";
+import { terminou, type VideoSummary } from "../../../services/videoService";
+import { nomeDoProcesso } from "../../../utils/nomesDeProcesso";
 
-interface VideoProcessingCardProps {
-  id: number;
-  name: string;
-  status: VideoStatus | null;
-  statusError: boolean;
-  onTentarDeNovo: () => void;
-  onRemover: () => void;
-}
-
-const CORES: Record<VideoStatus, string> = {
-  Pendente: "bg-gray-400",
-  "Em processamento": "bg-amber-400",
-  Falhou: "bg-red-400",
-  Finalizado: "bg-green-400",
-};
-
-const CARTAO = "flex w-full items-center justify-between rounded-xl px-6 py-5";
-
-function VideoProcessingCard({
-  id,
-  name,
-  status,
-  statusError,
-  onTentarDeNovo,
-  onRemover,
-}: VideoProcessingCardProps) {
-  const semStatus = statusError || status === null;
-  const pronto = terminou(status);
-
-  const identificacao = (
-    <div>
-      <p className="text-sm font-medium text-gray-600">{name}</p>
-
-      <div className="mt-3 flex items-center gap-2">
-        <span className={`h-3 w-3 rounded-full ${semStatus ? "bg-gray-400" : CORES[status]}`} />
-
-        <p className="text-base font-semibold text-gray-900">
-          {semStatus ? "Não foi possível consultar o status" : status}
-        </p>
-      </div>
-    </div>
+function VideoProcessingCard({ video }: { video: VideoSummary }) {
+  const conteudo = (
+    <>
+      <CardHeader video={video} />
+      <ProcessingProgress video={video} />
+      <FailureReason video={video} />
+    </>
   );
 
-  if (semStatus) {
+  const classes =
+    "block rounded-xl border border-stone-200 bg-white p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e7bf08] focus-visible:ring-offset-2";
+
+  if (terminou(video.videoStatus)) {
     return (
-      <div className={`${CARTAO} bg-amber-50`}>
-        {identificacao}
-
-        <div className="flex gap-2">
-          <Button variante="secundario" tamanho="compacto" onClick={onTentarDeNovo}>
-            Tentar de novo
-          </Button>
-
-          <Button variante="secundario" tamanho="compacto" onClick={onRemover}>
-            Remover da lista
-          </Button>
-        </div>
-      </div>
+      <Link
+        to={`/results/${video.id}`}
+        className={`${classes} hover:border-stone-300 hover:shadow-sm`}
+      >
+        {conteudo}
+      </Link>
     );
   }
 
-  if (!pronto) {
-    return <div className={`${CARTAO} bg-amber-50`}>{identificacao}</div>;
+  return <div className={classes}>{conteudo}</div>;
+}
+
+function CardHeader({ video }: { video: VideoSummary }) {
+  return (
+    <div className="min-w-0 sm:flex sm:items-start sm:justify-between sm:gap-5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500">
+          <Icon name="file-video" className="h-4.5 w-4.5" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-stone-950">{video.name}</h3>
+          <p className="mt-0.5 text-xs text-stone-500">{formatarData(video.createdAt)}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3 pl-11 sm:mt-0 sm:pl-0">
+        <StatusBadge status={video.videoStatus} />
+        {terminou(video.videoStatus) && (
+          <Icon name="arrow-right" className="h-4 w-4 text-stone-400" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProcessingProgress({ video }: { video: VideoSummary }) {
+  if (terminou(video.videoStatus)) return null;
+  const stage =
+    video.videoStatus === "Pendente"
+      ? video.queuePosition
+        ? `Posição ${video.queuePosition} na fila`
+        : "Aguardando processamento"
+      : video.currentStage
+        ? nomeDoProcesso(video.currentStage)
+        : "Preparando pipeline";
+  return (
+    <div className="mt-4 pl-11">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-600">
+        <span>{stage}</span>
+        <span className="font-semibold text-stone-700">{Math.round(video.progress)}%</span>
+      </div>
+      <ProgressBar value={video.progress} label={`Progresso de ${video.name}`} />
+    </div>
+  );
+}
+
+function FailureReason({ video }: { video: VideoSummary }) {
+  if (video.videoStatus !== "Falhou" || !video.reason) return null;
+  return <p className="mt-3 line-clamp-2 pl-11 text-xs leading-5 text-red-700">{video.reason}</p>;
+}
+
+function formatarData(valor: string): string {
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) {
+    return "Data indisponível";
   }
 
-  return (
-    <Link to={`/results/${id}`} className={`${CARTAO} bg-amber-100 transition hover:bg-amber-200`}>
-      {identificacao}
-
-      <span aria-hidden="true" className="text-2xl font-light text-gray-700">
-        &gt;
-      </span>
-    </Link>
-  );
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(data);
 }
 
 export default VideoProcessingCard;

@@ -21,10 +21,11 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from api import render, store
+from api import evidence, render, store
 from api.schemas import Metrica, Resultado, tipo_de
 from edge.cache.perception import PerceptionCache
 from edge.features.registry import load_extractors, read_feature_config
@@ -53,6 +54,8 @@ class FilaCheia(RuntimeError): ...
 _porta = threading.Lock()
 _executor: ThreadPoolExecutor | None = None
 _pendentes: set[Future[None]] = set()
+_trabalhos: dict[int, Future[None]] = {}
+_ordem: list[int] = []
 _desligado = False
 
 
@@ -81,7 +84,9 @@ def teto_da_fila() -> int:
     return max(1, int(declarado)) if declarado else FILA_PADRAO
 
 
-def submeter(funcao: Callable[..., None], *argumentos: Any) -> Future[None]:
+def submeter(
+    funcao: Callable[..., None], *argumentos: Any, chave: int | None = None
+) -> Future[None]:
     """Enfileira, e recusa quando a fila esta cheia.
 
     Sem teto, medido: 200 envios foram aceitos em 0,28 s e chegaram a 186 arquivos simultaneos em
@@ -92,10 +97,41 @@ def submeter(funcao: Callable[..., None], *argumentos: Any) -> Future[None]:
     with _porta:
         if len(_pendentes) >= teto_da_fila():
             raise FilaCheia(f"a fila esta cheia: {len(_pendentes)} trabalhos esperando")
+        if chave is not None and chave in _trabalhos:
+            raise FilaCheia(f"o video {chave} ja esta na fila")
         tarefa = executor().submit(funcao, *argumentos)
         _pendentes.add(tarefa)
-    tarefa.add_done_callback(_pendentes.discard)
+        if chave is not None:
+            _trabalhos[chave] = tarefa
+            _ordem.append(chave)
+    tarefa.add_done_callback(_concluir)
     return tarefa
+
+
+def _concluir(tarefa: Future[None]) -> None:
+    with _porta:
+        _pendentes.discard(tarefa)
+        chaves = [chave for chave, futuro in _trabalhos.items() if futuro is tarefa]
+        for chave in chaves:
+            _trabalhos.pop(chave, None)
+            with suppress(ValueError):
+                _ordem.remove(chave)
+
+
+def posicao_na_fila(chave: int) -> int | None:
+    """Devolve a posicao de espera, sem contar trabalhos que ja estao executando."""
+    with _porta:
+        tarefa = _trabalhos.get(chave)
+        if tarefa is None or tarefa.running() or tarefa.done():
+            return None
+        esperando = [
+            item
+            for item in _ordem
+            if (futuro := _trabalhos.get(item)) is not None
+            and not futuro.running()
+            and not futuro.done()
+        ]
+        return esperando.index(chave) + 1 if chave in esperando else None
 
 
 def aguardar(timeout: float = 60.0) -> None:
@@ -137,6 +173,8 @@ def desligar() -> None:
     if pool is not None:
         pool.shutdown(wait=True, cancel_futures=True)
     _pendentes.clear()
+    _trabalhos.clear()
+    _ordem.clear()
 
 
 def _sem_caminho(mensagem: str, caminho: Path) -> str:
@@ -155,7 +193,10 @@ def processar_video(
     try:
         store.marcar(identificador, store.PROCESSANDO, caminho=banco)
         logger.info("video=%s iniciou", identificador)
-        resultados, motivo = _analisar(identificador, caminho, config)
+        resultados, motivo = _analisar(identificador, caminho, config, banco)
+        atual = store.ler(identificador, banco)
+        total = max(1, 0 if atual is None else atual.etapas_total)
+        store.marcar_progresso(identificador, "render", max(0, total - 1), total, banco)
         _renderizar(identificador, caminho, config)
     except ClipUnavailable as erro:
         logger.warning("video=%s recusado: %s", identificador, type(erro).__name__)
@@ -183,11 +224,11 @@ def processar_video(
 
 
 def _analisar(
-    identificador: int, caminho: Path, config: Path
+    identificador: int, caminho: Path, config: Path, banco: Path | None
 ) -> tuple[list[dict[str, Any]] | None, str | None]:
     """`ClipUnavailable` continua subindo: clipe que nao abre nao produz evento nem imagem."""
     try:
-        return _rodar(identificador, caminho, config), None
+        return _rodar(identificador, caminho, config, banco), None
     except PipelineError as erro:
         logger.warning("video=%s sem evento: %s", identificador, type(erro).__name__)
         return None, _sem_caminho(str(erro), caminho)
@@ -206,21 +247,43 @@ def _renderizar(identificador: int, caminho: Path, config: Path) -> None:
         logger.exception("video=%s: a visao superior morreu por erro interno", identificador)
 
 
-def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, Any]]:
+def _rodar(
+    identificador: int, caminho: Path, config: Path, banco: Path | None
+) -> list[dict[str, Any]]:
     extractors = load_extractors(read_feature_config(config))
+    modules = load_modules(read_config(config))
+    total = len(modules) + 2
     clipe = probe(caminho, clip_id=f"video-{identificador}")
     provider = FrameProvider(VideoSource(caminho))
+
+    def progresso(kind: str, concluidas: int, _: int) -> None:
+        store.marcar_progresso(identificador, kind, concluidas, total, banco)
+
     try:
         resultado = process_clip(
             clip=clipe,
-            modules=load_modules(read_config(config)),
+            modules=modules,
             framesets=read_framesets(config),
             provider=provider,
             extractors=extractors,
             cache=PerceptionCache(cache_dir()),
+            on_stage_start=progresso,
         )
     finally:
         provider.close()
+
+    store.marcar_progresso(identificador, "evidence", len(modules), total, banco)
+    evidencias: dict[str, str] = {}
+    try:
+        frame_index = round(resultado.event.shot_timestamp_s * clipe.fps)
+        evidencias = evidence.gerar_evidencias(
+            caminho,
+            frame_index,
+            resultado.perception,
+            (etapa.kind for etapa in resultado.stages if etapa.status == "ok"),
+        )
+    except Exception:
+        logger.exception("video=%s: a geracao de evidencias falhou", identificador)
 
     unidades = {e.spec.name: e.spec.unit for e in extractors}
     medidas = [
@@ -237,7 +300,10 @@ def _rodar(identificador: int, caminho: Path, config: Path) -> list[dict[str, An
         Resultado(
             nome_processo=etapa.kind,
             status=etapa.status == "ok",
-            frame=None,
+            situacao=etapa.status,
+            motivo=etapa.reason,
+            duracao_ms=etapa.duration_ms,
+            frame=evidencias.get(etapa.kind),
             metricas=medidas if etapa.kind == "shot" else [],
         ).model_dump()
         for etapa in resultado.stages
