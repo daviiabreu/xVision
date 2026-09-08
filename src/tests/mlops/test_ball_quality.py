@@ -134,6 +134,7 @@ def test_o_relatorio_carrega_a_escala_junto_com_a_taxa() -> None:
     documento = relatorio.to_dict()
     assert documento["acaso"] == ACASO
     assert documento["vezes_o_acaso"] == round(1.0 / ACASO, 2)
+    assert documento["taxa_encostada_wilson_95"] == [0.5101, 1.0]
 
 
 def test_posicao_interpolada_nao_conta_como_percepcao() -> None:
@@ -147,7 +148,10 @@ def test_posicao_interpolada_nao_conta_como_percepcao() -> None:
         timestamp_s=3.3,
         players=(PlayerDetection(box=JOGADOR, confidence=0.9),),
         ball=BallDetection(
-            box=Box(118.0, 238.0, 130.0, 250.0), confidence=0.0, source="interpolated"
+            box=Box(118.0, 238.0, 130.0, 250.0),
+            confidence=0.0,
+            source="interpolated",
+            gap_frames=1,
         ),
     )
 

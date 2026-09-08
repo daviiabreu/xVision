@@ -17,12 +17,17 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from contracts import BallDetection, Box
+from edge.modules.base import ModuleError
 
 TrackPointSource = Literal["detected", "interpolated", "missing"]
+VelocitySource = Literal["finite-difference", "trajectory-model"]
+
+
+class TrajectoryOrderError(ModuleError): ...
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ class BallObservation:
     frame_index: int
     timestamp_s: float
     candidates: tuple[BallDetection, ...]
+    camera_cut: bool = False
 
 
 @dataclass(frozen=True)
@@ -55,7 +61,23 @@ class TrackPoint:
     center: tuple[float, float] | None
     box: Box | None
     confidence: float | None
+    trajectory_segment: int | None = None
+    gap_frames: int | None = None
+    velocity_xy_px_s: tuple[float, float] | None = None
+    velocity_source: VelocitySource | None = None
     suspect_static: bool = False
+
+
+@dataclass(frozen=True)
+class TrackerTelemetry:
+    detected_points: int = 0
+    interpolated_points: int = 0
+    missing_points: int = 0
+    segments: int = 0
+    resets: int = 0
+    rejected_jumps: int = 0
+    camera_cuts: int = 0
+    max_gap_frames: int = 0
 
 
 @dataclass(frozen=True)
@@ -74,13 +96,21 @@ class TrackerConfig:
     flag_stationary: bool = False
     stationary_radius_px: float = 6.0
     stationary_frames: int = 45
+    candidate_order: bool = False
+    """Aceitar o primeiro candidato que sobrevive ao gate, na ordem em que a lista chegou.
+
+    Existe para quem entrega a lista ja ordenada por outro criterio, hoje o ranking de
+    `edge.modules.ball.ranking`. Sem isso, o desempate por proximidade da posicao prevista reescolhe
+    e desfaz a ordem: medido nas 328 posicoes anotadas, entregar os dois melhores e desempatar por
+    proximidade cai para 161 acertos, e respeitando a ordem fica em 177.
+    """
 
 
 def _box_center(box: Box) -> tuple[float, float]:
     return ((box.x1 + box.x2) / 2.0, (box.y1 + box.y2) / 2.0)
 
 
-def _missing(observation: BallObservation) -> TrackPoint:
+def _missing(observation: BallObservation, segment: int | None, gap_frames: int) -> TrackPoint:
     return TrackPoint(
         frame_index=observation.frame_index,
         timestamp_s=observation.timestamp_s,
@@ -88,6 +118,8 @@ def _missing(observation: BallObservation) -> TrackPoint:
         center=None,
         box=None,
         confidence=None,
+        trajectory_segment=segment,
+        gap_frames=gap_frames,
     )
 
 
@@ -106,12 +138,35 @@ class BallTracker:
         self._prev: TrackPoint | None = None
         self._pending: list[BallObservation] = []
         self._static_run = 0
+        self._segment = -1
+        self._last_frame_index: int | None = None
+        self._last_timestamp_s: float | None = None
+        self._telemetry = TrackerTelemetry()
+
+    @property
+    def telemetry(self) -> TrackerTelemetry:
+        return self._telemetry
 
     def update(self, observation: BallObservation) -> list[TrackPoint]:
         """Incorpora um quadro e devolve os pontos que este quadro conseguiu finalizar."""
-        chosen = self._select(observation.candidates, observation.timestamp_s)
+        self._check_order(observation)
+        prefix: list[TrackPoint] = []
+        if observation.camera_cut:
+            self._telemetry = replace(self._telemetry, camera_cuts=self._telemetry.camera_cuts + 1)
+            prefix = self._close_pending()
+            self._reset_track(count=bool(self._last is not None or prefix))
+
+        chosen, rejected_jump = self._select(observation.candidates, observation.timestamp_s)
+        if rejected_jump:
+            self._telemetry = replace(
+                self._telemetry, rejected_jumps=self._telemetry.rejected_jumps + 1
+            )
         if chosen is not None:
+            if self._last is None:
+                self._segment += 1
+                self._telemetry = replace(self._telemetry, segments=self._telemetry.segments + 1)
             center = _box_center(chosen.box)
+            velocity = self._velocity_from_last(center, observation.timestamp_s)
             confirmed = TrackPoint(
                 frame_index=observation.frame_index,
                 timestamp_s=observation.timestamp_s,
@@ -119,27 +174,41 @@ class BallTracker:
                 center=center,
                 box=chosen.box,
                 confidence=chosen.confidence,
+                trajectory_segment=self._segment,
+                gap_frames=0,
+                velocity_xy_px_s=velocity,
+                velocity_source="finite-difference" if velocity is not None else None,
                 suspect_static=self._update_static_run(center),
             )
             resolved = self._resolve_pending(confirmed)
             self._prev = self._last
             self._last = confirmed
             self._pending = []
-            return [*resolved, confirmed]
+            self._telemetry = replace(
+                self._telemetry,
+                detected_points=self._telemetry.detected_points + 1,
+                interpolated_points=self._telemetry.interpolated_points
+                + sum(point.source == "interpolated" for point in resolved),
+                missing_points=self._telemetry.missing_points
+                + sum(point.source == "missing" for point in resolved),
+            )
+            return [*prefix, *resolved, confirmed]
 
         self._pending.append(observation)
+        self._telemetry = replace(
+            self._telemetry,
+            max_gap_frames=max(self._telemetry.max_gap_frames, len(self._pending)),
+        )
         if len(self._pending) > self._config.max_gap_frames:
-            lost = [_missing(pending) for pending in self._pending]
+            lost = self._close_pending()
             self._pending = []
-            self._reset_track()
-            return lost
-        return []
+            self._reset_track(count=True)
+            return [*prefix, *lost]
+        return prefix
 
     def flush(self) -> list[TrackPoint]:
         """Fecha o stream: uma lacuna aberta no fim nunca sera resolvida, entao vira perda."""
-        lost = [_missing(pending) for pending in self._pending]
-        self._pending = []
-        return lost
+        return self._close_pending()
 
     def track(self, observations: Iterable[BallObservation]) -> Iterator[TrackPoint]:
         """Processa uma sequencia inteira e produz a trajetoria em ordem de quadro."""
@@ -149,13 +218,15 @@ class BallTracker:
 
     def _select(
         self, candidates: tuple[BallDetection, ...], timestamp_s: float
-    ) -> BallDetection | None:
+    ) -> tuple[BallDetection | None, bool]:
         """Entre os candidatos plausiveis, o mais proximo da posicao prevista pelo movimento."""
         if not candidates:
-            return None
+            return None, False
         last = self._last
         if last is None or last.center is None:
-            return max(candidates, key=lambda d: d.confidence)
+            if self._config.candidate_order:
+                return candidates[0], False
+            return max(candidates, key=lambda d: d.confidence), False
 
         dt = timestamp_s - last.timestamp_s
         allowed = self._config.max_ball_speed_px_per_s * dt * self._config.gate_margin
@@ -166,15 +237,20 @@ class BallTracker:
             if dt <= 0 or math.hypot(*_delta(_box_center(candidate.box), (lx, ly))) <= allowed
         ]
         if not gated:
-            return None
+            return None, True
 
+        if self._config.candidate_order:
+            return gated[0], False
         predicted = self._predict(timestamp_s)
-        return min(
-            gated,
-            key=lambda d: (
-                math.hypot(*_delta(_box_center(d.box), predicted)),
-                -d.confidence,
+        return (
+            min(
+                gated,
+                key=lambda d: (
+                    math.hypot(*_delta(_box_center(d.box), predicted)),
+                    -d.confidence,
+                ),
             ),
+            False,
         )
 
     def _predict(self, timestamp_s: float) -> tuple[float, float]:
@@ -204,30 +280,86 @@ class BallTracker:
             )
         return self._static_run >= self._config.stationary_frames
 
-    def _reset_track(self) -> None:
+    def _reset_track(self, *, count: bool) -> None:
         self._last = None
         self._prev = None
         self._static_run = 0
+        if count:
+            self._telemetry = replace(self._telemetry, resets=self._telemetry.resets + 1)
+
+    def _check_order(self, observation: BallObservation) -> None:
+        if not math.isfinite(observation.timestamp_s):
+            self._reset_track(count=self._last is not None)
+            raise TrajectoryOrderError("timestamp da bola precisa ser finito")
+        if self._last_frame_index is not None and observation.frame_index <= self._last_frame_index:
+            self._reset_track(count=self._last is not None)
+            raise TrajectoryOrderError(
+                f"frame da bola {observation.frame_index} nao sucede {self._last_frame_index}"
+            )
+        if self._last_timestamp_s is not None and observation.timestamp_s <= self._last_timestamp_s:
+            self._reset_track(count=self._last is not None)
+            raise TrajectoryOrderError(
+                f"timestamp da bola {observation.timestamp_s} nao sucede {self._last_timestamp_s}"
+            )
+        self._last_frame_index = observation.frame_index
+        self._last_timestamp_s = observation.timestamp_s
+
+    def _velocity_from_last(
+        self, center: tuple[float, float], timestamp_s: float
+    ) -> tuple[float, float] | None:
+        last = self._last
+        if last is None or last.center is None:
+            return None
+        span = timestamp_s - last.timestamp_s
+        if span <= 0:
+            return None
+        dx, dy = _delta(center, last.center)
+        return (dx / span, dy / span)
+
+    def _close_pending(self) -> list[TrackPoint]:
+        gap = len(self._pending)
+        lost = [
+            _missing(pending, self._segment if self._last is not None else None, gap)
+            for pending in self._pending
+        ]
+        self._pending = []
+        if lost:
+            self._telemetry = replace(
+                self._telemetry, missing_points=self._telemetry.missing_points + len(lost)
+            )
+        return lost
 
     def _resolve_pending(self, end: TrackPoint) -> list[TrackPoint]:
         if not self._pending:
             return []
         start = self._last
         if start is None or start.center is None or end.center is None:
-            return [_missing(pending) for pending in self._pending]
+            return [
+                _missing(pending, self._segment if start is not None else None, len(self._pending))
+                for pending in self._pending
+            ]
         if len(self._pending) > self._config.max_gap_frames:
-            return [_missing(pending) for pending in self._pending]
-        return [self._interpolate(start, end, pending) for pending in self._pending]
+            return [
+                _missing(pending, self._segment, len(self._pending)) for pending in self._pending
+            ]
+        return [
+            self._interpolate(start, end, pending, len(self._pending)) for pending in self._pending
+        ]
 
     def _interpolate(
-        self, start: TrackPoint, end: TrackPoint, observation: BallObservation
+        self,
+        start: TrackPoint,
+        end: TrackPoint,
+        observation: BallObservation,
+        gap_frames: int,
     ) -> TrackPoint:
         if start.center is None or end.center is None:
-            return _missing(observation)
+            return _missing(observation, self._segment, gap_frames)
         span = end.timestamp_s - start.timestamp_s
         fraction = 0.0 if span <= 0 else (observation.timestamp_s - start.timestamp_s) / span
         sx, sy = start.center
         ex, ey = end.center
+        velocity = None if span <= 0 else ((ex - sx) / span, (ey - sy) / span)
         return TrackPoint(
             frame_index=observation.frame_index,
             timestamp_s=observation.timestamp_s,
@@ -235,6 +367,10 @@ class BallTracker:
             center=(sx + (ex - sx) * fraction, sy + (ey - sy) * fraction),
             box=None,
             confidence=None,
+            trajectory_segment=self._segment,
+            gap_frames=gap_frames,
+            velocity_xy_px_s=velocity,
+            velocity_source="trajectory-model" if velocity is not None else None,
         )
 
 

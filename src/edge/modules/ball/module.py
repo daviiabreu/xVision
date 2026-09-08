@@ -32,19 +32,43 @@ O quinto veio depois, da primeira calibracao: `conf`, `imgsz` e os limites de fo
 no `DetectorConfig` e nao tinham como ser medidos sem editar `src/`. Agora chegam por `configure`,
 com o vocabulario e a validacao no proprio `DetectorConfig`, e o limite efetivo e o mesmo nas duas
 passadas do filtro de forma, a do tensor e a do quadro original.
+
+O sexto e a escolha entre os candidatos, que ate a emenda 15 era do rastreador e so olhava
+proximidade da posicao prevista. Agora `edge.modules.ball.ranking` pontua cada candidato e o
+rastreador recebe os melhores, na ordem do ranking.
+
+O padrao do codigo e desligado, e quem liga e `config/pipeline.models.toml`, pelo mesmo motivo de
+`conf` e `imgsz`: o valor escolhido por medicao precisa aparecer no arquivo que descreve a execucao,
+onde a proxima pessoa le, e nao num argumento nomeado que ninguem abre. A escolha esta sob revisao,
+porque o ranking dobra o acerto de posicao e custa cerca de 2,5 vezes o tempo do modulo.
+
+Medido fora da dobra nas seis partidas de desenvolvimento, ele levou o acerto de 93 para 186 em 317
+posicoes visiveis, com dois quadros sem previsao contra um da linha de base. O ranking precisa do
+pixel do quadro original, e nao do tensor: e por isso que
+`to_source_image` existe, e e por isso que sem `source_size` o modulo nao pontua, em vez de pontuar
+no espaco errado.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict, replace
+from time import perf_counter
 from typing import Any, cast
 
 import numpy as np
 
 from contracts import BallDetection, Box
 from edge.artifacts import entrypoint_of
-from edge.frames.preprocess import to_source_box
-from edge.modules.ball.detector import BallDetector, DetectorConfig, is_ball_shaped
+from edge.frames.preprocess import to_source_box, to_source_image
+from edge.modules.ball.detector import (
+    BallDetector,
+    DetectorConfig,
+    DetectorTelemetry,
+    is_ball_shaped,
+)
+from edge.modules.ball.ranking import CandidateRanker, RankerArtifact, load_ranker
 from edge.modules.ball.tracking import BallObservation, BallTracker, TrackerConfig, TrackPoint
 from edge.modules.base import (
     FrameBatch,
@@ -107,15 +131,27 @@ class YoloBall:
         *,
         detector_config: DetectorConfig | None = None,
         tracker_config: TrackerConfig | None = None,
+        ranking: bool = False,
+        ranking_candidates: int = 1,
     ) -> None:
         self._detector = detector
         self._detector_config = detector_config
-        self._tracker_config = tracker_config
+        self._tracker_config = tracker_config or TrackerConfig()
+        self._ranking = ranking
+        self._ranking_candidates = ranking_candidates
+        self._ranker: RankerArtifact | None = None
         self._ajustes: Mapping[str, object] = {}
         self._efetiva: DetectorConfig | None = detector_config
         self._peso = ""
         self._chave = ""
         self._pronto = False
+        self._telemetry: dict[str, int | float] = {}
+        self._ranking_stats: dict[str, int | float] = {}
+        self._candidate_stats: dict[str, int | float] = {}
+
+    @property
+    def telemetry(self) -> Mapping[str, int | float]:
+        return dict(self._telemetry)
 
     def fingerprint(self) -> str:
         """O ajuste em vigor, para o cache de percepcao nao servir medida de outro limiar.
@@ -125,16 +161,46 @@ class YoloBall:
         devolvia a percepcao antiga e o relatorio publicava o numero de antes como se fosse o novo.
         """
         ordenados = sorted((str(k), repr(v)) for k, v in self._ajustes.items())
-        return ";".join(f"{k}={v}" for k, v in ordenados)
+        return (
+            ";".join(f"{k}={v}" for k, v in ordenados)
+            + f";tracker={asdict(self._tracker_config)!r}"
+            + f";ranking={self._ranking!r},{self._ranking_candidates:d}"
+        )
 
     def configure(self, options: Mapping[str, object]) -> None:
-        """Os ajustes de `[modules.ball]` do TOML, guardados sem validar aqui.
+        """Guarda o ajuste em vez de aplicar, e separa o que e do detector do que e daqui.
 
-        Quem valida e o `DetectorConfig`, dono do vocabulario: o modulo nao tem como saber que
-        `max_aspect` existe e `aspecto_maximo` nao. Guardar em vez de aplicar porque `configure`
-        roda no registro, antes de `load`, e o peso so aparece la.
+        Guardar porque `configure` roda no registro, antes de `load`, e o peso so aparece la. Quem
+        valida o vocabulario do detector e o proprio `DetectorConfig`, dono dele: o modulo nao tem
+        como saber que `max_aspect` existe e `aspecto_maximo` nao.
+
+        Os ajustes temporais e de ranking saem daqui antes, porque o `DetectorConfig` recusaria
+        nome que nao e dele e a recusa apareceria como erro de digitacao do usuario.
         """
-        self._ajustes = dict(options)
+        detector_options = dict(options)
+        config = self._tracker_config
+        if "ranking" in detector_options:
+            ranking = detector_options.pop("ranking")
+            if not isinstance(ranking, bool):
+                raise ValueError("ball.ranking espera booleano")
+            self._ranking = ranking
+        if "ranking_candidates" in detector_options:
+            quantos = detector_options.pop("ranking_candidates")
+            if isinstance(quantos, bool) or not isinstance(quantos, int) or quantos < 1:
+                raise ValueError("ball.ranking_candidates espera inteiro maior ou igual a um")
+            self._ranking_candidates = quantos
+        if "max_ball_speed_px_per_s" in detector_options:
+            speed = detector_options.pop("max_ball_speed_px_per_s")
+            if (
+                isinstance(speed, bool)
+                or not isinstance(speed, int | float)
+                or not math.isfinite(speed)
+                or speed <= 0
+            ):
+                raise ValueError("ball.max_ball_speed_px_per_s espera numero finito positivo")
+            config = replace(config, max_ball_speed_px_per_s=float(speed))
+        self._tracker_config = config
+        self._ajustes = detector_options
 
     def load(self) -> None:
         config = self._config_com_peso()
@@ -146,7 +212,24 @@ class YoloBall:
             self._detector = YoloBallDetector.from_config(config)
         sem_peso = DetectorConfig(weights="").com_ajustes(self._ajustes)
         self._efetiva = config if config is not None else sem_peso
+        self._ranker = load_ranker() if self._ranking else None
         self._pronto = True
+
+    def _tracker_efetivo(self, ordenado: bool) -> TrackerConfig:
+        """Com o ranking ligado, a ordem dos candidatos e do ranking e o rastreador nao reescolhe.
+
+        Reescolher por proximidade da posicao prevista desfaz a decisao: medido nas 328 posicoes
+        anotadas, entregar os dois melhores e desempatar por proximidade cai para 161 acertos contra
+        177 respeitando a ordem. Com um candidato so as duas regras coincidem, entao ligar isto
+        junto com o ranking nao muda o caminho ja medido.
+
+        O parametro e o que o `_observar` acabou de fazer, e nao o que o TOML pediu: sem
+        `source_size` a caixa fica no espaco do tensor, o modulo nao pontua, e ai a ordem da lista e
+        do detector. Respeitar uma ordem que ninguem estabeleceu seria pior do que a proximidade.
+        """
+        if not ordenado:
+            return self._tracker_config
+        return replace(self._tracker_config, candidate_order=True)
 
     def _config_com_peso(self) -> DetectorConfig | None:
         """O peso vem do manifesto declarado, e o ajuste vem da entrada do TOML sobre o padrao.
@@ -166,21 +249,51 @@ class YoloBall:
         return base.com_ajustes(self._ajustes)
 
     def close(self) -> None:
+        if self._detector is not None:
+            close = getattr(self._detector, "close", None)
+            if callable(close):
+                close()
         self._detector = None
+        self._ranker = None
         self._efetiva = self._detector_config
         self._peso = ""
         self._chave = ""
         self._pronto = False
+        self._telemetry = {}
+        self._candidate_stats = {}
+        self._ranking_stats = {}
 
     def infer(self, batch: FrameBatch, ctx: ModuleInputs) -> ModuleOutput:
         if not self._pronto:
             raise ModuleNotLoaded(self.spec.name)
         check_preprocess(batch, self.spec.preprocess)
+        self._ranking_stats = {
+            "ranked_frames": 0,
+            "ranking_motion_frames": 0,
+            "ranking_score_sum": 0.0,
+        }
+        self._candidate_stats = {
+            "tiles_executed": 0,
+            "raw_candidates": 0,
+            "candidates_after_nms": 0,
+            "candidates_after_filter": 0,
+            "inference_ms": 0.0,
+            "nms_ms": 0.0,
+        }
         if not batch.indices:
+            self._telemetry = self._report(0, 0.0, 0.0, BallTracker().telemetry)
             return ModuleOutput(kind=self.spec.kind, frames=(), records=())
 
+        detector_start = perf_counter()
         observacoes = self._observar(batch)
-        pontos = {p.frame_index: p for p in BallTracker(self._tracker_config).track(observacoes)}
+        detector_ms = (perf_counter() - detector_start) * 1000.0
+        tracker = BallTracker(self._tracker_efetivo(bool(self._ranking_stats["ranked_frames"])))
+        resolver_start = perf_counter()
+        pontos = {p.frame_index: p for p in tracker.track(observacoes)}
+        resolver_ms = (perf_counter() - resolver_start) * 1000.0
+        self._telemetry = self._report(
+            len(batch.indices), detector_ms, resolver_ms, tracker.telemetry
+        )
         return ModuleOutput(
             kind=self.spec.kind,
             frames=batch.indices,
@@ -196,9 +309,18 @@ class YoloBall:
         """
         fonte = batch.source_size
         taxa = batch.source_fps
+        ranker = (
+            None
+            if self._ranker is None or fonte is None
+            else CandidateRanker(self._ranker, keep=self._ranking_candidates)
+        )
         observacoes: list[BallObservation] = []
         for posicao, indice in enumerate(batch.indices):
             candidatos = self._candidatos(batch.tensor[posicao], batch, fonte, indice)
+            if ranker is not None and fonte is not None:
+                original = to_source_image(batch.tensor[posicao], batch.preprocess, fonte)
+                candidatos = ranker.rank(original, indice, candidatos)
+                self._ranking_stats["ranked_frames"] += 1
             observacoes.append(
                 BallObservation(
                     frame_index=indice,
@@ -206,6 +328,9 @@ class YoloBall:
                     candidates=candidatos,
                 )
             )
+        if ranker is not None:
+            self._ranking_stats["ranking_motion_frames"] = ranker.motion_frames
+            self._ranking_stats["ranking_score_sum"] = sum(ranker.scores)
         return observacoes
 
     def _candidatos(
@@ -229,9 +354,18 @@ class YoloBall:
             if self._peso
             else detector.detect_raw(quadro)
         )
+        detector_telemetry = getattr(detector, "telemetry", None)
+        if isinstance(detector_telemetry, DetectorTelemetry):
+            self._accumulate_detector(detector_telemetry)
+        else:
+            config_tiles = max(1, config.ladrilhos) ** 2
+            self._candidate_stats["tiles_executed"] += config_tiles
+            self._candidate_stats["raw_candidates"] += len(cruas)
+            self._candidate_stats["candidates_after_nms"] += len(cruas)
         altura_do_tensor = float(batch.tensor.shape[1])
         brutos = detector.candidates_from(cruas, altura_do_tensor)
         if fonte is None:
+            self._candidate_stats["candidates_after_filter"] += len(brutos)
             return tuple(brutos)
         altura = float(fonte[1])
         no_espaco_do_quadro = (
@@ -242,7 +376,48 @@ class YoloBall:
             )
             for d in brutos
         )
-        return tuple(d for d in no_espaco_do_quadro if is_ball_shaped(d.box, altura, config))
+        filtrados = tuple(
+            d
+            for d in no_espaco_do_quadro
+            if is_ball_shaped(d.box, altura, config) and _center_inside(d.box, fonte)
+        )
+        self._candidate_stats["candidates_after_filter"] += len(filtrados)
+        return filtrados
+
+    def _accumulate_detector(self, telemetry: DetectorTelemetry) -> None:
+        for name in ("tiles_executed", "raw_candidates", "candidates_after_nms"):
+            self._candidate_stats[name] += int(getattr(telemetry, name))
+        for name in ("inference_ms", "nms_ms"):
+            self._candidate_stats[name] += float(getattr(telemetry, name))
+
+    def _report(
+        self,
+        frames_requested: int,
+        detector_ms: float,
+        resolver_ms: float,
+        tracker: object,
+    ) -> dict[str, int | float]:
+        report = dict(self._candidate_stats)
+        report.update(self._ranking_stats)
+        report.update(
+            {
+                "frames_requested": frames_requested,
+                "detector_ms": detector_ms,
+                "resolver_ms": resolver_ms,
+            }
+        )
+        for name in (
+            "detected_points",
+            "interpolated_points",
+            "missing_points",
+            "segments",
+            "resets",
+            "rejected_jumps",
+            "camera_cuts",
+            "max_gap_frames",
+        ):
+            report[name] = int(getattr(tracker, name))
+        return report
 
 
 def chave_do_cache(config: DetectorConfig) -> str:
@@ -272,6 +447,12 @@ def _as_tuple(box: Box) -> tuple[float, float, float, float]:
     return (box.x1, box.y1, box.x2, box.y2)
 
 
+def _center_inside(box: Box, size: tuple[int, int]) -> bool:
+    center_x = (box.x1 + box.x2) / 2.0
+    center_y = (box.y1 + box.y2) / 2.0
+    return 0.0 <= center_x < size[0] and 0.0 <= center_y < size[1]
+
+
 def registro_de(ponto: TrackPoint | None) -> tuple[dict[str, object], ...]:
     """Quadro sem posicao sai sem registro, e nunca com caixa de zeros.
 
@@ -281,21 +462,24 @@ def registro_de(ponto: TrackPoint | None) -> tuple[dict[str, object], ...]:
     """
     if ponto is None or ponto.center is None:
         return ()
-    if ponto.box is not None:
-        return (
-            {
-                "box": _as_tuple(ponto.box),
-                "confidence": float(cast("Any", ponto.confidence)),
-                "source": DETECTADO,
-            },
-        )
-    return (
-        {
-            "box": _quadrado(ponto.center, LADO_PADRAO_PX),
-            "confidence": CONFIANCA_INTERPOLADA,
-            "source": INTERPOLADO,
-        },
-    )
+    registro: dict[str, object] = {
+        "box": _as_tuple(ponto.box)
+        if ponto.box is not None
+        else _quadrado(ponto.center, LADO_PADRAO_PX),
+        "confidence": (
+            float(cast("Any", ponto.confidence)) if ponto.box is not None else CONFIANCA_INTERPOLADA
+        ),
+        "source": DETECTADO if ponto.box is not None else INTERPOLADO,
+    }
+    if ponto.trajectory_segment is not None:
+        registro["trajectory_segment"] = ponto.trajectory_segment
+    if ponto.gap_frames is not None:
+        registro["gap_frames"] = ponto.gap_frames
+    if ponto.velocity_xy_px_s is not None:
+        registro["velocity_xy_px_s"] = ponto.velocity_xy_px_s
+    if ponto.velocity_source is not None:
+        registro["velocity_source"] = ponto.velocity_source
+    return (registro,)
 
 
 def _quadrado(centro: Sequence[float], lado: float) -> tuple[float, float, float, float]:

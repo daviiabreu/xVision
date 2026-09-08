@@ -403,6 +403,37 @@ def test_assembler_never_projects_an_airborne_ball_on_the_pitch_plane() -> None:
     assert perception.frames[0].field.line_support_count == 6
 
 
+def test_assembler_preserves_ball_trajectory_evidence() -> None:
+    outputs = {
+        "ball": ModuleOutput(
+            "ball",
+            (5,),
+            (
+                (
+                    {
+                        "box": (1075.0, 615.0, 1085.0, 625.0),
+                        "confidence": 0.0,
+                        "source": "interpolated",
+                        "trajectory_segment": 2,
+                        "gap_frames": 3,
+                        "velocity_xy_px_s": (120.0, -30.0),
+                        "velocity_source": "trajectory-model",
+                    },
+                ),
+            ),
+        )
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    ball = perception.frames[0].ball
+    assert ball is not None
+    assert ball.trajectory_segment == 2
+    assert ball.gap_frames == 3
+    assert ball.velocity_xy_px_s == (120.0, -30.0)
+    assert ball.velocity_source == "trajectory-model"
+
+
 def _stub(kind: str) -> PerceptionModule:
     return next(classe for classe in STUBS if classe.spec.kind == kind)()
 

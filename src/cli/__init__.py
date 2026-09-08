@@ -23,6 +23,7 @@ from typing import Any, cast
 import typer
 
 from cli.players import players_app
+from contracts import Perception
 from contracts.events import ContractError
 from edge.artifacts import ArtifactError, ArtifactMissing, read_manifest, resolve, sha256_of
 from edge.cache.perception import PerceptionCache
@@ -42,6 +43,7 @@ from edge.paths import (
 )
 from edge.pipeline import ClipResult, PipelineError, process_clip
 from edge.testing.make_clip import make_synthetic_clip
+from edge.video import RenderUnavailable
 from mlops.catalog import CatalogError, ShotRecord, catalog_counts, load_catalog
 from mlops.evaluate import EvaluationError, evaluate
 from mlops.instant import (
@@ -102,7 +104,13 @@ RUN_GABARITO = typer.Option(
     False, "--gabarito", help="So os clipes com instante anotado a mao, para o experimento."
 )
 RUN_LIMIT = typer.Option(0, help="Para depois de N clipes. Zero e sem limite.")
+RUN_DOBRA = typer.Option(
+    "tudo", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo. Restringe --all."
+)
 RUN_OUT = typer.Option(None, help="Onde gravar a execucao.", show_default="../var/runs")
+RUN_RENDER = typer.Option(
+    False, "--render", help="Gera annotated.mp4 com top view e bola desta execucao."
+)
 
 
 # Toda excecao que significa "a entrada ou a configuracao esta errada", e nao "o programa tem um
@@ -138,6 +146,7 @@ ERROS_DE_USO = (
     LabelError,
     ModuleError,
     PipelineError,
+    RenderUnavailable,
     SplitError,
 )
 
@@ -156,6 +165,8 @@ def run(
     todos: bool = RUN_ALL,
     limit: int = RUN_LIMIT,
     gabarito: bool = RUN_GABARITO,
+    dobra: str = RUN_DOBRA,
+    render: bool = RUN_RENDER,
 ) -> None:
     """Processa um clipe, ou o catalogo inteiro com --all.
 
@@ -163,10 +174,17 @@ def run(
     detector de instante pelo oraculo (`config/pipeline.oracle.toml`): rodar o catalogo inteiro com
     ele gastaria dezesseis vezes mais tempo para produzir evento sem instante em todo clipe que
     ninguem anotou.
+
+    `--dobra` restringe por dobra do split. Ele existe porque `--gabarito` sozinho abre os 38
+    clipes anotados, e 14 deles sao o pacote reservado: sem o filtro, medir uma melhoria no instante
+    durante o desenvolvimento consumiria o holdout sem ninguem decidir isso.
     """
     config = _config(config)
+    if render and todos:
+        typer.echo("--render exige um unico --clip; nao pode ser usado com --all", err=True)
+        raise typer.Exit(code=1)
     if todos:
-        _run_catalog(out, config, limit, gabarito)
+        _run_catalog(out, config, limit, gabarito, dobra)
         return
     if clip is None:
         typer.echo("passe --clip com um clipe, ou --all para o catalogo", err=True)
@@ -175,8 +193,23 @@ def run(
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
     destino = (runs_dir() if out is None else out) / nome_da_execucao(clip)
+
+    def write_render(perception: Perception) -> None:
+        from edge.video import read_config, render_video
+
+        target = destino / "annotated.mp4"
+        render_config = read_config(config)
+        if render_config is None:
+            raise RenderUnavailable("--render exige [render.top_view] com players e field")
+        render_video(clip, target, render_config, perception=perception)
+        typer.echo(str(target))
+
     try:
-        resultado = _processa(clip, config)
+        resultado = (
+            _processa(clip, config, on_perception=write_render)
+            if render
+            else _processa(clip, config)
+        )
     except ERROS_DE_USO as erro:
         typer.echo(f"{clip}: {erro}", err=True)
         raise typer.Exit(code=1) from erro
@@ -191,16 +224,28 @@ def run(
     typer.echo(str(escrito))
 
 
-def _run_catalog(out: Path | None, config: Path, limit: int, gabarito: bool = False) -> None:
+def _run_catalog(
+    out: Path | None,
+    config: Path,
+    limit: int,
+    gabarito: bool = False,
+    dobra: str = "tudo",
+) -> None:
     if not config.is_file():
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
+    dobras = dobras_de(dobra)
     try:
         tabela = read_labels(labels_config())
         catalogo = _populacao(load_catalog(), tabela)
     except ERROS_DE_USO as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
+    if dobras != DOBRAS_DA_BOLA["tudo"]:
+        catalogo = [r for r in catalogo if r.fold in dobras]
+        if not catalogo:
+            typer.echo(f"nenhum clipe na dobra {dobra}", err=True)
+            raise typer.Exit(code=1)
     if gabarito:
         anotados = set(consensus(read()))
         catalogo = [r for r in catalogo if r.shot_id in anotados]
@@ -328,7 +373,9 @@ def nome_da_execucao(clip: Path) -> str:
     return clip.stem
 
 
-def _processa(clip: Path, config: Path) -> ClipResult:
+def _processa(
+    clip: Path, config: Path, *, on_perception: Callable[[Perception], None] | None = None
+) -> ClipResult:
     provider = FrameProvider(VideoSource(clip))
     try:
         return process_clip(
@@ -338,6 +385,7 @@ def _processa(clip: Path, config: Path) -> ClipResult:
             provider=provider,
             extractors=load_extractors(read_feature_config(config)),
             cache=PerceptionCache(cache_dir()),
+            on_perception=on_perception,
         )
     finally:
         provider.close()
@@ -717,6 +765,19 @@ def label_stats() -> None:
     )
 
 
+def dobras_de(dobra: str) -> frozenset[int]:
+    """Traduz o nome da dobra em conjunto de indices, ou encerra com a lista do que existe.
+
+    Um so lugar porque `eval-ball`, `eval-field`, `run` e `eval-instant` cobram o mesmo vocabulario,
+    e um deles aceitando `desenvolvimento` calado mediria a populacao errada sem avisar.
+    """
+    dobras = DOBRAS_DA_BOLA.get(dobra)
+    if dobras is None:
+        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
+        raise typer.Exit(code=1)
+    return dobras
+
+
 DOBRAS_DA_BOLA: Mapping[str, frozenset[int]] = {
     "ajuste": frozenset({0, 1, 2}),
     "reservado": frozenset({3, 4}),
@@ -781,28 +842,38 @@ def eval_ball(
     if not alvos:
         typer.echo("nenhum clipe anotado; rode `xvision label scrub`", err=True)
         raise typer.Exit(code=1)
-    modulos = load_modules(read_config(caminho))
-    for modulo in modulos.values():
-        modulo.load()
+    modulos = {
+        kind: module
+        for kind, module in load_modules(read_config(caminho)).items()
+        if kind in {"players", "ball"}
+    }
     framesets = read_framesets(caminho)
     contatos: list[Contato] = []
-    for clip_id in alvos:
-        registro = catalogo[clip_id]
-        clip = probe(registro.clip_path, clip_id=clip_id)
-        provider = FrameProvider(VideoSource(registro.clip_path))
-        try:
-            percepcao = run_pipeline(
-                clip=clip, modules=modulos, framesets=framesets, provider=provider
-            ).perception
-        finally:
-            provider.close()
-        contatos.append(
-            contato_de(
-                clip_id,
-                quadro_do_contato(percepcao.frames, gabarito[clip_id]),
-                clip.height,
+    carregados: list[Any] = []
+    try:
+        for modulo in modulos.values():
+            modulo.load()
+            carregados.append(modulo)
+        for clip_id in alvos:
+            registro = catalogo[clip_id]
+            clip = probe(registro.clip_path, clip_id=clip_id)
+            provider = FrameProvider(VideoSource(registro.clip_path))
+            try:
+                percepcao = run_pipeline(
+                    clip=clip, modules=modulos, framesets=framesets, provider=provider
+                ).perception
+            finally:
+                provider.close()
+            contatos.append(
+                contato_de(
+                    clip_id,
+                    quadro_do_contato(percepcao.frames, gabarito[clip_id]),
+                    clip.height,
+                )
             )
-        )
+    finally:
+        for modulo in reversed(carregados):
+            modulo.close()
     relatorio = measure(contatos)
     typer.echo(json.dumps(relatorio.to_dict(), indent=2, ensure_ascii=False))
     typer.echo(f"  dobra {dobra}: {sorted(dobras)}")
@@ -834,6 +905,108 @@ def eval_ball(
             ),
             encoding="utf-8",
         )
+        typer.echo(f"  {saida}")
+
+
+BALL_TRAJECTORY_LABELS = typer.Option(..., help="JSONL validado pelo schema ball-trajectory-v1.")
+BALL_TRAJECTORY_CONFIG = typer.Option(None, help="Configuracao com o modulo ball a medir.")
+BALL_TRAJECTORY_JSON = typer.Option(None, help="Grava somente o relatorio agregado em JSON.")
+BALL_TRAJECTORY_DOBRA = typer.Option(
+    "ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo."
+)
+
+
+@app.command("eval-ball-trajectory")
+def eval_ball_trajectory(
+    labels: Path = BALL_TRAJECTORY_LABELS,
+    config: Path | None = BALL_TRAJECTORY_CONFIG,
+    saida: Path | None = BALL_TRAJECTORY_JSON,
+    dobra: str = BALL_TRAJECTORY_DOBRA,
+) -> None:
+    """Mede posicao e continuidade em rotulos privados, sem depender de jogadores."""
+    from edge.graph.runner import assemble
+    from edge.modules import inference
+    from mlops.ball_trajectory import (
+        BallTrajectoryLabelError,
+        aggregate_telemetry,
+        read_ball_trajectory_labels,
+        validate_match_folds,
+    )
+    from mlops.ball_trajectory import measure as measure_trajectory
+
+    path = _config(config)
+    folds = DOBRAS_DA_BOLA.get(dobra)
+    if folds is None:
+        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        annotations = read_ball_trajectory_labels(labels)
+        catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
+        validate_match_folds((record.match_id, record.fold) for record in catalog.values())
+        modules = load_modules(read_config(path))
+    except ERROS_DE_USO + (BallTrajectoryLabelError,) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    ball = modules.get("ball")
+    if ball is None:
+        typer.echo(f"{path} nao declara modules.ball", err=True)
+        raise typer.Exit(code=1)
+    selected = tuple(
+        annotation
+        for annotation in annotations
+        if annotation.clip_id in catalog
+        and catalog[annotation.clip_id].fold in folds
+        and catalog[annotation.clip_id].match_id == annotation.match_id
+    )
+    if not selected:
+        typer.echo("nenhum frame anotado pertence a dobra e ao catalogo selecionados", err=True)
+        raise typer.Exit(code=1)
+
+    grouped: dict[str, list[Any]] = {}
+    for annotation in selected:
+        grouped.setdefault(annotation.clip_id, []).append(annotation)
+    predictions: dict[tuple[str, int], Any] = {}
+    telemetry_runs: list[Mapping[str, int | float]] = []
+    ball.load()
+    try:
+        for clip_id, group in grouped.items():
+            inference.reset()
+            record = catalog[clip_id]
+            if sha256_of(record.clip_path) != group[0].video_sha256:
+                raise BallTrajectoryLabelError(
+                    "video_sha256 do clipe anotado nao corresponde ao arquivo local"
+                )
+            clip = replace(probe(record.clip_path, clip_id=clip_id), match_id=record.match_id)
+            provider = FrameProvider(VideoSource(record.clip_path))
+            try:
+                indices = tuple(sorted(annotation.frame_index for annotation in group))
+                batch = provider.frames(indices, ball.spec.preprocess)
+                output = ball.infer(batch, {})
+                perception = assemble(clip, {"ball": output})
+            finally:
+                provider.close()
+            predictions.update(
+                ((clip_id, frame.frame_index), frame.ball)
+                for frame in perception.frames
+                if frame.ball is not None
+            )
+            telemetry_runs.append(cast("Mapping[str, int | float]", getattr(ball, "telemetry", {})))
+    except (BallTrajectoryLabelError,) + ERROS_DE_USO as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    finally:
+        ball.close()
+
+    report = measure_trajectory(selected, predictions)
+    document = {
+        "population": f"folds={sorted(folds)}",
+        "telemetry": aggregate_telemetry(telemetry_runs),
+        **report.to_dict(),
+    }
+    typer.echo(json.dumps(document, indent=2, ensure_ascii=False))
+    if saida is not None:
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         typer.echo(f"  {saida}")
 
 
@@ -1008,13 +1181,21 @@ def placar(run_dir: Path = PLACAR_RUN, bola: Path = PLACAR_BOLA) -> None:
     typer.echo(tabela(linhas))
 
 
+INSTANT_DOBRA = typer.Option("tudo", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+
+
 @app.command("eval-instant")
-def evaluate_instant(run: Path) -> None:
-    """Mede o instante detectado contra o gabarito manual, com o ponto medio como piso."""
+def evaluate_instant(run: Path, dobra: str = INSTANT_DOBRA) -> None:
+    """Mede o instante detectado contra o gabarito manual, com o ponto medio como piso.
+
+    `--dobra` filtra na medicao, e nao na execucao: um `run` que contenha clipe reservado ainda
+    pode ser lido so na parte de desenvolvimento, sem consumir o holdout na decisao.
+    """
     eventos = run / "events.jsonl"
     if not eventos.is_file():
         typer.echo(f"{eventos} nao existe: passe o diretorio de uma execucao", err=True)
         raise typer.Exit(code=1)
+    dobras = dobras_de(dobra)
     try:
         anotacoes = read()
     except InstantError as erro:
@@ -1024,6 +1205,16 @@ def evaluate_instant(run: Path) -> None:
     if not gabarito:
         typer.echo("sem gabarito manual nao ha contra o que medir o instante", err=True)
         raise typer.Exit(code=1)
+    if dobras != DOBRAS_DA_BOLA["tudo"]:
+        try:
+            folds = {r.shot_id: r.fold for r in load_catalog() if r.big_enough}
+        except ERROS_DE_USO as erro:
+            typer.echo(str(erro), err=True)
+            raise typer.Exit(code=1) from erro
+        gabarito = {c: v for c, v in gabarito.items() if folds.get(c) in dobras}
+        if not gabarito:
+            typer.echo(f"nenhum clipe anotado na dobra {dobra}", err=True)
+            raise typer.Exit(code=1)
 
     previsto: dict[str, int] = {}
     for linha in eventos.read_text(encoding="utf-8").splitlines():

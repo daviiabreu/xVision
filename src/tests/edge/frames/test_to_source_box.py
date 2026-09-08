@@ -85,3 +85,37 @@ def test_a_ida_recusa_fonte_sem_medida() -> None:
 
     with pytest.raises(PreprocessError):
         to_tensor_box((0.0, 0.0, 1.0, 1.0), ESTICADO, (1920, 0))
+
+
+def test_a_imagem_volta_exata_quando_a_escala_e_um() -> None:
+    """Na spec de `ball`, 1920x1080 dentro de 1920x1088, a volta e recorte puro.
+
+    Isso importa porque as medidas de cor do ranking da bola foram ajustadas sobre o quadro
+    decodificado: se a volta reamostrasse aqui, o valor medido em producao deixaria de ser o valor
+    com que o modelo foi ajustado, sem nenhum erro visivel.
+    """
+    from edge.frames.preprocess import to_source_image
+
+    spec = PreprocessSpec(width=1920, height=1088, color="bgr", letterbox=True, normalize="none")
+    quadro = np.random.default_rng(0).integers(0, 255, (1080, 1920, 3), dtype=np.uint8)
+
+    volta = to_source_image(prepare(quadro, spec), spec, FONTE)
+
+    assert volta.shape == quadro.shape
+    assert np.array_equal(volta, quadro)
+
+
+def test_a_imagem_volta_com_o_tamanho_do_quadro_mesmo_quando_houve_reducao() -> None:
+    quadro = _quadro(1920, 1080)
+    from edge.frames.preprocess import to_source_image
+
+    for spec in (ESTICADO, LETTERBOX):
+        volta = to_source_image(prepare(quadro, spec), spec, FONTE)
+        assert (volta.shape[1], volta.shape[0]) == FONTE
+
+
+def test_a_volta_da_imagem_recusa_tamanho_de_origem_invalido() -> None:
+    from edge.frames.preprocess import to_source_image
+
+    with pytest.raises(PreprocessError):
+        to_source_image(_quadro(640, 640), LETTERBOX, (0, 1080))

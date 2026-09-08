@@ -84,6 +84,7 @@ def process_clip(
     provider: FrameSource,
     extractors: Sequence[FeatureExtractor],
     cache: PerceptionCache | None = None,
+    on_perception: Callable[[Perception], None] | None = None,
     on_stage_start: Callable[[str, int, int], None] | None = None,
 ) -> ClipResult:
     execucao = run_pipeline(
@@ -95,6 +96,8 @@ def process_clip(
         on_stage_start=on_stage_start,
     )
     _check_assembly(execucao)
+    if on_perception is not None:
+        on_perception(execucao.perception)
     contato = _contact(execucao, clip)
     evento = ShotEvent(
         schema_version=SCHEMA_VERSION,

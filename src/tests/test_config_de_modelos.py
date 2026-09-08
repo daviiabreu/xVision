@@ -107,14 +107,24 @@ def test_o_limiar_de_confianca_da_bola_fica_abaixo_da_mediana_da_bola_correta() 
 
 
 def test_o_ajuste_declarado_na_secao_da_bola_chega_ao_detector() -> None:
-    """Ajuste que fica no TOML sem alcancar o `DetectorConfig` e pior que ajuste nenhum: quem le o
-    arquivo acredita no valor e a execucao usa outro.
+    """Ajuste que fica no TOML sem alcancar ninguem e pior que ajuste nenhum: quem le o arquivo
+    acredita no valor e a execucao usa outro.
+
+    O caminho e o de producao: `configure` separa o que e do modulo, e `load` entrega o resto ao
+    `DetectorConfig`, que recusa nome que nao conhece. Validar so o detector deixava passar nome
+    inventado, porque `configure` guarda o que nao reconhece em vez de reclamar na hora.
     """
+    from edge.modules.ball import YoloBall
+
     entrada = {c.kind: c for c in read_config(MODELOS)}["ball"]
 
-    ajustada = DetectorConfig(weights="x.pt").com_ajustes(entrada.options)
+    modulo = YoloBall()
+    modulo.configure(entrada.options)
+    modulo.load()
 
-    assert ajustada.conf == pytest.approx(entrada.options["conf"])
+    assert DetectorConfig(weights="x.pt").com_ajustes(
+        {"conf": entrada.options["conf"]}
+    ).conf == pytest.approx(entrada.options["conf"])
 
 
 def test_a_configuracao_padrao_nao_exige_peso_de_disco() -> None:
@@ -252,3 +262,25 @@ def test_o_onnx_do_campo_registra_o_pt_pai_e_os_shapes_fixos() -> None:
     )
     assert manifesto.source["input"] == "images:float32:1x3x544x960:NCHW"
     assert manifesto.source["output"] == "output0:float32:1x92x10710"
+
+
+def test_o_onnx_da_bola_registra_o_pt_pai_e_os_shapes_fixos() -> None:
+    manifesto = read_manifest(
+        Path("models/manifests/ball/yolo-football-ball-detection-onnx-0.1.0.toml")
+    )
+
+    assert manifesto.entrypoint == "yolo-football-ball-detection.onnx"
+    assert manifesto.source["parent_pt_sha256"] == (
+        "fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb"
+    )
+    assert manifesto.source["input"] == "images:float32:1x3x992x1600:NCHW"
+    assert manifesto.source["output"] == "output0:float32:1x5x32550"
+
+
+@pytest.mark.parametrize("config_name", ["models", "oracle", "oracle-janela", "players-pacote"])
+def test_rejected_ball_ranker_is_disabled_in_model_configs(config_name: str) -> None:
+    ball = next(
+        c for c in read_config(Path(f"config/pipeline.{config_name}.toml")) if c.kind == "ball"
+    )
+
+    assert ball.options["ranking"] is False

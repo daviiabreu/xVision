@@ -40,7 +40,8 @@ projetada no plano porque pode estar no ar.
 | `calibrate` | comparar mínimos quadrados, RANSAC e MAGSAC e rejeitar ajuste frágil | não acessa vídeo nem estado temporal |
 | `refine_white_lines` | ajustar uma única matriz com apoio de retas brancas próximas ao gramado | não identifica o campo sem keypoints nem salva anotação |
 | `edge.graph.runner` | projetar o centro inferior da caixa de cada jogador | não projeta bola aérea |
-| `api.render` | preservar o top view original, com tracking e identificação de jogadores | não valida a homografia usada nas features |
+| `edge.ball_video` | acrescentar a bola ao vídeo existente | não carrega pesos nem altera o painel do top view |
+| `edge.video` | executar o render configurado e preservar o top view original na composição com a bola | não altera as previsões usadas no evento |
 | `xvision eval-field` | medir linhas independentes, completude e erro | não abre o conjunto reservado por padrão |
 
 ## Fluxo de dados
@@ -350,19 +351,18 @@ incluindo redes MPS e otimização CPU. Não houve medição na Jetson. O códig
 licença específica dos pesos permanece pendente de esclarecimento. O experimento está em
 `var/runs/field-homography/pnlcalib-20260904/`; não integra a distribuição da borda.
 
-### Visualização e análise
+### Visualização e geometria da análise
 
-`ClipResult` conserva a `Perception` internamente para inspeção da análise. O vídeo da API
-continua usando o top view original em `models/top_view/create_top_view.py`, com tracking,
-identificação de jogadores e sua própria calibração. A configuração de modelos declara os
-manifestos de campo e jogadores usados por esse render.
+`ClipResult` conserva a `Perception` internamente para a API. A geometria deste módulo,
+no template de 105 x 68 metros, participa da análise e das features do evento.
 
-O renderer personalizado introduzido durante esta entrega foi removido: sua amostragem
-intermitente apagava os jogadores e substituía a visualização existente. O top view original
-continua separado da geometria nominal de 105 x 68 metros usada nas features. Assim, o vídeo
-não comprova a qualidade das coordenadas da análise, que deve ser medida por `eval-field`.
-O MP4 usa H.264, permanece em `var/` e só substitui o resultado anterior após a conclusão.
-A integração visual da bola é uma entrega posterior, na MR dependente de trajetória.
+A API e `run --render` preservam o top view original, com seu tracking, identificação de
+equipes e calibração, e acrescentam a bola da mesma execução à imagem. O MP4 mantém FPS e
+duração, usa H.264 e é publicado atomicamente em `var/`.
+
+Essa saída visual não mede a acurácia da H deste módulo: o render original usa outra
+calibração e uma convenção de 120 x 70 metros. A composição não projeta a bola aérea no
+campo e não altera as coordenadas usadas nas métricas do evento.
 
 ### Custo e limitações
 
@@ -380,8 +380,8 @@ O piloto humano de campo ainda está em anotação. O preflight encontrou maior 
 quadrados e menor erro interno nos estimadores robustos, mas não pode dizer qual projeção está mais
 próxima das linhas reais. O template de 105 x 68 m pode não representar a dimensão física de cada
 partida. MAGSAC está disponível no ambiente de desenvolvimento, mas ainda precisa ser confirmado
-na imagem da Jetson. O render da API usa outra calibração, portanto sua aparência não valida
-a H produzida para as features. A exportação normalizada é repetível no
+na imagem da Jetson. Uma H incorreta afeta as features mesmo quando o top view parece
+correto, pois são calibrações distintas. A exportação normalizada é repetível no
 ambiente registrado; paridade e orçamento no dispositivo continuam gates separados.
 
 ## Anotação e split

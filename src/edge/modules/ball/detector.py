@@ -22,17 +22,45 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 from importlib import import_module
+from importlib.metadata import version
+from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol, cast
 
+import cv2
+import numpy as np
+
 from contracts import BallDetection, Box
+from edge.artifacts import sha256_of
 from edge.modules.base import ModuleError
 from edge.modules.inference import as_deteccoes
+from edge.runtime import (
+    Array,
+    InferenceBackend,
+    PyTorchBackend,
+    RuntimeArtifact,
+    RuntimeInfo,
+    RuntimeModel,
+    TensorSpec,
+)
 
 FrameArray = Any
 """Quadro decodificado (array HxWxC). Tipado como Any para nao exigir numpy no import do modulo."""
 
 
 class AjusteDesconhecido(ModuleError): ...
+
+
+class BallModelIncompatible(ModuleError): ...
+
+
+@dataclass(frozen=True)
+class DetectorTelemetry:
+    tiles_executed: int = 0
+    raw_candidates: int = 0
+    candidates_after_nms: int = 0
+    inference_ms: float = 0.0
+    nms_ms: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -139,6 +167,48 @@ def _numero(nome: str, valor: object) -> float:
     return float(valor)
 
 
+def backend_specs(config: DetectorConfig) -> tuple[TensorSpec, TensorSpec]:
+    """Bindings fixos para o quadro ou ladrilho declarado na configuracao."""
+    shapes = {
+        _letterbox_shape(height, width, config.imgsz)
+        for width, height in _tile_sizes(1920, 1088, config.ladrilhos, config.sobreposicao_px)
+    }
+    if len(shapes) != 1:
+        raise BallModelIncompatible("ladrilhos produzem shapes diferentes para o runtime fixo")
+    height, width = shapes.pop()
+    anchors = sum((height // stride) * (width // stride) for stride in (8, 16, 32))
+    return (
+        TensorSpec("images", (1, 3, height, width), "float32", "NCHW"),
+        TensorSpec("predictions", (1, 5, anchors), "float32", "flat"),
+    )
+
+
+def _tile_sizes(
+    width: int, height: int, per_axis: int, overlap: int
+) -> tuple[tuple[int, int], ...]:
+    if per_axis <= 1:
+        return ((width, height),)
+    step_x, step_y = width // per_axis, height // per_axis
+    return tuple(
+        (
+            min(width, (i + 1) * step_x + overlap) - max(0, i * step_x - overlap),
+            min(height, (j + 1) * step_y + overlap) - max(0, j * step_y - overlap),
+        )
+        for i in range(per_axis)
+        for j in range(per_axis)
+    )
+
+
+def _letterbox_shape(height: int, width: int, imgsz: int) -> tuple[int, int]:
+    if imgsz <= 0 or imgsz % 32:
+        raise BallModelIncompatible("ball.imgsz precisa ser multiplo positivo de 32")
+    gain = min(imgsz / height, imgsz / width)
+    resized_width, resized_height = round(width * gain), round(height * gain)
+    pad_width = (imgsz - resized_width) % 32
+    pad_height = (imgsz - resized_height) % 32
+    return (resized_height + pad_height, resized_width + pad_width)
+
+
 def pedacos(frame: FrameArray, por_eixo: int, sobreposicao: int) -> list[tuple[Any, float, float]]:
     """Divide o quadro em pedacos com sobreposicao e diz onde cada um comeca no quadro inteiro."""
     altura, largura = int(frame.shape[0]), int(frame.shape[1])
@@ -217,9 +287,29 @@ class YoloBallDetector:
     `pitch_xy`: isso depende da homografia, de outra frente; aqui a deteccao sai em pixels.
     """
 
-    def __init__(self, model: Any, config: DetectorConfig) -> None:
+    def __init__(
+        self,
+        model: Any | None,
+        config: DetectorConfig,
+        *,
+        backend: InferenceBackend | None = None,
+    ) -> None:
         self._model = model
         self._config = config
+        self._backend = backend
+        self._telemetry = DetectorTelemetry()
+
+    @property
+    def telemetry(self) -> DetectorTelemetry:
+        return self._telemetry
+
+    @property
+    def runtime_info(self) -> RuntimeInfo | None:
+        return self._backend.info if self._backend is not None else None
+
+    def close(self) -> None:
+        if self._backend is not None:
+            self._backend.close()
 
     @classmethod
     def from_config(cls, config: DetectorConfig) -> YoloBallDetector:
@@ -231,9 +321,28 @@ class YoloBallDetector:
         trata todo simbolo de import nao resolvido como desconhecido, o que exigiria supressao
         linha a linha em cada uso.
         """
-        yolo = cast("Any", import_module("ultralytics")).YOLO
-        modelo = yolo(config.weights)
-        return cls(modelo, replace(config, ball_class_id=_classe_da_bola(modelo, config)))
+        path = Path(config.weights)
+        input_spec, output_spec = backend_specs(config)
+        backend = PyTorchBackend(
+            provider="ultralytics",
+            device=config.device,
+            loader=_load_ultralytics,
+            runtime_versions=(
+                ("torch", version("torch")),
+                ("ultralytics", version("ultralytics")),
+            ),
+        )
+        backend.load(
+            RuntimeArtifact(
+                path=path,
+                sha256=sha256_of(path),
+                format="pt",
+                parent_onnx_sha256=None,
+                inputs=(input_spec,),
+                outputs=(output_spec,),
+            )
+        )
+        return cls(None, replace(config, ball_class_id=0), backend=backend)
 
     def detect_raw(self, frame: FrameArray) -> tuple[tuple[Box, float, int], ...]:
         """Tudo o que o peso viu, sem filtrar classe nem forma.
@@ -247,16 +356,44 @@ class YoloBallDetector:
         proprio, e ai a chave do cache ja e outra.
         """
         config = self._config
+        self._telemetry = DetectorTelemetry()
         if config.ladrilhos <= 1:
-            return self._passada(frame, 0.0, 0.0)
+            start = perf_counter()
+            detections = self._passada(frame, 0.0, 0.0)
+            elapsed = (perf_counter() - start) * 1000.0
+            self._telemetry = DetectorTelemetry(
+                tiles_executed=1,
+                raw_candidates=len(detections),
+                candidates_after_nms=len(detections),
+                inference_ms=elapsed,
+            )
+            return detections
         achadas: list[tuple[Box, float, int]] = []
-        for pedaco, x, y in pedacos(frame, config.ladrilhos, config.sobreposicao_px):
+        inference_ms = 0.0
+        tiles = pedacos(frame, config.ladrilhos, config.sobreposicao_px)
+        for pedaco, x, y in tiles:
+            start = perf_counter()
             achadas.extend(self._passada(pedaco, x, y))
-        return sem_repetidas(achadas, config.nms_iou)
+            inference_ms += (perf_counter() - start) * 1000.0
+        start_nms = perf_counter()
+        mantidas = sem_repetidas(achadas, config.nms_iou)
+        nms_ms = (perf_counter() - start_nms) * 1000.0
+        self._telemetry = DetectorTelemetry(
+            tiles_executed=len(tiles),
+            raw_candidates=len(achadas),
+            candidates_after_nms=len(mantidas),
+            inference_ms=inference_ms,
+            nms_ms=nms_ms,
+        )
+        return mantidas
 
     def _passada(
         self, frame: FrameArray, dx: float, dy: float
     ) -> tuple[tuple[Box, float, int], ...]:
+        if self._backend is not None:
+            return self._backend_pass(frame, dx, dy)
+        if self._model is None:
+            raise BallModelIncompatible("detector da bola sem modelo ou backend")
         config = self._config
         results = self._model(
             frame, imgsz=config.imgsz, conf=config.conf, device=config.device, verbose=False
@@ -278,6 +415,45 @@ class YoloBallDetector:
                 )
         return tuple(cruas)
 
+    def _backend_pass(
+        self, frame: FrameArray, dx: float, dy: float
+    ) -> tuple[tuple[Box, float, int], ...]:
+        image = np.asarray(frame)
+        if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
+            raise BallModelIncompatible(
+                f"ball recebeu tensor {image.shape} {image.dtype}, esperado HxWx3 uint8"
+            )
+        tensor, gain, padding = _letterbox_tensor(image, self._config.imgsz)
+        backend = self._backend
+        if backend is None:
+            raise BallModelIncompatible("detector da bola sem backend")
+        raw = backend.infer({"images": tensor})[0].value
+        torch = cast("Any", import_module("torch"))
+        nms = cast("Any", import_module("ultralytics.utils.nms"))
+        detections = nms.non_max_suppression(
+            torch.from_numpy(np.array(raw, copy=True)),
+            conf_thres=self._config.conf,
+            iou_thres=0.7,
+            nc=1,
+            max_det=300,
+        )[0]
+        if len(detections) == 0:
+            return ()
+        height, width = image.shape[:2]
+        rows: list[tuple[Box, float, int]] = []
+        for row in detections.detach().cpu().numpy():
+            x1, y1, x2, y2 = _restore_box(row[:4], gain, padding, width, height)
+            if x2 <= x1 or y2 <= y1:
+                continue
+            rows.append(
+                (
+                    Box(x1 + dx, y1 + dy, x2 + dx, y2 + dy),
+                    float(row[4]),
+                    int(row[5]),
+                )
+            )
+        return tuple(rows)
+
     def candidates_from(
         self, cruas: Sequence[tuple[Box, float, int]], frame_height: float
     ) -> tuple[BallDetection, ...]:
@@ -290,30 +466,7 @@ class YoloBallDetector:
         )
 
     def detect_candidates(self, frame: FrameArray) -> tuple[BallDetection, ...]:
-        config = self._config
-        results = self._model(
-            frame,
-            imgsz=config.imgsz,
-            conf=config.conf,
-            device=config.device,
-            verbose=False,
-        )
-        candidates: list[BallDetection] = []
-        for result in results:
-            boxes = getattr(result, "boxes", None)
-            if boxes is None:
-                continue
-            frame_height = float(getattr(result, "orig_shape", (0, 0))[0])
-            rows = zip(boxes.xyxy.tolist(), boxes.conf.tolist(), boxes.cls.tolist(), strict=False)
-            for xyxy, raw_conf, raw_cls in rows:
-                if int(raw_cls) != config.ball_class_id:
-                    continue
-                x1, y1, x2, y2 = (float(value) for value in xyxy)
-                box = Box(x1, y1, x2, y2)
-                if not is_ball_shaped(box, frame_height, config):
-                    continue
-                candidates.append(BallDetection(box=box, confidence=float(raw_conf)))
-        return tuple(candidates)
+        return self.candidates_from(self.detect_raw(frame), float(frame.shape[0]))
 
     def detect(self, frame: FrameArray) -> BallDetection | None:
         """A bola de maior confianca do quadro, ignorando continuidade de movimento."""
@@ -324,18 +477,68 @@ class YoloBallDetector:
 NOMES_DE_BOLA = ("ball", "sports ball", "soccer ball", "bola")
 
 
-def _classe_da_bola(modelo: Any, config: DetectorConfig) -> int:
-    """O peso declara os nomes das proprias classes, e a configuracao nao precisa saber deles.
+def check_ball_model(model: object) -> None:
+    task = getattr(model, "task", None)
+    names = getattr(model, "names", None)
+    normalized = (
+        tuple(str(name).strip().lower() for name in cast("dict[object, object]", names).values())
+        if isinstance(names, dict)
+        else ()
+    )
+    if task != "detect" or len(normalized) != 1 or normalized[0] not in NOMES_DE_BOLA:
+        raise BallModelIncompatible(
+            f"ball exige task=detect e uma classe ball, recebeu task={task!r} e names={names!r}"
+        )
 
-    O `yolov8n` do COCO chama a bola de `sports ball` na classe 32; o peso de futebol do
-    roboflow/sports chama de `ball` na classe 0. Cravar o numero na configuracao faria a troca de
-    peso exigir uma segunda edicao, e esquecer dela nao levanta erro nenhum: o detector passa a
-    procurar outra coisa e devolve zero bola, ou pior, devolve arbitro.
-    """
-    nomes = getattr(modelo, "names", None)
-    if not isinstance(nomes, dict):
-        return config.ball_class_id
-    for indice, nome in cast("dict[int, str]", nomes).items():
-        if str(nome).strip().lower() in NOMES_DE_BOLA:
-            return int(indice)
-    return config.ball_class_id
+
+def _load_ultralytics(path: Path, device: str) -> RuntimeModel:
+    ultralytics = cast("Any", import_module("ultralytics"))
+    torch = cast("Any", import_module("torch"))
+    yolo = ultralytics.YOLO(str(path))
+    check_ball_model(yolo)
+    model = yolo.model.to(device).eval()
+
+    def infer(inputs: Mapping[str, Array]) -> Mapping[str, Array]:
+        tensor = torch.from_numpy(inputs["images"]).to(device)
+        with torch.inference_mode():
+            output = model(tensor)
+            prediction = cast("Any", output[0] if isinstance(output, tuple) else output)
+            host = np.asarray(prediction.detach().float().cpu().numpy(), dtype=np.float32)
+        return {"predictions": cast("Array", np.ascontiguousarray(host))}
+
+    return infer
+
+
+def _letterbox_tensor(
+    image: np.ndarray[Any, Any], imgsz: int
+) -> tuple[np.ndarray[Any, Any], float, tuple[float, float]]:
+    height, width = image.shape[:2]
+    target_height, target_width = _letterbox_shape(height, width, imgsz)
+    gain = min(target_height / height, target_width / width)
+    resized_width, resized_height = round(width * gain), round(height * gain)
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+    pad_x = (target_width - resized_width) / 2.0
+    pad_y = (target_height - resized_height) / 2.0
+    left, right = round(pad_x - 0.1), round(pad_x + 0.1)
+    top, bottom = round(pad_y - 0.1), round(pad_y + 0.1)
+    padded = cv2.copyMakeBorder(
+        resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
+    )
+    rgb = padded[:, :, ::-1].transpose(2, 0, 1)[None]
+    tensor = np.ascontiguousarray(rgb, dtype=np.float32) / np.float32(255.0)
+    return tensor, gain, (pad_x, pad_y)
+
+
+def _restore_box(
+    raw: Sequence[float],
+    gain: float,
+    padding: tuple[float, float],
+    width: int,
+    height: int,
+) -> tuple[float, float, float, float]:
+    pad_x, pad_y = padding
+    x1 = min(float(width), max(0.0, (float(raw[0]) - pad_x) / gain))
+    y1 = min(float(height), max(0.0, (float(raw[1]) - pad_y) / gain))
+    x2 = min(float(width), max(0.0, (float(raw[2]) - pad_x) / gain))
+    y2 = min(float(height), max(0.0, (float(raw[3]) - pad_y) / gain))
+    return (x1, y1, x2, y2)

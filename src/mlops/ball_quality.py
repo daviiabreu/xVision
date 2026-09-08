@@ -18,6 +18,7 @@ projeto ainda nao tem, e o numero que interessa aqui nao muda por causa de cinco
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -122,6 +123,10 @@ class BallReport:
         """
         return self.encostada / self.n if self.n else 0.0
 
+    @property
+    def taxa_wilson_95(self) -> tuple[float, float]:
+        return _wilson(self.encostada, self.n)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "n": self.n,
@@ -132,6 +137,7 @@ class BallReport:
             "perdida": self.perdida,
             "fora_do_gramado": self.fora_do_gramado,
             "taxa_encostada": round(self.taxa, 4),
+            "taxa_encostada_wilson_95": [round(value, 4) for value in self.taxa_wilson_95],
             "acaso": ACASO,
             "vezes_o_acaso": round(self.taxa / ACASO, 2),
             "limiar_encostada_px": ENCOSTADA_PX,
@@ -198,3 +204,14 @@ def compara(antes: Mapping[str, bool], depois: Mapping[str, bool]) -> dict[str, 
         "perdeu": sum(1 for c in comuns if antes[c] and not depois[c]),
         "n": len(comuns),
     }
+
+
+def _wilson(successes: int, total: int) -> tuple[float, float]:
+    if total == 0:
+        return (0.0, 0.0)
+    z = 1.959963984540054
+    rate = successes / total
+    denominator = 1 + z * z / total
+    center = (rate + z * z / (2 * total)) / denominator
+    margin = z * math.sqrt(rate * (1 - rate) / total + z * z / (4 * total * total)) / denominator
+    return (max(0.0, center - margin), min(1.0, center + margin))

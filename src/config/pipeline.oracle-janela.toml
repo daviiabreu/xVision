@@ -39,6 +39,10 @@ conf            = 0.10
 imgsz           = 1600
 ladrilhos       = 2
 sobreposicao_px = 100
+# Ranking rejeitado na comparacao de desenvolvimento de 07/09/2026.
+# Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
+ranking            = false
+ranking_candidates = 2
 
 [modules.field]
 impl     = "edge.modules.field:YoloField"

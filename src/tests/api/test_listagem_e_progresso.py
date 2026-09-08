@@ -10,7 +10,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from api import PREFIXO, create_app, execution, store
+from api import PREFIXO, create_app, execution, render, store
+from contracts import Perception
+from edge.testing.make_clip import make_synthetic_clip
 
 from .apoio import cliente_autenticado
 
@@ -87,6 +89,46 @@ def test_o_progresso_publicado_vem_do_estado_persistido() -> None:
     assert corpo["etapas_total"] == 9
     assert corpo["progresso"] == 44
     assert corpo["reconsultar_em_s"] == 2
+
+
+def test_render_and_evidence_follow_model_progress_from_the_same_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    updates: list[tuple[str, int, int]] = []
+    persist_progress = store.marcar_progresso
+
+    def observe_progress(
+        identificador: int, etapa: str, concluidas: int, total: int, caminho: Path | None = None
+    ) -> None:
+        persist_progress(identificador, etapa, concluidas, total, caminho)
+        updates.append((etapa, concluidas, total))
+
+    rendered: list[Perception] = []
+
+    def observe_render(
+        video_id: int, clipe: Path, config: render.RenderConfig, *, perception: Perception
+    ) -> Path:
+        state = store.ler(video_id)
+        assert state is not None and state.etapa_atual == "render"
+        assert clipe.is_file() and perception.clip_id == f"video-{video_id}"
+        rendered.append(perception)
+        return render.render_path(video_id)
+
+    monkeypatch.setattr(store, "marcar_progresso", observe_progress)
+    monkeypatch.setattr(render, "render", observe_render)
+    video = store.criar("same-run.mp4", "video/mp4")
+    clip = make_synthetic_clip(tmp_path / "same-run.mp4")
+
+    execution.processar_video(
+        video.id, clip, Path(__file__).resolve().parents[2] / "config" / "pipeline.toml"
+    )
+
+    assert len(rendered) == 1
+    assert [stage for stage, _, _ in updates][-2:] == ["render", "evidence"]
+    assert [completed for _, completed, _ in updates] == list(range(len(updates)))
+    state = store.ler(video.id)
+    assert state is not None and state.estado == store.FINALIZADO
+    assert state.etapas_concluidas == state.etapas_total == len(updates)
 
 
 def test_a_posicao_da_fila_reflete_a_ordem_real_do_executor() -> None:

@@ -111,6 +111,39 @@ class BallDetection:
     inventada, entao toda taxa publicada sobre `ball` estava inflada por extrapolacao.
     """
 
+    trajectory_segment: int | None = None
+    gap_frames: int | None = None
+    velocity_xy_px_s: tuple[float, float] | None = None
+    velocity_source: Literal["finite-difference", "trajectory-model"] | None = None
+
+    def __post_init__(self) -> None:
+        values = (self.box.x1, self.box.y1, self.box.x2, self.box.y2, self.confidence)
+        if not all(math.isfinite(value) for value in values):
+            raise ContractError("ball exige caixa e confianca finitas")
+        if self.box.x2 <= self.box.x1 or self.box.y2 <= self.box.y1:
+            raise ContractError("ball exige caixa com area positiva")
+        if self.source not in (None, "detected", "interpolated"):
+            raise ContractError(f"ball source {self.source!r} desconhecido")
+        if self.trajectory_segment is not None and self.trajectory_segment < 0:
+            raise ContractError("ball exige trajectory_segment nao negativo")
+        if self.gap_frames is not None and self.gap_frames < 0:
+            raise ContractError("ball exige gap_frames nao negativo")
+        if self.source == "detected" and self.gap_frames not in (None, 0):
+            raise ContractError("ball detected exige gap_frames=0")
+        if self.source == "interpolated":
+            if self.confidence != 0.0:
+                raise ContractError("ball interpolated exige confidence=0.0")
+            if self.gap_frames is None or self.gap_frames <= 0:
+                raise ContractError("ball interpolated exige gap_frames positivo")
+        if self.velocity_xy_px_s is not None and not all(
+            math.isfinite(value) for value in self.velocity_xy_px_s
+        ):
+            raise ContractError("ball exige velocidade finita")
+        if (self.velocity_xy_px_s is None) != (self.velocity_source is None):
+            raise ContractError("ball exige velocidade e procedencia juntas")
+        if self.velocity_source not in (None, "finite-difference", "trajectory-model"):
+            raise ContractError(f"ball velocity_source {self.velocity_source!r} desconhecido")
+
 
 @dataclass(frozen=True)
 class FieldGeometry:

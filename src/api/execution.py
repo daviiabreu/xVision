@@ -27,6 +27,7 @@ from typing import Any
 
 from api import evidence, render, store
 from api.schemas import Metrica, Resultado, tipo_de
+from contracts import Perception
 from edge.cache.perception import PerceptionCache
 from edge.features.registry import load_extractors, read_feature_config
 from edge.frames.provider import ClipUnavailable, FrameProvider, VideoSource, probe
@@ -194,10 +195,6 @@ def processar_video(
         store.marcar(identificador, store.PROCESSANDO, caminho=banco)
         logger.info("video=%s iniciou", identificador)
         resultados, motivo = _analisar(identificador, caminho, config, banco)
-        atual = store.ler(identificador, banco)
-        total = max(1, 0 if atual is None else atual.etapas_total)
-        store.marcar_progresso(identificador, "render", max(0, total - 1), total, banco)
-        _renderizar(identificador, caminho, config)
     except ClipUnavailable as erro:
         logger.warning("video=%s recusado: %s", identificador, type(erro).__name__)
         store.marcar(
@@ -234,13 +231,13 @@ def _analisar(
         return None, _sem_caminho(str(erro), caminho)
 
 
-def _renderizar(identificador: int, caminho: Path, config: Path) -> None:
+def _renderizar(identificador: int, caminho: Path, config: Path, perception: Perception) -> None:
     """Falha aqui nao derruba o resultado da analise."""
     try:
         configuracao = render.read_config(config)
         if configuracao is None:
             return
-        render.render(identificador, caminho, configuracao)
+        render.render(identificador, caminho, configuracao, perception=perception)
     except render.RenderUnavailable as erro:
         logger.warning("video=%s sem visao superior: %s", identificador, erro)
     except Exception:
@@ -259,6 +256,10 @@ def _rodar(
     def progresso(kind: str, concluidas: int, _: int) -> None:
         store.marcar_progresso(identificador, kind, concluidas, total, banco)
 
+    def renderizar(perception: Perception) -> None:
+        store.marcar_progresso(identificador, "render", len(modules), total, banco)
+        _renderizar(identificador, caminho, config, perception)
+
     try:
         resultado = process_clip(
             clip=clipe,
@@ -267,12 +268,13 @@ def _rodar(
             provider=provider,
             extractors=extractors,
             cache=PerceptionCache(cache_dir()),
+            on_perception=renderizar,
             on_stage_start=progresso,
         )
     finally:
         provider.close()
 
-    store.marcar_progresso(identificador, "evidence", len(modules), total, banco)
+    store.marcar_progresso(identificador, "evidence", len(modules) + 1, total, banco)
     evidencias: dict[str, str] = {}
     try:
         frame_index = round(resultado.event.shot_timestamp_s * clipe.fps)

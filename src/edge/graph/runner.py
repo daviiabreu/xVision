@@ -428,6 +428,10 @@ def _ball(registros: tuple[Mapping[str, object], ...]) -> BallDetection | None:
         confidence=float(cast("Any", registro["confidence"])),
         pitch_xy=None,
         source=None if origem is None else str(origem),
+        trajectory_segment=_optional_int(registro.get("trajectory_segment")),
+        gap_frames=_optional_int(registro.get("gap_frames")),
+        velocity_xy_px_s=_optional_pair(registro.get("velocity_xy_px_s")),
+        velocity_source=cast("Any", registro.get("velocity_source")),
     )
 
 
@@ -463,3 +467,14 @@ def _tuple_of_floats(valor: object) -> tuple[float, ...] | None:
 
 def _optional_float(valor: object) -> float | None:
     return None if valor is None else float(cast("Any", valor))
+
+
+def _optional_int(valor: object) -> int | None:
+    return None if valor is None else int(cast("Any", valor))
+
+
+def _optional_pair(valor: object) -> tuple[float, float] | None:
+    if valor is None:
+        return None
+    x, y = cast("Any", valor)
+    return (float(x), float(y))

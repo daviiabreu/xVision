@@ -1,0 +1,656 @@
+---
+title: Bola e trajetória
+description: Detecção em ladrilhos, trajetória em pixels, procedência e avaliação sem depender de jogadores
+---
+
+Esta entrega mantém o detector de bola já reproduzido e fecha o seam temporal que seus
+consumidores precisam. Ela não escolhe o instante da finalização, não atribui jogador ou equipe e
+não projeta a bola no gramado.
+
+Estado em 07/09/2026: o ranking permanece disponível para experimento, mas está desligado
+nos quatro arquivos de configuração. Ele melhorou a posição da bola no piloto e piorou o
+instante e a macro-F1 das duas features avaliadas. A comparação completa está abaixo.
+A qualidade final ainda não está aceita: faltam a segunda anotação cega e a medida na Jetson.
+Os 14 clipes reservados continuam fechados.
+
+## Onde se encaixa no fluxo
+
+```text
+FrameBatch 1920 x 1088 a 15 fps
+  -> quatro ladrilhos sobrepostos
+  -> backend PyTorch FP32
+  -> NMS global
+  -> BallTracker
+  -> BallDetection por frame, em pixels
+```
+
+A etapa funciona sem jogadores, identidade ou homografia. Instante da finalização e
+`type_of_play` consomem a trajetória depois, quando os contratos dos módulos de jogadores e equipe
+estiverem estáveis.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que não faz |
+| --- | --- | --- |
+| `YoloBallDetector` | executar o peso, remontar os ladrilhos e remover duplicatas | não escolhe uma trajetória |
+| `CandidateRanker` | pontuar candidatos por aparência e movimento e entregar um por quadro | não decide lacuna, interpolação nem segmento |
+| `BallTracker` | selecionar por continuidade, preencher lacuna curta e reiniciar após perda | não identifica jogador ou toque |
+| `PyTorchBackend` | validar artefato, bindings, shape, dtype e ciclo de vida | não conhece caixa, NMS ou trajetória |
+| `BallDetection` | preservar procedência, segmento, lacuna e velocidade | não converte posição para metros |
+| `xvision eval-ball-trajectory` | medir posição e continuidade em anotação privada | não usa proximidade de jogador como verdade da bola |
+
+## Fluxo de dados
+
+O módulo recebe BGR `uint8` no espaço do quadro preparado. Na configuração atual, cada ladrilho
+tem 1060 x 644 pixels e é convertido para `images` FP32 no shape fixo
+`1 x 3 x 992 x 1600`. O peso devolve `output0` no shape `1 x 5 x 32550`. Classe, confiança,
+restauração de coordenadas, filtro de forma e NMS ficam fora do grafo exportado e são comuns aos
+runtimes.
+
+Cada posição entregue ao runner preserva:
+
+```text
+source: detected | interpolated
+trajectory_segment: inteiro local ao clipe
+gap_frames: 0 para medida, positivo para interpolação
+velocity_xy_px_s: velocidade quando calculável
+velocity_source: finite-difference | trajectory-model
+```
+
+Uma posição interpolada usa confiança zero. Quadro sem posição produz ausência, não caixa zerada.
+O primeiro ponto depois de perda ou corte começa outro segmento e não herda velocidade. Índice ou
+timestamp repetido ou regressivo encerra a etapa com erro explícito.
+
+## Decisões
+
+**O rastreador mantém a seleção por continuidade como padrão.** O ranking logístico sobre
+aparência e movimento elevou o acerto de 93 para 186 nas 317 posições visíveis do piloto, mas
+piorou o instante e a macro-F1 das features na comparação de desenvolvimento. Por isso,
+`ranking = false` está declarado na própria entrega de bola. A variante permanece disponível
+para experimentos, sem depender da MR de tipo da jogada para aplicar a rejeição.
+A associação global também foi descartada: apesar dos 184 acertos, deixou 80 posições visíveis
+sem previsão, abriu lacuna de 22 amostras e exigiu acesso à sequência completa.
+
+**O detector atual permanece como primeira implementação.** No mesmo commit, split,
+pós-processamento e população, o peso atual acertou 20/24 contatos e o peso ajustado no SoccerNet
+acertou 9/24. A comparação pareada encontrou um ganho e doze perdas com o peso ajustado. O WASB
+permanece candidato de experimento, não dependência da entrega.
+
+**A associação continua em pixels.** A bola pode estar no ar, então aplicar a homografia do plano
+do gramado produziria uma coordenada métrica com significado falso. `pitch_xy` permanece ausente.
+
+**Ladrilho e quadro inteiro usam a mesma interface.** A configuração controla resolução,
+quantidade de ladrilhos, sobreposição e NMS. Não foi adicionada a dependência SAHI porque o projeto
+já possui divisão, remontagem e supressão global. O
+[paper do SAHI](https://arxiv.org/abs/2202.06934) sustenta o experimento de inferência fatiada, mas
+não demonstra qualidade neste domínio.
+
+**O runtime recebe shape fixo.** A alternativa dinâmica ampliaria a matriz de paridade sem um
+consumidor atual que exija outra forma. A configuração selecionada usa o mesmo tensor na
+exportação PyTorch e ONNX.
+
+**A avaliação de trajetória exige novo rótulo.** Proximidade de uma caixa de jogador mede contato
+de forma indireta e não separa bola errada, troca de rastro ou interpolação. O schema
+`ball-trajectory-v1` registra centro, diâmetro aparente, visibilidade, segmento, blur e corte.
+
+**A confirmação por amostra futura foi descartada.** Ela conferia o desvio da previsão contra o
+quadro seguinte e chegou a 112 acertos contra os 93 da linha de base, mas medida por cima do
+ranking experimental ela piora: 169 acertos contra 186, com 47 posições sem previsão contra 2 e
+lacuna de 6 quadros contra 1. Como custava ainda uma amostra de latência, ficou fora do código de
+produção. O experimento está registrado em `tmp/audit_ranker_motion_option.py`, junto das outras
+alternativas rejeitadas. `max_ball_speed_px_per_s` continua configurável e muda a identidade do
+cache, para que baixar o limite não sirva saída do valor antigo.
+
+## Vídeo com bola e visão superior
+
+A API e o comando `run --render` usam o mesmo render, selecionado pela configuração.
+Em `pipeline.models.toml`, a saída preserva o top view original, incluindo tracking,
+identificação por equipe, trajetórias e calibração contínua. A bola da `Perception` produzida
+pela pipeline é desenhada sobre esse vídeo, sem substituir o painel nem as anotações
+dos jogadores. A bola não é projetada no plano do campo: a trajetória pode estar no ar.
+
+Para gerar esse vídeo a partir de um clipe local, com os pesos já instalados:
+
+```bash
+cd src
+uv run --extra ball --extra topview xvision run \
+  --clip caminho/para/clipe.mp4 \
+  --config config/pipeline.models.toml \
+  --out ../var/runs/video-integrado \
+  --render
+```
+
+O arquivo `annotated.mp4` fica na pasta do clipe dentro de `--out`. Quando a análise produz
+um evento, `events.jsonl` fica ao lado. Se não houver instante de chute, o comando informa a
+falha da análise e preserva o vídeo com as percepções disponíveis. A API segue a mesma regra:
+falha do evento não impede servir o vídeo anotado.
+
+O render chama `models/top_view/create_top_view.py` sem alterar seu processamento e
+acrescenta a bola na saída. A execução direta desse script continua produzindo somente
+jogadores e campo; o comando acima é a entrada da integração. Antes da composição, o render
+confere FPS, número de quadros, altura e largura, para não desenhar a bola em outro instante
+ou sobre um painel incompatível.
+
+A saída preserva FPS e duração. A bola recebe um círculo de alto contraste e uma legenda.
+Entre quadros amostrados, o render mantém a última posição por até 100 ms, com a legenda
+`BOLA: ultima posicao`. Uma amostra sem bola apaga a marcação imediatamente. Essa indicação
+visual não cria detecções, não altera a percepção nem participa das métricas da trajetória.
+A legenda diferencia detecção, interpolação e origem desconhecida nas amostras recebidas.
+
+A composição preserva o comportamento existente, mas executa o processamento de jogadores
+e campo do top view além dos módulos da análise e faz uma passagem adicional de codificação.
+Esse custo ainda precisa de medição na Jetson. As coordenadas do render original não são
+evidência de acurácia da homografia do módulo novo nem são usadas nas métricas do evento.
+
+## Artefatos e resultados reproduzidos
+
+| Artefato ou verificação | Resultado |
+| --- | --- |
+| baseline repetida após a migração | 20/24 contatos detectados, 0,8333, dobras 0 a 2, Wilson 95% de 0,6415 a 0,9332 |
+| referência reservada anterior | 13/14 detectados, com um caso adicional apenas por interpolação |
+| PyTorch | SHA-256 `fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb` |
+| ONNX | SHA-256 `ed331affc0bc6a75ab8fd2279f101020adcee28ae21943700d3141cbeb2ed2a7`, 11.048.185 bytes |
+| export | Ultralytics 8.4.123, ONNX 1.22.0, opset 17, batch 1, NMS fora do grafo |
+| checker | entrada `1 x 3 x 992 x 1600` e saída `1 x 5 x 32550` aceitas |
+| reexportação normalizada em 04/09 | dois arquivos de 11.048.172 bytes idênticos; SHA-256 `68deabdc7463270c809da84d538faca635f207afc57b925268093e91d6413145` |
+| paridade do piloto normalizado | 328/328 quadros preservaram a contagem de candidatos; diferença máxima de centro de 0,0000834 px; 93 acertos com o tracker atual e 112 com consistência, iguais ao PyTorch |
+| paridade sintética FP32 | p95 absoluto `0,0000610`, máximo `0,0009842`, ONNX Runtime em CPU |
+| paridade pós-processada FP32 | 24/24 frames mantiveram a contagem e o candidato escolhido; deslocamento máximo `0,000081 px` e diferença máxima de confiança `0,00000188` |
+| smoke do módulo real | quatro inferências MPS, saída ausente explícita em tensor sintético, sem fallback |
+| reprodução limpa | commit `7d9f20c`, 1.410,86 s para 24 clipes no Mac, sem validade para a Jetson |
+| peso ajustado no SoccerNet | 9/24 contatos detectados, 0,3750, Wilson 95% de 0,2116 a 0,5729, em 1.346,52 s |
+| comparação pareada | um ganho, doze perdas, oito acertos em ambos e três erros em ambos; peso ajustado rejeitado |
+| WASB de futebol | checkpoint público no commit `923462c`, licença MIT, 1.481.427 parâmetros e SHA-256 `d0369572807c2baf751880d6cdf3cce9fc6283fa8d153f18af6baf4e64d2646c` |
+| smoke WASB ONNX | export opset 17 de 5.185.635 bytes, entrada `1 x 9 x 288 x 512`, saída `1 x 3 x 288 x 512`, mesmo pico nos três mapas |
+| paridade sintética WASB | p95 absoluto `0,00000191`, máximo `0,00000477`, ONNX Runtime em CPU |
+| smoke WASB no desenvolvimento | uma sequência de três frames, nenhum mapa acima do limiar oficial de 0,5; amostra insuficiente para decisão de qualidade |
+
+A repetição de desenvolvimento produziu 24/24 clipes com alguma detecção e três casos acima de
+50 pixels do jogador mais próximo. Interpolação não acrescentou acerto. A baseline reservada é
+apenas referência de uma execução anterior. Os 14 clipes não foram abertos
+durante esta implementação e não participam de decisão. A paridade sintética prova equivalência
+numérica do tensor bruto. A paridade pós-processada usou somente os 24 contatos de desenvolvimento
+e aplicou letterbox, quatro ladrilhos, offsets, NMS e filtro de forma iguais nos dois runtimes.
+O peso SoccerNet detectou em 17/24, perdeu sete detecções, recuperou zero e só chegou a 13/24 ao
+contar interpolação. A redução de 4,6% no tempo exploratório do Mac não compensa a perda de
+qualidade e não é evidência de desempenho embarcado.
+
+O teste abaixo foi realmente executado para validar o código:
+
+```bash
+cd src
+uv run --all-extras pytest -q tests/edge/modules/ball tests/mlops/test_ball_trajectory.py
+```
+
+Este comando público normalizado reproduz a baseline e registra a duração sem reutilizar um
+diretório anterior:
+
+```bash
+cd src
+RUN_DIR="../var/runs/ball-trajectory/$(date -u +%Y%m%dT%H%M%SZ)-baseline"
+mkdir -p "$RUN_DIR"
+/usr/bin/time -p uv run --all-extras xvision eval-ball --config config/pipeline.models.toml --dobra ajuste --saida "$RUN_DIR/ball-adjustment.json"
+```
+
+O exportador versionado repete a exportação em duas pastas isoladas, normaliza somente a
+data e compara os arquivos byte a byte. Comando executado, com a raiz privada do ambiente:
+
+```bash
+cd src
+uv run --all-extras --with onnx --with onnxruntime python -m mlops.export_onnx \
+  --manifest models/manifests/ball/yolo-football-ball-detection-0.1.0.toml \
+  --height 992 --width 1600 \
+  --output ../var/runs/model-onnx-parity/deterministic-ball-20260904
+```
+
+O comando de avaliação do piloto é:
+
+```bash
+cd src
+uv run xvision eval-ball-trajectory --labels ../var/labels/ball-trajectory-v1.jsonl --config config/pipeline.models.toml --dobra ajuste --saida ../var/runs/ball-trajectory/<execucao>/metrics.json
+```
+
+O arquivo de rótulos é privado e ignorado pelo Git. O relatório da avaliação contém somente
+agregados e telemetria.
+
+### Diagnóstico após a revisão humana do piloto
+
+Em 04/09/2026, os 328 frames dos oito clipes e seis partidas de desenvolvimento foram salvos por
+Davi: 317 visíveis, seis ausentes, três oclusos e dois ambíguos. Esta primeira revisão foi assistida
+por propostas do modelo; nenhum frame recebeu ainda a segunda anotação cega. Os resultados abaixo
+são diagnóstico de desenvolvimento, não aceite independente de qualidade.
+
+A primeira execução de `eval-ball-trajectory` foi invalidada: o avaliador não esvaziava o cache
+de inferência entre clipes e podia reutilizar outro vídeo quando o índice do frame coincidia. A
+correção segue o isolamento já adotado pelo runner. Um teste da CLI com dois clipes sintéticos
+falhou com apenas um acerto e passou com dois depois da correção. Peso e tracker não mudaram.
+
+Na repetição, o tracker acertou a posição em 93/317 frames visíveis, usando tolerância de um
+diâmetro aparente anotado: PCK de 0,2934, Wilson 95% de 0,2460 a 0,3457. A precisão foi 0,2888,
+o recall 0,2934 e o F1 0,2911. O erro mediano foi 265,30 pixels e o p95, 609,98 pixels. Houve 312
+posições detectadas, 15 interpoladas e uma ausente. Ter posição quase sempre não significa
+acompanhar a bola correta.
+
+Entre os 224 erros de posição em frames visíveis, 154 tinham um candidato correto disponível que
+o tracker não selecionou; nos outros 70 não havia candidato dentro da tolerância. A associação
+tem, portanto, um problema mensurável além das perdas do detector. O indicador atual de trocas
+conta mudanças de segmento declarado, não toda mudança para um objeto errado, e não substitui a
+métrica de posição.
+
+Uma comparação exploratória reutilizou exatamente os mesmos candidatos, comparando limites de
+velocidade e consistência temporal. Nenhuma configuração experimental foi ativada no pipeline.
+
+| Configuração de diagnóstico | Posição correta nos 317 visíveis | F1 posicional | Erro p95 em pixels |
+| --- | ---: | ---: | ---: |
+| limite atual | 93 | 0,2911 | 609,98 |
+| metade do limite | 117 | 0,3656 | 499,94 |
+| um quarto do limite | 115 | 0,3628 | 631,69 |
+| consistência com uma amostra futura | 112 | 0,3511 | 571,66 |
+
+Reduzir o limite ajuda em parte, mas a alternativa mais restritiva piora o p95 e nenhuma resolve
+a seleção inicial de outro objeto. A consistência elevou os acertos de 93 para 112, mas ficou
+abaixo do simples limite pela metade. Os testes cobrem desvio isolado, aceleração confirmada,
+quique, mudança de direção e proibição de confirmar um salto usando o outro lado de um corte.
+A contagem de telemetria também foi corrigida: lacunas antes da primeira detecção são ausentes,
+não interpoladas. A geometria do gramado não deve impor deslocamento métrico à bola no ar.
+
+O checkpoint oficial WASB também foi avaliado sem treino ou ajuste do limiar de 0,5. O adapter
+usou trios de frames nativos consecutivos, RGB, transformação afim e normalização ImageNet do
+código oficial; o pós-processamento seguiu componentes conexos, centro ponderado pelo mapa e
+seleção pelo maior score ponderado. Foram lidos 984 frames dos mesmos oito clipes e medidos os
+328 frames anotados. Houve nove acertos nos 317 visíveis, precisão de 0,2195, recall de 0,0284 e
+F1 de 0,0503. O checkpoint não foi adotado como substituto. Isso não demonstra que a arquitetura
+seja inadequada após treino no domínio; mostra que esse peso sem ajuste não resolveu o piloto.
+
+A CPU do Mac mediu p50 de 264,82 ms e p95 de 310,92 ms por trio, excluindo a primeira inferência,
+sem validade para a Jetson. O experimento está em
+`var/runs/ball-trajectory/wasb-pilot-20260904-v2/`. Trata-se de um adapter local do checkpoint,
+não da reprodução integral do runner oficial, que exige CUDA. Código e peso foram fixados por
+commit e SHA-256, e nenhum rótulo entrou na inferência.
+
+O piloto amostra aproximadamente 19,98 fps, porque usa intervalos de três frames de origem; não
+é o mesmo conjunto denso de 15 fps do pipeline. Os timestamps reais foram preservados. A medição
+operacional nos 24 clipes continua necessária antes de aceitar uma heurística. A reprodução ficou
+em `var/runs/ball-trajectory/human-pilot-20260904-v2/`, com snapshot dos rótulos, hashes, agregado e
+trace privado. O diretório `v1` é inválido pelo vazamento de cache e não participa da comparação.
+
+### Novas alternativas e diagnóstico do detector
+
+Uma busca limitada a 64 hipóteses em janela de cinco amostras corrigiu o teste sintético de
+ancoragem errada, mas caiu para 72 acertos, F1 de 0,2257 e p95 de 603,81 pixels no replay real.
+Foi rejeitada e retirada do código de produção. O experimento está arquivado localmente.
+
+A auditoria dos 328 quadros separou a existência do candidato de sua escolha: 245 dos 317
+visíveis tinham candidato correto após os filtros atuais. Antes do filtro de forma eram 246.
+Logo, afrouxar esse filtro recuperaria apenas um quadro. Reduzir a confiança de 0,10 para 0,05
+e 0,025 aumentou a cobertura de candidatos para 255 e 259, respectivamente; não demonstra
+melhor trajetória. Outros 57 quadros não tiveram candidato correto nem antes do filtro a 0,025.
+
+Um calibrador logístico experimental usou confiança, forma, posição e estatísticas locais de
+cor. Cada teste excluiu do treino uma partida inteira, em seis grupos; normalização e pesos
+foram ajustados apenas nas outras cinco partidas. O ranking chegou a 172 acertos e F1 de
+0,5375, mas piorou o p95 para 912,97 pixels. Com o tracker, foram 165 acertos, F1 de 0,5189 e
+p95 de 839,40. Abster-se abaixo de probabilidade 0,5 não resolveu a cauda de erro. Nenhuma
+dessas alternativas atende simultaneamente posição, cobertura e estabilidade.
+
+Essas medidas são de desenvolvimento fora do grupo usado em cada treino, não um teste final
+inédito após todas as decisões. A investigação fica em `var/runs/ball-trajectory/`, com
+coeficientes por grupo, registros privados e código dos avaliadores. Não entrou novo artefato
+de produção nem foram alteradas as anotações humanas.
+
+### Movimento de câmera e associação global
+
+O replay reproduziu uma falha mínima: uma detecção falsa com confiança maior no primeiro
+frame ancora o tracker e faz perder as duas posições corretas seguintes. Um caminho global
+de segunda ordem corrigiu esse exemplo sintético, mas, usando somente confiança e velocidade,
+piorou o piloto para 58 acertos e p95 de 1.107,49 pixels. Essa receita isolada foi rejeitada.
+
+A segunda comparação estimou movimento entre imagens com ORB e RANSAC, sem projetar a bola
+no plano do campo. O registro passou pelos gates em 320/320 pares consecutivos dos oito
+clipes. Ausência de textura ou correspondência suficiente produz estado desconhecido,
+nunca câmera parada presumida. Esse registro é um sinal auxiliar: não prova acerto da bola.
+A [documentação de homografia por features do OpenCV](https://docs.opencv.org/4.x/d1/de0/tutorial_py_feature_homography.html)
+fundamenta o ajuste entre imagens; os gates locais exigem inliers, cobertura espacial,
+erro limitado e geometria convexa.
+
+Foram acrescentados cinco atributos ao calibrador: disponibilidade, média e percentil 90 da
+diferença visual compensada, contraste com a vizinhança e fração de pixels alterados. Os
+coeficientes continuaram separados em seis testes leave-one-match-out, sem rótulos da
+partida avaliada. Custos e limiares foram fixados antes do replay, sem busca no resultado.
+
+| Candidato no mesmo piloto de 317 visíveis | Acertos | F1 | p95 condicional | Visíveis sem previsão |
+| --- | ---: | ---: | ---: | ---: |
+| tracker original | 93 | 0,2911 | 609,98 px | 1 |
+| aparência e câmera, ranking seguido de tracker | 186 | 0,5831 | 684,15 px | 2 |
+| aparência e câmera, caminho global | 184 | 0,6643 | 483,85 px | 80 |
+
+A combinação global é o melhor sinal desta rodada, mas ainda não atende ao gate. Sua
+precisão foi 0,7764 e recall, 0,5804; houve lacuna visível de até 22 amostras. Ela reduziu
+erros extremos em parte por se abster, e não por recuperar todas as posições. Interpolações
+também continuaram imprecisas, com mediana de 30,80 pixels. A execução é offline, usa o clipe
+fechado e não implementa o contrato streaming de `update` e `flush` sem latência adicional.
+O protótipo permanece privado, sem mudar o tracker ou o peso padrão. Artefatos em
+`var/runs/ball-trajectory/camera-ranking-20260904/`.
+
+O percentil acima exclui os frames sem previsão. A revisão independente exigiu uma comparação
+pareada: nos 237 visíveis previstos por ambos, o p95 foi 559,11 px para a baseline e
+483,85 px para o candidato. No denominador fixo de 317 visíveis, houve 129 ganhos e 38 perdas.
+Essa medida não elimina a perda de cobertura. Antes do resultado externo, foi fixada uma
+barreira conservadora de adoção nesta rodada: não aumentar ausências ou maior lacuna, melhorar
+F1 e não piorar erro pareado. O candidato falha na cobertura e não foi adotado. A decisão sobre
+quanto de abstinência o produto aceita permanece aberta, separada do resultado deste piloto.
+
+### Ranking de candidatos, o caminho promovido
+
+O diagnóstico que orientou esta rodada é o da revisão do piloto: em 154 dos 224 erros da linha de
+base o candidato correto estava na lista do detector e o rastreador escolheu outro. O gargalo é a
+escolha dentro do quadro. Nenhum ajuste do limiar temporal chegou perto de resolver, e o melhor
+deles ficou em 117 acertos contra 93.
+
+A rodada anterior mediu o ranking logístico mas julgou apenas a variante global, que se abstém, e a
+rejeitou pela cobertura. A variante que entrega um único candidato ao rastreador ficou registrada no
+mesmo `run.json` e não tinha sido julgada. A emenda 15 fixou o critério antes de executar: subir
+pelo menos 10 pontos percentuais de `pck_diameter`, não passar de 6 posições sem previsão, não
+passar de 2 quadros de maior lacuna, ganhar mais do que perder na comparação pareada com
+denominador fixo, e não piorar o erro mediano.
+
+O ranking pontua cada candidato com uma regressão logística sobre 19 medidas: catorze de aparência,
+tiradas só do quadro atual, e cinco do resíduo de movimento contra o quadro anterior alinhado. As
+cinco de movimento são causais, o que separa esta alternativa da associação global rejeitada: elas
+usam o quadro anterior e nunca o seguinte. O rastreador continua dono do tempo e segue decidindo
+lacuna, interpolação, salto e segmento.
+
+| Piloto de 317 visíveis, fora da dobra | Linha de base | Só aparência | Aparência e câmera |
+| --- | ---: | ---: | ---: |
+| acertos | 93 | 165 | 186 |
+| `pck_diameter` | 0,2934 | 0,5205 | 0,5868 |
+| F1 | 0,2911 | 0,5189 | 0,5831 |
+| erro mediano | 265,30 px | 4,95 px | 2,94 px |
+| p95 condicional | 609,98 px | 839,40 px | 684,15 px |
+| visíveis sem previsão | 1 | 4 | 2 |
+| maior lacuna visível | 1 | 2 | 1 |
+| ganhos e perdas com denominador fixo | referência | 94 e 22 | 118 e 25 |
+
+As duas variantes passaram nas cinco condições. O desempate da emenda manda escolher a mais barata,
+salvo diferença de `pck_diameter` acima de 5 pontos percentuais: a diferença é de 6,6 pontos, então
+a variante com movimento de câmera vence apesar do custo. O intervalo de Wilson de 95% do
+`pck_diameter` promovido vai de 0,5318 a 0,6396.
+
+Duas coisas precisam ficar explícitas porque a tabela sozinha as esconde. A primeira é que o p95
+subiu, de 609,98 px para 684,15 px: a cauda de falhas difíceis não melhorou, e o que melhorou foi o
+corpo da distribuição, com a mediana caindo de 265,30 px para 2,94 px. Nas posições detectadas, e
+não interpoladas, a mediana é de 1,44 px. A segunda é que a estimativa publicada é
+`leave-one-match-out` sobre as seis partidas de desenvolvimento, enquanto o artefato que roda em
+produção é o ajuste sobre as seis inteiras. São números de coisas diferentes e nenhum dos dois
+substitui o holdout.
+
+O caminho global voltou a ser rejeitado pelo mesmo motivo da rodada anterior: 184 acertos com 80
+visíveis sem previsão e lacuna de até 22 amostras, contra 2 e 1 do promovido.
+
+Os coeficientes ficam versionados em `src/edge/modules/ball/candidate-ranker-v1.json`, com 19 pares
+de média e escala e 20 coeficientes. Não há quadro, recorte, identificador nem coordenada do
+parceiro no arquivo. Versionar em vez de deixar em `var/` é o que faz o caminho padrão rodar na
+integração contínua e aparecer na revisão.
+
+A auditoria usa o mesmo extrator de medidas que o pipeline, e não uma cópia: a classe de produção e
+o cálculo vetorizado escolheram o mesmo candidato nos 328 quadros. Sem essa amarra, o número
+publicado poderia descrever um código que não é o que roda.
+
+A telemetria do módulo publica `ranked_frames`, `ranking_motion_frames` e `ranking_score_sum`, a
+soma das pontuações do candidato escolhido. A média sai da divisão das duas, e é o sinal mais barato
+de deriva de domínio que este eixo tem: os coeficientes foram ajustados em seis partidas, e uma
+partida com outro gramado, outra iluminação ou outro enquadramento tende a baixar a pontuação do
+escolhido antes de baixar qualquer métrica de acerto, que só aparece com anotação nova.
+
+Soma e contagem, e não mediana, porque `aggregate_telemetry` soma toda chave que não seja
+`max_visible_gap_frames`. Publicar uma mediana ali produzia um número proporcional ao número de
+clipes, sem teto em um, e a revisão independente apontou que esta própria página vendia isso como
+sinal de deriva.
+
+O custo é material e precisa ser lido no pipeline, não isolado. A estimativa de movimento custa
+53,1 ms por quadro medidos sobre os quadros do piloto, mas o que importa é o efeito na execução
+real. Comparando o tempo do próprio módulo `ball` em duas execuções dos 24 clipes de ajuste, sem
+cache de detecção em nenhuma das duas porque a chave de cache difere entre elas:
+
+| Tempo médio do módulo `ball` por clipe | ranking desligado | ranking ligado |
+| --- | ---: | ---: |
+| nesta máquina | 9,7 s | 24,7 s |
+
+São cerca de 15 segundos por clipe acrescentados, ou seja o módulo que já dominava o pipeline passa
+a custar cerca de 2,5 vezes mais. A leitura de que 53,1 ms por quadro seriam pequenos diante do
+detector estava errada: o detector aproveita o cache de percepção e a estimativa de movimento não,
+então na execução real a proporção se inverte.
+
+A variante só de aparência não paga esse custo, porque não estima homografia entre quadros, e ela
+faz 165 acertos contra os 186 desta e os 93 da linha de base. O desempate desta emenda escolheu a
+variante com câmera por 6,6 pontos percentuais de `pck_diameter`, supondo custo pequeno. Com o custo
+medido, essa escolha precisa ser revista junto do orçamento da Jetson, e não antes dele.
+
+O código e os quatro TOML declaram o ranking desligado. A escolha fica explícita na configuração
+para que uma execução possa ser reproduzida sem depender de um valor implícito do construtor.
+
+### Experimento com dois candidatos
+
+Entregar um candidato só custava procedência no quadro do contato. Entregar dois, na ordem do
+ranking, devolve isso e ainda supera a linha de base:
+
+| Métrica de contato, 24 clipes de ajuste | Linha de base | Um candidato | Dois candidatos |
+| --- | ---: | ---: | ---: |
+| posição a menos de 20 px, só detecção real | 20 | 19 | **22** |
+| clipes com detecção real no quadro do contato | 24 | 21 | **24** |
+| posições perdidas pelo limiar de 50 px | 3 | 3 | **2** |
+
+No piloto de trajetória o preço é de nove acertos, de 186 para 177, com a mediana praticamente
+igual, 2,93 px contra 2,94 px, e as interpolações caindo de 88 para 45. É essa troca que
+`ranking_candidates = 2` declara: um pouco menos de acerto de posição em troca de procedência real
+no quadro que os consumidores usam.
+
+O ranking também foi medido na métrica de contato dos 24 clipes de ajuste, que é a outra leitura
+congelada deste eixo e usa proximidade de uma caixa de jogador, não o centro anotado da bola. Ela
+não estava no critério da emenda 15, e o resultado precisa aparecer inteiro porque puxa para o
+outro lado.
+
+| Métrica de contato, 24 clipes de ajuste | Linha de base | Com ranking |
+| --- | ---: | ---: |
+| posição a menos de 20 px, só detecção real | 20 | 19 |
+| posição a menos de 20 px, incluindo interpolada | 20 | 21 |
+| clipes com detecção real no quadro do contato | 24 | 21 |
+| posições perdidas pelo limiar de 50 px | 3 | 3 |
+
+A posição no quadro do contato ficou certa em um clipe a mais, e detectada em três a menos. A causa
+é a mesma que produz as 88 interpolações do piloto: o ranking entrega um candidato só, e quando o
+gate de salto do rastreador recusa esse candidato não sobra segundo lugar, então o quadro é fechado
+por interpolação. Em um dos casos a posição interpolada ficou a 4,86 px de um jogador, ou seja,
+certa, e mesmo assim não conta na leitura estrita.
+
+No experimento anterior, ainda escolhendo por distância entre candidatos, o acerto do piloto caiu
+de 186 para 161, com os três melhores para 125, e com a lista inteira volta exatamente aos 93 da
+linha de base. O desempate do rastreador é por distância da posição prevista, então qualquer
+candidato a mais devolve a decisão para o critério que o piloto já mostrou ser o gargalo.
+
+Esses resultados do piloto motivaram a comparação nos consumidores. Mesmo com dois candidatos,
+o erro mediano do instante ficou em 57 quadros contra 46 sem ranking. A escolha por ordem do
+ranking deve ser distinguida do experimento anterior, que desempata por distância.
+
+Artefatos em `var/runs/ball-trajectory/ranker-20260906-v3/` e
+`var/runs/ball-trajectory/ranker-contact-20260906/`.
+
+### Decisão após a comparação nos consumidores
+
+Dois braços de 363 clipes das dobras 0 a 2, executados no commit `b149205`, diferiram apenas
+na opção de ranking. Ambos terminaram sem falha. Estes números descrevem as versões anteriores
+das features, registradas no manifesto, e não validam alterações posteriores de `type_of_play`.
+
+| Medida | Ranking ligado | Ranking desligado |
+| --- | ---: | ---: |
+| `type_of_play` macro-F1 | 0,3091 | 0,3341 |
+| `type_of_play` cobertura | 357/363 | 359/363 |
+| `body_part` macro-F1 | 0,2786 | 0,3154 |
+| `body_part` cobertura | 356/363 | 352/363 |
+
+A política exigia melhora de macro-F1 sem perda de cobertura. O ranking perdeu macro-F1 nas
+duas features e cobertura em `type_of_play`, embora a cobertura de `body_part` tenha aumentado.
+Foi rejeitado como padrão. A melhora de posição no piloto permanece um resultado experimental.
+Os relatórios ficam em `var/runs/type-of-play-20260907/` e
+`var/runs/type-of-play-sem-ranking-20260907/`. Nenhum clipe reservado participou da decisão.
+
+### Ampliação dos dados
+
+O inventário local encontrou 609 clipes acima do limiar de tamanho, com 367 em 17 partidas nas
+dobras de desenvolvimento. Os 367 foram decodificados integralmente: 147.419 quadros, cerca de
+41 minutos, sem falhas nem hashes de vídeo repetidos. Nenhum clipe das partidas reservadas foi
+decodificado nessa varredura. Metadados de finalização não equivalem a caixas de bola ou trajetória
+por frame. A ampliação deve priorizar diversidade de partidas e falsos positivos persistentes,
+sem transformar propostas automáticas em validação.
+
+O [dataset martinjolif](https://huggingface.co/datasets/martinjolif/football-ball-detection)
+é a origem do peso atual, portanto não representa uma nova fonte independente. A consulta
+encontrou prefixos de clipes repetidos entre seus splits. O
+[SoccerNet-Tracking](https://www.soccer-net.org/tasks/tracking) oferece bola e sequências
+temporais, mas a [política de acesso](https://www.soccer-net.org/data) exige NDA para vídeos.
+A [Infactory](https://huggingface.co/datasets/infactory-ai/ball-tracking) oferece positivos e
+negativos novos, mas declara licença não comercial. Esses dados não foram incorporados a um
+modelo distribuível; condições de uso e procedência devem ser resolvidas antes da adoção.
+
+### Primeiro fine-tuning local
+
+Foi executado um treino supervisionado privado do checkpoint YOLO11n atual: 246 quadros de
+quatro partidas nas dobras 1 e 2. Dos quadros de treino, 241 tinham bola visível e cinco eram
+negativos. Centros e diâmetros humanos viraram caixas quadradas aproximadas, com essa origem
+registrada. Quatro recortes por quadro produziram 984 imagens, mas não 984 observações
+independentes. Nenhum dado foi enviado a serviço de treinamento externo.
+
+A receita foi congelada antes do treino: 12 épocas, resolução 1280, batch 4, backbone com
+`freeze = 10`, AdamW, taxa inicial de 0,0003, sem mosaic, mixup ou copy-paste. Foi avaliado o
+`last.pt` da última época, sem seleção do melhor checkpoint pela comparação. A
+[documentação de treinamento Ultralytics](https://docs.ultralytics.com/modes/train/)
+fundamenta a configuração de fine-tuning e o uso local de MPS.
+
+O teste de desenvolvimento usou somente a dobra 0: 82 quadros de duas outras partidas, dos
+quais 76 visíveis, um negativo e cinco oclusos ou ambíguos. Não houve interseção de partida,
+clipe, hash de vídeo ou imagem com o treino. Essa dobra já havia participado de diagnósticos;
+portanto, a comparação não é o teste final inédito. A baseline foi recalculada na mesma
+população de 76 visíveis, com confiança 0,10, resolução 1600 e quatro recortes em ambos os pesos.
+
+| Medida nas partidas fora do treino | Peso original | Peso adaptado |
+| --- | ---: | ---: |
+| quadros com candidato correto | 46/76 | 36/76 |
+| acertos com o tracker atual | 21/76 | 17/76 |
+| F1 com o tracker atual | 0,2763 | 0,2222 |
+| erro p95 com o tracker atual | 877,79 px | 1.149,28 px |
+| acertos com consistência temporal | 21/76 | 22/76 |
+| erro p95 com consistência temporal | 875,72 px | 1.149,28 px |
+
+O peso foi rejeitado. O ganho isolado de um acerto com consistência não compensou a perda de
+candidatos nem a cauda de erro. Não foram alterados o peso padrão, os limiares ou o split.
+O treino durou 1.097,54 segundos no Mac, incluindo a validação interna final. O MPS emitiu
+avisos de operações não determinísticas apesar da seed fixa; não se afirma repetibilidade
+bit a bit desse treinamento. O checkpoint experimental tem SHA-256
+`e61672041e8f1f76c0e146404a25a1a2f90c05009f60199e045d7bf47be9a331`.
+
+Receita, manifesto privado, rótulos congelados e log estão em
+`var/runs/ball-training/local-fold12-20260904/`; a comparação está em
+`var/runs/ball-training/local-fold12-evaluation-20260904/`. O resultado não prova que toda
+adaptação local falhará. Ele recusa esta receita e reforça a necessidade de diversidade de
+partidas e exemplos difíceis, em vez de contar recortes correlacionados como dados novos.
+
+### Fine-tuning com dados externos
+
+O conjunto [Augmented Startups v3, espelhado por keremberke](https://huggingface.co/datasets/keremberke/football-object-detection/tree/788fb2722316ee7cad1ace2f6c94e563556a1d3e)
+foi baixado em revisão fixa, com CC BY 4.0, atribuição, tamanho e SHA dos três arquivos
+verificados. Das 1.232 imagens, ficaram 934 com 1.185 caixas de bola após excluir 260 sem
+anotação de bola, 37 quase duplicadas e uma com caixa inválida. A classe foi convertida pelo
+nome COCO, pois a ordem do loader HF diverge das categorias dos arquivos. Ausência de rótulo
+não foi transformada em negativo. A auditoria visual examinou somente 12 imagens públicas.
+
+Os três splits publicados foram usados exclusivamente para treino, pois não há identificação
+de partida confiável. Não houve rótulo local no treino do detector. A triagem por hashes de
+pixels e hashes perceptuais não encontrou suspeita com os 328 frames locais, mas não prova
+independência entre partidas ou ausência de sobreposição com todo o pré-treino. O val interno
+reutilizou o treino apenas para satisfazer a ferramenta; não foi usado como métrica de qualidade
+nem para escolher o checkpoint. A receita fixa manteve 12 épocas, resolução 1280, batch 4,
+freeze 10 e AdamW. O checkpoint foi sempre `last.pt`, sem selecionar época pelo piloto.
+
+| Comparação nos mesmos 317 visíveis locais | Peso original | Ajuste externo |
+| --- | ---: | ---: |
+| frames com candidato correto | 245 | 214 |
+| acertos com tracker atual | 93 | 53 |
+| F1 com tracker atual | 0,2911 | 0,1659 |
+| p95 condicional com tracker atual | 609,98 px | 1.137,09 px |
+| acertos com aparência, câmera e caminho global OOF | 184 | 135 |
+| F1 com aparência, câmera e caminho global OOF | 0,6643 | 0,5163 |
+| visíveis sem previsão no caminho global | 80 | 112 |
+
+O peso externo foi rejeitado tanto sozinho quanto no cruzamento temporal já previsto. No
+caminho global externo, a comparação pareada com a baseline usou 204 visíveis: p95 de
+656,45 px para a baseline e 665,93 px para o candidato. Não houve promoção de peso ou limiar.
+O treinamento durou 1.141,60 segundos no Mac, com avisos de não determinismo do MPS. O peso
+final tem SHA-256 `f8e5b5e36b4bd12281302e2a0c3fb31c3c09b10fa1b438ffe8e835b8d3a00b46`.
+Configuração, manifesto, log, checkpoint e avaliações ficam em `var/runs/ball-training/`.
+Mais imagens dessa receita não produziram uma trajetória melhor no domínio local.
+
+## Trade-offs
+
+O rastreador cinemático é pequeno, testável sem GPU e mantém a procedência de cada ponto. A
+desvantagem principal é que interpolação linear pode errar justamente quando a bola muda de
+direção no contato.
+
+O ranking dobrou o acerto sem tocar no peso e sem sair do contrato streaming, e o artefato tem
+2 KB, revisável linha a linha. A desvantagem principal é que ele carrega o viés das seis partidas
+de desenvolvimento: são poucas, e nada garante que os coeficientes de cor e posição valham numa
+partida com outro gramado, outra iluminação ou outro enquadramento. A estimativa fora da dobra
+mede exatamente esse risco entre as seis que temos, e não além delas.
+
+Os quatro ladrilhos recuperam uma bola pequena sem novo treino. A desvantagem principal é executar
+o peso quatro vezes por frame. O caminho de quadro inteiro continua configurável para a comparação
+de custo depois que o piloto de trajetória existir.
+
+## Riscos e incertezas
+
+A primeira anotação humana permitiu medir o piloto, mas os erros descritos acima impedem aceitar
+a trajetória como validada. Falta a segunda anotação cega. O pipeline também não possui sinal de
+corte de câmera confiável. O tracker já encerra um segmento quando recebe esse sinal, mas a
+detecção do corte não deve ser ativada com limiar não calibrado.
+
+A licença AGPL-3.0 declarada pelo peso em produção precisa ser revisada contra a forma final de
+distribuição. O WASB possui checkpoint reproduzível, código MIT e exportou para ONNX, mas isso não
+mede sua qualidade no domínio do produto. O exportador `mlops.export_onnx` já normaliza a data
+e comprovou igualdade byte a byte em ambiente fixo. Isso não garante igualdade entre versões
+das ferramentas. O manifesto anterior não foi alterado e paridade embarcada continua pendente.
+
+## Anotação e split
+
+O piloto anotado contém oito clipes somente nas dobras 0 a 2: as quatro falhas conhecidas da
+baseline e quatro controles, cobrindo pelo menos três partidas e as três dobras de desenvolvimento.
+A janela vai de 1,5 segundo antes a 0,5 segundo depois do contato. Uma segunda pessoa revisa todos
+os contatos e 25% dos demais frames.
+
+O leitor recusa duplicata, timestamp regressivo, versão divergente e mudança de partida ou hash no
+mesmo clipe. A CLI confere o hash do vídeo e recusa qualquer split em que uma partida apareça em
+mais de uma dobra. Rótulo, centro, identificador e diagnóstico por clipe ficam em `var/`.
+
+Os 14 clipes das dobras 3 e 4 permanecem fechados. Eles serão executados uma vez, somente depois de
+configuração, código, peso, ONNX e tolerâncias estarem congelados.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| revisão independente do piloto | segunda anotação cega e concordância sobre a primeira revisão humana concluída |
+| cauda de erro do ranking | o p95 subiu de 609,98 px para 684,15 px; separar os casos restantes por tipo de confusão antes de propor nova medida |
+| ranking experimental | a comparação de contato e das features rejeitou a promoção; nova hipótese deve ser fixada antes de outra medição |
+| generalização do ranking além das seis partidas | reajustar e medir quando houver anotação de trajetória em partidas fora das seis atuais |
+| custo do resíduo de movimento no dispositivo | o módulo de bola já custa 2,5 vezes mais nesta máquina; medir na Jetson e decidir entre manter, cair para só aparência ou desligar |
+| alternativa temporal treinada no domínio | checkpoint WASB sem ajuste não adotado; definir novo experimento com separação por partida antes de treinar |
+| corte de câmera automático | comparar sinal explícito e descontinuidade visual, medindo falsos resets |
+| paridade embarcada | repetir candidatos e ponto escolhido em TensorRT FP16 na Jetson |
+| TensorRT FP16 e orçamento | construir a engine na Jetson e medir latência, memória, energia e fallback |
+| pacote reservado | executar uma única vez depois do congelamento, sem recalibrar nos mesmos 14 clipes |
+
+## Referências
+
+1. Ultralytics. [Export mode](https://docs.ultralytics.com/modes/export/).
+2. SAHI. [Slicing Aided Hyper Inference](https://arxiv.org/abs/2202.06934).
+3. SoccerNet. [Tracking task](https://www.soccer-net.org/tasks/tracking).
+4. NTT Communications. [WASB-SBDT](https://github.com/nttcom/WASB-SBDT).
+5. TrackNet. [A deep learning network for tracking high-speed objects](https://arxiv.org/abs/1907.03698).

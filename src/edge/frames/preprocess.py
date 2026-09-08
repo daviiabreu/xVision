@@ -8,7 +8,7 @@ mesmo texto teria significado diferente em cada resolucao de origem se rodasse a
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -86,6 +86,42 @@ def to_source_box(
         (x2 - esquerda) / escala,
         (y2 - topo) / escala,
     )
+
+
+def to_source_image(
+    tensor: np.ndarray[Any, Any],
+    spec: PreprocessSpec,
+    source_size: tuple[int, int],
+) -> np.ndarray[Any, Any]:
+    """Desfaz o enquadramento do tensor e devolve a imagem no espaco de pixel do quadro original.
+
+    E a contraparte de `to_source_box` para quem precisa do pixel, e nao so da caixa: medida de cor
+    e de residuo de movimento so valem se a imagem e a caixa estiverem no mesmo espaco.
+
+    Na spec de `ball`, 1920x1080 dentro de 1920x1088, a escala e exatamente 1 e a volta e um recorte
+    das quatro linhas de preenchimento, sem reamostrar. Quando houve reducao a volta reamostra, e ai
+    ela e aproximada: quem chama precisa saber que recuperar pixel perdido nao e possivel.
+    """
+    largura, altura = source_size
+    if largura <= 0 or altura <= 0:
+        raise PreprocessError(
+            f"source_size={source_size!r}, e o quadro de origem tem medida positiva"
+        )
+    if not spec.letterbox:
+        return _resized(tensor, largura, altura)
+    escala = min(spec.width / largura, spec.height / altura)
+    conteudo_w = max(1, round(largura * escala))
+    conteudo_h = max(1, round(altura * escala))
+    esquerda = (spec.width - conteudo_w) // 2
+    topo = (spec.height - conteudo_h) // 2
+    recorte = tensor[topo : topo + conteudo_h, esquerda : esquerda + conteudo_w]
+    return _resized(recorte, largura, altura)
+
+
+def _resized(tensor: np.ndarray[Any, Any], largura: int, altura: int) -> np.ndarray[Any, Any]:
+    if (int(tensor.shape[1]), int(tensor.shape[0])) == (largura, altura):
+        return tensor
+    return cast("np.ndarray[Any, Any]", cv2.resize(tensor, (largura, altura)))
 
 
 def to_tensor_box(

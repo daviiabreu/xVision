@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -21,6 +22,63 @@ def test_the_shell_lists_the_commands_it_carries() -> None:
     assert "clip" in resultado.output
     assert "cache" in resultado.output
     assert "eval-field" in resultado.output
+    assert "eval-ball-trajectory" in resultado.output
+
+
+def test_eval_ball_closes_modules_already_loaded_when_the_next_load_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    events: list[str] = []
+
+    class Module:
+        def __init__(self, name: str, *, fails: bool = False) -> None:
+            self.name = name
+            self.fails = fails
+
+        def load(self) -> None:
+            events.append(f"load:{self.name}")
+            if self.fails:
+                raise RuntimeError("load failed")
+
+        def close(self) -> None:
+            events.append(f"close:{self.name}")
+
+    config = tmp_path / "pipeline.toml"
+    config.write_text("[frames.dense]\nstrategy = 'uniform'\nfps = 15\n", encoding="utf-8")
+    players = Module("players")
+    ball = Module("ball", fails=True)
+
+    def annotations() -> tuple[object, ...]:
+        return (object(),)
+
+    def agreed(_: Any) -> dict[str, int]:
+        return {"clip": 1}
+
+    def parsed_config(_: Path) -> object:
+        return object()
+
+    def modules(_: object) -> dict[str, Module]:
+        return {"players": players, "ball": ball}
+
+    def framesets(_: Path) -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr("cli.read", annotations)
+    monkeypatch.setattr("cli.consensus", agreed)
+    monkeypatch.setattr(
+        "cli.load_catalog",
+        lambda: (SimpleNamespace(shot_id="clip", big_enough=True, fold=0),),
+    )
+    monkeypatch.setattr("cli.read_config", parsed_config)
+    monkeypatch.setattr("cli.load_modules", modules)
+    monkeypatch.setattr("cli.read_framesets", framesets)
+
+    result = runner.invoke(app, ["eval-ball", "--config", str(config)])
+
+    assert result.exit_code != 0
+    assert events == ["load:players", "load:ball", "close:players"]
 
 
 def test_clip_writes_the_canonical_fixture_where_it_was_told(tmp_path: Path) -> None:

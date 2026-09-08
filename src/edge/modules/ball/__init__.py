@@ -3,6 +3,7 @@
 from edge.modules.ball.detector import (
     BallDetector,
     DetectorConfig,
+    DetectorTelemetry,
     YoloBallDetector,
     is_ball_shaped,
 )
@@ -11,7 +12,9 @@ from edge.modules.ball.tracking import (
     BallObservation,
     BallTracker,
     TrackerConfig,
+    TrackerTelemetry,
     TrackPoint,
+    TrajectoryOrderError,
 )
 
 __all__ = [
@@ -20,8 +23,11 @@ __all__ = [
     "BallObservation",
     "BallTracker",
     "DetectorConfig",
+    "DetectorTelemetry",
     "TrackPoint",
     "TrackerConfig",
+    "TrackerTelemetry",
+    "TrajectoryOrderError",
     "YoloBall",
     "YoloBallDetector",
     "is_ball_shaped",

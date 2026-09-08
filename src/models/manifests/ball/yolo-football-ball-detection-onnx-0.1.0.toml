@@ -1,0 +1,20 @@
+schema_version = "1.0"
+kind = "ball"
+name = "yolo-football-ball-detection-onnx"
+version = "0.1.0"
+entrypoint = "yolo-football-ball-detection.onnx"
+
+[[files]]
+path = "yolo-football-ball-detection.onnx"
+sha256 = "ed331affc0bc6a75ab8fd2279f101020adcee28ae21943700d3141cbeb2ed2a7"
+bytes = 11048185
+
+[source]
+parent_pt_sha256 = "fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb"
+exporter = "ultralytics-8.4.123"
+onnx = "1.22.0"
+opset = "17"
+input = "images:float32:1x3x992x1600:NCHW"
+output = "output0:float32:1x5x32550"
+dynamic = "false"
+nms = "false"

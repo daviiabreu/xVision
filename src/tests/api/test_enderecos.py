@@ -15,8 +15,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from api import PREFIXO, create_app, render, store
+from api import PREFIXO, create_app, execution, render
 from edge.paths import var_dir
+from edge.testing.make_clip import make_synthetic_clip
 
 from .apoio import cliente_autenticado
 
@@ -65,8 +66,12 @@ def test_o_endereco_do_render_sai_relativo_e_sem_o_host_do_cliente(
 ) -> None:
     corpo = _reservar(cliente)
     video_id = int(str(corpo["id"]))
-    store.marcar(video_id, "Em processamento")
-    store.marcar(video_id, "Finalizado")
+    cliente.put(
+        str(corpo["uploadUrl"]),
+        content=make_synthetic_clip(tmp_path / "c.mp4").read_bytes(),
+        headers={"Content-Type": "video/mp4"},
+    )
+    execution.aguardar()
     destino = render.render_path(video_id)
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_bytes(b"nao e video de verdade, e o teste so olha o endereco")

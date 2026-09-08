@@ -103,6 +103,15 @@ def test_caixa_grande_demais_e_reprovada_pelo_filtro_de_forma() -> None:
     assert saida.records == ((),)
 
 
+def test_candidate_with_center_outside_source_frame_is_rejected() -> None:
+    modulo = YoloBall(_DetectorFalso(Box(-30.0, 100.0, -10.0, 120.0)))
+    modulo.load()
+
+    saida = modulo.infer(_lote((0,)), {})
+
+    assert saida.records == ((),)
+
+
 def test_oregistro_de_cumpre_o_que_a_especie_promete() -> None:
     meio = PREPROCESS.width / 2.0
     modulo = YoloBall(_DetectorFalso(Box(meio - 6, meio - 6, meio + 6, meio + 6)))
@@ -127,11 +136,19 @@ def test_ponto_interpolado_sai_com_caixa_e_nao_com_none() -> None:
         center=(100.0, 200.0),
         box=None,
         confidence=None,
+        trajectory_segment=0,
+        gap_frames=1,
+        velocity_xy_px_s=(30.0, -15.0),
+        velocity_source="trajectory-model",
     )
 
     (registro,) = registro_de(ponto)
 
     assert registro["source"] == "interpolated"
+    assert registro["trajectory_segment"] == 0
+    assert registro["gap_frames"] == 1
+    assert registro["velocity_xy_px_s"] == (30.0, -15.0)
+    assert registro["velocity_source"] == "trajectory-model"
     assert _centro(registro["box"]) == (100.0, 200.0)  # type: ignore[arg-type]
     assert isinstance(registro["confidence"], float)
 
@@ -222,6 +239,32 @@ def test_sem_ajuste_o_padrao_de_hoje_continua_valendo() -> None:
     assert modulo.infer(_lote((0,)), {}).records[0] == ()
 
 
+def test_o_limite_de_velocidade_chega_ao_rastreador_e_muda_a_chave_do_cache() -> None:
+    """Sem entrar na impressao digital, mudar o limite pelo TOML reusaria a saida do valor
+    antigo, e a medicao registraria a mudanca que nao aconteceu."""
+    module = YoloBall(_DetectorFalso(None))
+    baseline_fingerprint = module.fingerprint()
+
+    module.configure({"max_ball_speed_px_per_s": 1800})
+
+    assert module.fingerprint() != baseline_fingerprint
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"max_ball_speed_px_per_s": True},
+        {"max_ball_speed_px_per_s": -1},
+        {"max_ball_speed_px_per_s": float("nan")},
+    ],
+)
+def test_invalid_temporal_configuration_is_not_silently_accepted(
+    options: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match="ball"):
+        YoloBall().configure(options)
+
+
 def test_ajuste_desconhecido_no_toml_levanta_em_vez_de_ficar_calado() -> None:
     """`confidence` no lugar de `conf` deixaria o detector no padrao e a medicao mentiria."""
     modulo = YoloBall()
@@ -258,3 +301,246 @@ def test_com_ajustes_aplica_conf_e_preserva_o_resto() -> None:
     assert ajustada.conf == pytest.approx(0.10)
     assert ajustada.weights == "x.pt"
     assert ajustada.device == "mps"
+
+
+def test_infer_exposes_ball_telemetry_without_changing_records() -> None:
+    meio = PREPROCESS.width / 2.0
+    modulo = YoloBall(_DetectorFalso(Box(meio - 6, meio - 6, meio + 6, meio + 6)))
+    modulo.load()
+
+    saida = modulo.infer(_lote((0, 12, 24)), {})
+
+    assert len(saida.records) == 3
+    assert modulo.telemetry["frames_requested"] == 3
+    assert modulo.telemetry["tiles_executed"] == 3
+    assert modulo.telemetry["raw_candidates"] == 3
+    assert modulo.telemetry["candidates_after_filter"] == 3
+    assert modulo.telemetry["detected_points"] == 3
+    assert modulo.telemetry["interpolated_points"] == 0
+    assert modulo.telemetry["missing_points"] == 0
+    assert modulo.telemetry["segments"] == 1
+    assert float(modulo.telemetry["detector_ms"]) >= 0.0
+    assert float(modulo.telemetry["resolver_ms"]) >= 0.0
+
+
+def test_tracker_state_does_not_cross_infer_calls() -> None:
+    meio = PREPROCESS.width / 2.0
+    modulo = YoloBall(_DetectorFalso(Box(meio - 6, meio - 6, meio + 6, meio + 6)))
+    modulo.load()
+
+    first = modulo.infer(_lote((0,)), {})
+    second = modulo.infer(_lote((30,)), {})
+
+    assert first.records[0][0]["trajectory_segment"] == 0
+    assert second.records[0][0]["trajectory_segment"] == 0
+    assert "velocity_xy_px_s" not in second.records[0][0]
+
+
+class _DetectorDeDois:
+    """Duas caixas por quadro, para separar o que o filtro deixa passar do que o ranking escolhe."""
+
+    def __init__(self, primeira: Box, segunda: Box) -> None:
+        self.caixas = (primeira, segunda)
+
+    def detect_raw(self, frame: Any) -> tuple[tuple[Box, float, int], ...]:
+        return tuple((caixa, 0.5, 32) for caixa in self.caixas)
+
+    def candidates_from(
+        self, cruas: Sequence[tuple[Box, float, int]], frame_height: float
+    ) -> tuple[BallDetection, ...]:
+        return tuple(BallDetection(box=c, confidence=k) for c, k, _ in cruas)
+
+    def detect_candidates(self, frame: Any) -> tuple[BallDetection, ...]:
+        return self.candidates_from(self.detect_raw(frame), 0.0)
+
+
+def _duas_caixas() -> _DetectorDeDois:
+    meio = PREPROCESS.width / 2.0
+    return _DetectorDeDois(
+        Box(meio - 6, meio - 6, meio + 6, meio + 6),
+        Box(meio + 200, meio + 100, meio + 212, meio + 112),
+    )
+
+
+def test_a_caixa_emitida_e_a_que_o_ranking_escolhe() -> None:
+    """O modulo tem de emitir exatamente o candidato que `CandidateRanker` escolheria sozinho.
+
+    Sem esta amarra, um erro de espaco de coordenada ou de ordem das medidas na ligacao entre o
+    modulo e o ranking passaria calado: as duas caixas sao validas, e qualquer uma das duas produz
+    registro plausivel.
+    """
+    from edge.frames.preprocess import to_source_box, to_source_image
+    from edge.modules.ball.ranking import CandidateRanker, load_ranker
+
+    modulo = YoloBall(_duas_caixas(), ranking=True)
+    modulo.load()
+    lote = _lote((0,))
+
+    saida = modulo.infer(lote, {})
+
+    original = to_source_image(lote.tensor[0], PREPROCESS, FONTE)
+    candidatos = tuple(
+        BallDetection(Box(*to_source_box(_as_caixa(caixa), PREPROCESS, FONTE)), 0.5)
+        for caixa in _duas_caixas().caixas
+    )
+    (esperado,) = CandidateRanker(load_ranker()).rank(original, 0, candidatos)
+    (registro,) = saida.records[0]
+    assert registro["box"] == (esperado.box.x1, esperado.box.y1, esperado.box.x2, esperado.box.y2)
+    assert modulo.telemetry["ranked_frames"] == 1
+    assert 0.0 <= modulo.telemetry["ranking_score_sum"] <= modulo.telemetry["ranked_frames"]
+
+
+def _as_caixa(caixa: Box) -> tuple[float, float, float, float]:
+    return (caixa.x1, caixa.y1, caixa.x2, caixa.y2)
+
+
+def test_sem_ranking_o_rastreador_recebe_todos_os_candidatos() -> None:
+    sem = YoloBall(_duas_caixas(), ranking=False)
+    sem.load()
+
+    saida = sem.infer(_lote((0,)), {})
+
+    assert len(saida.records[0]) == 1
+    assert sem.telemetry.get("ranked_frames", 0) == 0
+    assert sem.telemetry["candidates_after_filter"] == 2
+
+
+def test_sem_source_size_o_modulo_nao_pontua() -> None:
+    """Sem `source_size` a caixa fica no espaco do tensor, e pontuar ali mediria cor e posicao no
+    lugar errado. Nao pontuar e declarar isso e melhor do que um numero plausivel e sem sentido."""
+    modulo = YoloBall(_duas_caixas(), ranking=True)
+    modulo.load()
+
+    modulo.infer(_lote((0,), fonte=None), {})
+
+    assert modulo.telemetry["ranked_frames"] == 0
+
+
+def test_ranking_desligado_nao_carrega_artefato(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Com o ranking desligado, `load` nao pode nem tocar no artefato.
+
+    A assercao e sobre o carregamento e nao sobre a impressao digital: carregar o artefato sempre
+    produziria a mesma impressao e passaria por uma checagem de texto.
+    """
+    from edge.modules.ball import module as modulo_da_bola
+
+    def recusa(*_: object, **__: object) -> object:
+        raise AssertionError("load_ranker nao devia ser chamado com o ranking desligado")
+
+    monkeypatch.setattr(modulo_da_bola, "load_ranker", recusa)
+    modulo = YoloBall(ranking=False)
+
+    modulo.load()
+
+    assert ";ranking=False," in modulo.fingerprint()
+
+
+def test_configure_recusa_ranking_que_nao_e_booleano() -> None:
+    modulo = YoloBall()
+
+    with pytest.raises(ValueError, match="ball.ranking espera booleano"):
+        modulo.configure({"ranking": "sim"})
+
+
+def test_configure_desliga_o_ranking_pelo_toml() -> None:
+    modulo = YoloBall(_duas_caixas())
+    modulo.configure({"ranking": False})
+    modulo.load()
+
+    modulo.infer(_lote((0,)), {})
+
+    assert modulo.telemetry["ranked_frames"] == 0
+
+
+def test_o_ranking_liga_a_ordem_no_rastreador() -> None:
+    """A saida do modulo tem de bater com ranking mais rastreador que respeita a ordem.
+
+    Sem `candidate_order`, o rastreador reescolheria por proximidade da posicao prevista e desfaria
+    a decisao do ranking. Medido nas 328 posicoes anotadas, isso custa 16 acertos com dois
+    candidatos, entao a amarra precisa estar em teste e nao em leitura do codigo.
+    """
+    from edge.frames.preprocess import to_source_box, to_source_image
+    from edge.modules.ball.ranking import CandidateRanker, load_ranker
+    from edge.modules.ball.tracking import BallObservation, BallTracker, TrackerConfig
+
+    modulo = YoloBall(_duas_caixas(), ranking=True, ranking_candidates=2)
+    modulo.load()
+    lote = _lote((0,))
+
+    saida = modulo.infer(lote, {})
+
+    candidatos = tuple(
+        BallDetection(Box(*to_source_box(_as_caixa(caixa), PREPROCESS, FONTE)), 0.5)
+        for caixa in _duas_caixas().caixas
+    )
+    ordenados = CandidateRanker(load_ranker(), keep=2).rank(
+        to_source_image(lote.tensor[0], PREPROCESS, FONTE), 0, candidatos
+    )
+    esperado = list(
+        BallTracker(TrackerConfig(candidate_order=True)).track([BallObservation(0, 0.0, ordenados)])
+    )
+    (registro,) = saida.records[0]
+    assert esperado[0].center is not None
+    assert _centro(registro["box"]) == pytest.approx(esperado[0].center)  # type: ignore[arg-type]
+
+
+def test_ranking_candidates_chega_ao_ranker() -> None:
+    modulo = YoloBall(_duas_caixas(), ranking=True, ranking_candidates=2)
+    modulo.load()
+
+    saida = modulo.infer(_lote((0,)), {})
+
+    assert modulo.telemetry["ranked_frames"] == 1
+    assert len(saida.records[0]) == 1
+    assert ";ranking=True,2" in modulo.fingerprint()
+
+
+@pytest.mark.parametrize("valor", [0, -1, True, 1.5, "dois"])
+def test_ranking_candidates_invalido_nao_passa_calado(valor: object) -> None:
+    with pytest.raises(ValueError, match="ball.ranking_candidates"):
+        YoloBall().configure({"ranking_candidates": valor})
+
+
+def test_a_telemetria_do_ranking_soma_entre_clipes() -> None:
+    """A pontuacao sai como soma, e nao como mediana, porque `aggregate_telemetry` soma tudo.
+
+    Publicar uma mediana ali produzia um numero proporcional ao numero de clipes, sem teto em um, e
+    a pagina do modelo vendia isso como sinal de deriva de dominio. Soma e contagem agregam certo, e
+    a media sai da divisao das duas.
+    """
+    from mlops.ball_trajectory import aggregate_telemetry
+
+    modulo = YoloBall(_duas_caixas(), ranking=True)
+    modulo.load()
+
+    por_clipe: list[dict[str, int | float]] = []
+    for _ in (0, 1):
+        modulo.infer(_lote((0,)), {})
+        por_clipe.append(dict(modulo.telemetry))
+
+    somado = aggregate_telemetry(por_clipe)
+
+    assert somado["ranked_frames"] == 2
+    assert somado["ranking_score_sum"] <= somado["ranked_frames"]
+
+
+def test_o_padrao_do_modulo_esta_preso_por_teste() -> None:
+    """Virar o padrao sem passar por aqui era possivel, e o padrao decide o que roda na Jetson.
+
+    Desligado no codigo e ligado em `config/pipeline.models.toml` de proposito: o valor escolhido
+    por medicao pertence ao arquivo que descreve a execucao, e nao a um argumento nomeado.
+    """
+    padrao = YoloBall()
+
+    assert ";ranking=False,1" in padrao.fingerprint()
+
+
+def test_production_config_keeps_rejected_ranker_disabled() -> None:
+    from pathlib import Path
+
+    from edge.modules.registry import read_config
+
+    entrada = {c.kind: c for c in read_config(Path("config/pipeline.models.toml"))}["ball"]
+
+    assert entrada.options["ranking"] is False
+    assert entrada.options["ranking_candidates"] == 2

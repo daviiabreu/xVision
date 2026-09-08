@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ball-trajectory-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clip_id",
+    "match_id",
+    "video_sha256",
+    "frame_index",
+    "timestamp_s",
+    "center_x",
+    "center_y",
+    "apparent_diameter_px",
+    "visibility",
+    "trajectory_segment",
+    "is_keyframe",
+    "motion_blur",
+    "camera_cut",
+    "annotator",
+    "reviewed_by",
+    "created_at",
+    "quality_flags"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "clip_id": { "type": "string", "minLength": 1 },
+    "match_id": { "type": "string", "minLength": 1 },
+    "video_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "frame_index": { "type": "integer", "minimum": 0 },
+    "timestamp_s": { "type": "number", "minimum": 0 },
+    "center_x": { "type": ["number", "null"] },
+    "center_y": { "type": ["number", "null"] },
+    "apparent_diameter_px": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "visibility": {
+      "enum": ["visible", "occluded", "not-visible", "ambiguous"]
+    },
+    "trajectory_segment": { "type": ["integer", "null"], "minimum": 0 },
+    "is_keyframe": { "type": "boolean" },
+    "motion_blur": { "type": "boolean" },
+    "camera_cut": { "type": "boolean" },
+    "annotator": { "type": "string", "minLength": 1 },
+    "reviewed_by": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "quality_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "visibility": { "const": "visible" } } },
+      "then": {
+        "properties": {
+          "center_x": { "type": "number" },
+          "center_y": { "type": "number" },
+          "apparent_diameter_px": { "type": "number", "exclusiveMinimum": 0 },
+          "trajectory_segment": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "visibility": { "const": "not-visible" } } },
+      "then": {
+        "properties": {
+          "center_x": { "type": "null" },
+          "center_y": { "type": "null" },
+          "apparent_diameter_px": { "type": "null" },
+          "trajectory_segment": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

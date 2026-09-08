@@ -13,10 +13,14 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from api import PREFIXO, create_app, execution, render, store
+from contracts import BallDetection, Box, FramePerception, Perception
+from edge import video as video_renderer
 from edge.testing.make_clip import make_synthetic_clip
 
 from .apoio import cliente_autenticado
@@ -222,14 +226,87 @@ def _sem_pesos(monkeypatch: pytest.MonkeyPatch) -> None:
     def caminho(manifesto: str, especie: str) -> Path:
         return Path(manifesto)
 
-    monkeypatch.setattr(render, "_weights", caminho)
+    monkeypatch.setattr(video_renderer, "_weights", caminho)
+
+
+@pytest.mark.parametrize("fps_factor", [1.0, 2.0])
+def test_ball_is_added_to_the_original_top_view_without_replacing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fps_factor: float
+) -> None:
+    pytest.importorskip("imageio_ffmpeg")
+    _sem_pesos(monkeypatch)
+    script = _ScriptFalso(tmp_path / "unused")
+
+    def original_top_view(
+        tracker: object, video_path: Path, input_dir: Path, homography_model: object
+    ) -> None:
+        capture = cv2.VideoCapture(str(video_path))
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        writer = cv2.VideoWriter(
+            str(script.OUTPUT_DIR / f"{video_path.stem}{render.SUFIXO}"),
+            cv2.VideoWriter.fourcc(*"mp4v"),
+            capture.get(cv2.CAP_PROP_FPS) * fps_factor,
+            (width + 160, height),
+        )
+        assert writer.isOpened()
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            frame[70:100, 30:80] = (210, 60, 40)
+            side = np.full((height, 160, 3), (30, 90, 210), dtype=np.uint8)
+            writer.write(np.concatenate((frame, side), axis=1))
+        capture.release()
+        writer.release()
+
+    monkeypatch.setattr(script, "process_video", original_top_view)
+    monkeypatch.setattr(video_renderer, "_script", lambda: (script, script))
+    clip = make_synthetic_clip(tmp_path / "clip.mp4")
+    evidence = Perception(
+        "video-7",
+        (
+            FramePerception(
+                0, 0, ball=BallDetection(Box(150, 150, 160, 160), 0.9, source="detected")
+            ),
+        ),
+    )
+
+    if fps_factor != 1:
+        previous = render.render_path(7)
+        previous.parent.mkdir(parents=True)
+        previous.write_bytes(b"previous video")
+        with pytest.raises(render.RenderUnavailable, match="FPS"):
+            render.render(7, clip, render.RenderConfig(players="p", field="f"), perception=evidence)
+        assert previous.read_bytes() == b"previous video"
+        return
+
+    target = render.render(
+        7, clip, render.RenderConfig(players="p", field="f"), perception=evidence
+    )
+
+    source = cv2.VideoCapture(str(clip))
+    width = int(source.get(cv2.CAP_PROP_FRAME_WIDTH))
+    count = int(source.get(cv2.CAP_PROP_FRAME_COUNT))
+    source.release()
+    capture = cv2.VideoCapture(str(target))
+    for index in range(count):
+        ok, frame = capture.read()
+        assert ok
+        assert frame.shape[1] == width + 160, "nao pode substituir o layout do top view original"
+        assert np.abs(frame[110, width + 80].astype(int) - (30, 90, 210)).max() < 12
+        assert np.abs(frame[85, 50].astype(int) - (210, 60, 40)).max() < 12
+        if index == 0:
+            region = frame[130:180, 130:200]
+            assert ((region[:, :, 0] > 180) & (region[:, :, 2] > 180)).sum() > 50
+    capture.release()
 
 
 def test_sem_o_script_no_disco_o_render_diz_onde_ele_deveria_estar(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _sem_pesos(monkeypatch)
-    monkeypatch.setattr(render, "MODELOS", tmp_path / "sem-modelos")
+    monkeypatch.setattr(video_renderer, "MODELOS", tmp_path / "sem-modelos")
 
     with pytest.raises(render.RenderUnavailable, match="script da visao superior"):
         render.render(1, tmp_path / "c.mp4", render.RenderConfig(players="p", field="f"))
@@ -241,7 +318,7 @@ def test_o_video_termina_em_var_e_nao_sobra_nada_na_area_de_codigo(
     declarado = tmp_path / "video_tracking"
     _sem_pesos(monkeypatch)
     script = _ScriptFalso(declarado)
-    monkeypatch.setattr(render, "_script", lambda: (script, script))
+    monkeypatch.setattr(video_renderer, "_script", lambda: (script, script))
     clipe = tmp_path / "uploads" / "7.mp4"
     clipe.parent.mkdir(parents=True)
     clipe.write_bytes(b"clipe")
@@ -262,7 +339,7 @@ def test_script_que_termina_sem_deixar_arquivo_e_erro_declarado(
     declarado = tmp_path / "video_tracking"
     _sem_pesos(monkeypatch)
     script = _ScriptFalso(declarado, produz=False)
-    monkeypatch.setattr(render, "_script", lambda: (script, script))
+    monkeypatch.setattr(video_renderer, "_script", lambda: (script, script))
     clipe = tmp_path / "8.mp4"
     clipe.write_bytes(b"clipe")
 
@@ -284,8 +361,8 @@ def test_falha_no_meio_nao_deixa_video_pela_metade_com_o_nome_final(
     def explode(*_: object, **__: object) -> None:
         raise OSError("o disco encheu no meio")
 
-    monkeypatch.setattr(render, "_script", lambda: (script, script))
-    monkeypatch.setattr(render.os, "replace", explode)
+    monkeypatch.setattr(video_renderer, "_script", lambda: (script, script))
+    monkeypatch.setattr(video_renderer.os, "replace", explode)
     clipe = tmp_path / "9.mp4"
     clipe.write_bytes(b"clipe")
 
@@ -305,7 +382,12 @@ def test_o_processamento_chama_a_visao_superior_com_o_clipe_que_chegou(
     """
     chamadas: list[tuple[int, Path]] = []
 
-    def espiao(video_id: int, clipe: Path, configuracao: render.RenderConfig) -> None:
+    def espiao(
+        video_id: int, clipe: Path, configuracao: render.RenderConfig, *, perception: Perception
+    ) -> None:
+        assert perception.clip_id == f"video-{video_id}" and perception.frames
+        atual = store.ler(video_id)
+        assert atual is not None and atual.etapa_atual == "render"
         chamadas.append((video_id, clipe))
 
     monkeypatch.setattr(render, "render", espiao)
@@ -340,6 +422,40 @@ def test_visao_superior_que_falha_nao_derruba_a_analise_que_deu_certo(
     assert not render.render_path(video.id).exists()
 
 
+def test_missing_shot_keeps_the_annotated_video_from_the_same_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("imageio_ffmpeg")
+    import cv2
+
+    def configured_render(
+        clipe: Path, destino: Path, config: render.RenderConfig, *, perception: Perception
+    ) -> Path:
+        assert perception.frames and clipe.is_file()
+        return make_synthetic_clip(destino)
+
+    monkeypatch.setattr(video_renderer, "render_video", configured_render)
+    config = tmp_path / "no-shot.toml"
+    text = PIPELINE.read_text()
+    start = text.index("[modules.shot]")
+    end = text.index("[", start + 1)
+    config.write_text(text[:start] + text[end:])
+    owner = store.criar_principal("servico", "no-shot", token_hash="e" * 64)
+    video = store.criar("clip.mp4", "video/mp4", principal_id=owner.id)
+    clip = make_synthetic_clip(tmp_path / "clip.mp4")
+
+    execution.processar_video(video.id, clip, config)
+
+    saved = store.ler(video.id)
+    assert saved is not None and saved.estado == store.FALHOU
+    assert render.render_path(video.id).is_file(), "sem chute ainda existem deteccoes para mostrar"
+    capture = cv2.VideoCapture(str(render.render_path(video.id)))
+    ok, frame = capture.read()
+    capture.release()
+    assert ok and frame is not None
+
+
 def test_dois_renders_ao_mesmo_tempo_nao_trocam_a_pasta_um_do_outro(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -363,7 +479,7 @@ def test_dois_renders_ao_mesmo_tempo_nao_trocam_a_pasta_um_do_outro(
         original(tracker, video_path, input_dir, homography_model)
 
     monkeypatch.setattr(script, "process_video", devagar)
-    monkeypatch.setattr(render, "_script", lambda: (script, script))
+    monkeypatch.setattr(video_renderer, "_script", lambda: (script, script))
     stdout = sys.stdout
     clipes: list[tuple[int, Path]] = []
     for numero in (7, 8):
@@ -384,3 +500,10 @@ def test_dois_renders_ao_mesmo_tempo_nao_trocam_a_pasta_um_do_outro(
     assert declarado == script.OUTPUT_DIR, "o global ficou apontando para uma oficina apagada"
     assert not declarado.exists(), "sobrou video na area de codigo"
     assert sys.stdout is stdout, "o redirect deixou o stdout do processo preso num buffer"
+
+
+def test_renderer_refuses_evidence_from_another_video(tmp_path: Path) -> None:
+    with pytest.raises(render.RenderUnavailable, match="outro video"):
+        render.render(
+            1, tmp_path / "clip.mp4", render.RenderConfig(), perception=Perception("video-2", ())
+        )
