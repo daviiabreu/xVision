@@ -26,7 +26,18 @@ def _box() -> Box:
 
 
 def _field() -> FieldGeometry:
-    return FieldGeometry(homography=(1.0,) * 9, reprojection_error_px=0.5)
+    return FieldGeometry(
+        homography=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+        reprojection_error_px=0.5,
+        reprojection_error_p95_px=0.8,
+        keypoints=(),
+        observed_keypoint_count=6,
+        inlier_count=6,
+        source="detected",
+        age_frames=0,
+        template_id="pitch-105x68-center-v1",
+        reason=None,
+    )
 
 
 def _jogador(pitch_xy: tuple[float, float] | None) -> PlayerDetection:

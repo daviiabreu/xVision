@@ -54,8 +54,16 @@ ladrilhos       = 2
 sobreposicao_px = 100
 
 [modules.field]
-impl   = "edge.modules.stubs:StubField"
+impl     = "edge.modules.field:YoloField"
+artifact = "models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
 frames   = "dense"
+imgsz                         = 960
+conf                          = 0.25
+method                        = "ransac"
+keypoint_confidence           = 0.25
+threshold_diagonal_fraction   = 0.0025
+min_inliers                   = 6
+max_reprojection_p95_px       = 10.0
 
 [modules.shot]
 impl   = "edge.modules.shot:BallBreakShot"

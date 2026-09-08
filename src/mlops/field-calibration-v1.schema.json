@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "field-calibration-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clip_id",
+    "match_id",
+    "video_sha256",
+    "frame_index",
+    "frame_width",
+    "frame_height",
+    "annotator",
+    "reviewed_by",
+    "created_at",
+    "quality_flags",
+    "visible_pitch_elements",
+    "line_points",
+    "field_dimensions_m"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "clip_id": { "type": "string", "minLength": 1 },
+    "match_id": { "type": "string", "minLength": 1 },
+    "video_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "frame_index": { "type": "integer", "minimum": 0 },
+    "frame_width": { "type": "integer", "minimum": 1 },
+    "frame_height": { "type": "integer", "minimum": 1 },
+    "annotator": { "type": "string", "minLength": 1 },
+    "reviewed_by": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "quality_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "visible_pitch_elements": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "line_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["element", "image_xy", "pitch_xy"],
+        "properties": {
+          "element": { "type": "string", "minLength": 1 },
+          "image_xy": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "prefixItems": [{ "type": "number" }, { "type": "number" }],
+              "items": false
+            }
+          },
+          "pitch_xy": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "prefixItems": [{ "type": "number" }, { "type": "number" }],
+              "items": false
+            }
+          }
+        }
+      }
+    },
+    "field_dimensions_m": {
+      "type": ["array", "null"],
+      "minItems": 2,
+      "prefixItems": [
+        { "type": "number", "exclusiveMinimum": 0 },
+        { "type": "number", "exclusiveMinimum": 0 }
+      ],
+      "items": false
+    }
+  }
+}

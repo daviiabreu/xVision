@@ -871,6 +871,108 @@ def _comparar_bola(
         typer.echo(f"    perdeu: {' '.join(perdas)}")
 
 
+FIELD_LABELS = typer.Option(..., help="JSONL validado pelo schema field-calibration-v1.")
+FIELD_CONFIG = typer.Option(None, help="Configuracao com o modulo field a medir.")
+FIELD_JSON = typer.Option(None, help="Grava somente o relatorio agregado em JSON.")
+FIELD_METHOD = typer.Option(None, help="Sobrescreve least-squares, ransac ou magsac.")
+FIELD_DOBRA = typer.Option("ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+FIELD_PROPOSALS = typer.Option(
+    False, help="Inclui propostas em diagnostico exploratorio explicito."
+)
+
+
+@app.command("eval-field")
+def eval_field(
+    labels: Path = FIELD_LABELS,
+    config: Path | None = FIELD_CONFIG,
+    saida: Path | None = FIELD_JSON,
+    method: str | None = FIELD_METHOD,
+    dobra: str = FIELD_DOBRA,
+    include_proposals: bool = FIELD_PROPOSALS,
+) -> None:
+    """Mede homografia em linhas confirmadas por humano, preservando a procedencia."""
+    from contracts import FieldGeometry
+    from edge.artifacts import sha256_of
+    from edge.graph.runner import assemble
+    from edge.modules.registry import ConfigurableModule
+    from mlops.field_quality import (
+        FieldLabelError,
+        evaluation_labels,
+        read_field_labels,
+        validate_label_video,
+    )
+    from mlops.field_quality import measure as measure_field
+
+    path = _config(config)
+    folds = DOBRAS_DA_BOLA.get(dobra)
+    if folds is None:
+        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        annotations = read_field_labels(labels)
+        catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
+        modules = load_modules(read_config(path))
+    except ERROS_DE_USO + (FieldLabelError,) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    field = modules.get("field")
+    if field is None:
+        typer.echo(f"{path} nao declara modules.field", err=True)
+        raise typer.Exit(code=1)
+    if method is not None:
+        if not isinstance(field, ConfigurableModule):
+            typer.echo("o modulo field nao aceita trocar method", err=True)
+            raise typer.Exit(code=1)
+        field.configure({"method": method})
+    selected = tuple(
+        annotation
+        for annotation in annotations
+        if annotation.clip_id in catalog
+        and catalog[annotation.clip_id].fold in folds
+        and catalog[annotation.clip_id].match_id == annotation.match_id
+    )
+    if not selected:
+        typer.echo("nenhum frame anotado pertence a dobra e ao catalogo selecionados", err=True)
+        raise typer.Exit(code=1)
+    grouped: dict[str, list[Any]] = {}
+    for annotation in evaluation_labels(selected, include_proposals=include_proposals):
+        grouped.setdefault(annotation.clip_id, []).append(annotation)
+    geometries: dict[tuple[str, int], FieldGeometry] = {}
+    field.load()
+    try:
+        for clip_id, group in grouped.items():
+            record = catalog[clip_id]
+            clip = replace(probe(record.clip_path, clip_id=clip_id), match_id=record.match_id)
+            video_sha256 = sha256_of(record.clip_path)
+            for annotation in group:
+                validate_label_video(annotation, clip, video_sha256)
+            provider = FrameProvider(VideoSource(record.clip_path))
+            try:
+                indices = tuple(annotation.frame_index for annotation in group)
+                batch = provider.frames(indices, field.spec.preprocess)
+                output = field.infer(batch, {})
+                perception = assemble(clip, {"field": output})
+            finally:
+                provider.close()
+            geometries.update(
+                ((clip_id, frame.frame_index), frame.field)
+                for frame in perception.frames
+                if frame.field is not None
+            )
+    except FieldLabelError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    finally:
+        field.close()
+    report = measure_field(selected, geometries, include_proposals=include_proposals)
+    document = {"population": f"folds={sorted(folds)}", **report.to_dict()}
+    typer.echo(json.dumps(document, indent=2, ensure_ascii=False))
+    if saida is not None:
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        typer.echo(f"  {saida}")
+
+
 PLACAR_RUN = typer.Option(..., help="Execucao com --gabarito de onde ler as features.")
 PLACAR_BOLA = typer.Option(..., help="JSON gravado por eval-ball com --saida.")
 

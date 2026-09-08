@@ -12,7 +12,7 @@ import pytest
 from contracts import Clip, Perception, PipelineMetadata
 from edge.frames.provider import MissingFrame
 from edge.graph.framesets import read_framesets
-from edge.graph.runner import RunResult, run_pipeline
+from edge.graph.runner import RunResult, assemble, run_pipeline
 from edge.modules.base import (
     FrameBatch,
     ModuleError,
@@ -303,6 +303,104 @@ def test_pitch_coordinates_only_survive_where_the_field_module_ran() -> None:
     assert quadro.field is None
     assert all(jogador.pitch_xy is None for jogador in quadro.players)
     assert quadro.ball is not None and quadro.ball.pitch_xy is None
+
+
+def test_assembler_projects_player_feet_with_detected_field_geometry() -> None:
+    homography = (10.0, 0.0, 960.0, 0.0, -10.0, 540.0, 0.0, 0.0, 1.0)
+    field = {
+        "homography": homography,
+        "reprojection_error_px": 0.2,
+        "reprojection_error_p95_px": 0.4,
+        "keypoints": (),
+        "observed_keypoint_count": 8,
+        "inlier_count": 8,
+        "source": "detected",
+        "age_frames": 0,
+        "template_id": "pitch-105x68-center-v1",
+        "reason": None,
+    }
+    outputs = {
+        "field": ModuleOutput("field", (5,), (((field),),)),
+        "players": ModuleOutput(
+            "players",
+            (5,),
+            ((({"box": (1060.0, 500.0, 1100.0, 620.0), "confidence": 0.9}),),),
+        ),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert perception.frames[0].players[0].pitch_xy == pytest.approx((12.0, -8.0))
+
+
+def test_assembler_does_not_publish_player_coordinates_outside_the_template() -> None:
+    field = {
+        "homography": (10.0, 0.0, 960.0, 0.0, -10.0, 540.0, 0.0, 0.0, 1.0),
+        "reprojection_error_px": 0.2,
+        "reprojection_error_p95_px": 0.4,
+        "keypoints": (),
+        "observed_keypoint_count": 8,
+        "inlier_count": 8,
+        "source": "detected",
+        "age_frames": 0,
+        "template_id": "pitch-105x68-center-v1",
+        "reason": None,
+    }
+    outputs = {
+        "field": ModuleOutput("field", (5,), (((field),),)),
+        "players": ModuleOutput(
+            "players",
+            (5,),
+            ((({"box": (1940.0, 100.0, 1980.0, 120.0), "confidence": 0.9}),),),
+        ),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert perception.frames[0].players[0].pitch_xy is None
+
+
+def test_assembler_never_projects_an_airborne_ball_on_the_pitch_plane() -> None:
+    field = {
+        "homography": (10.0, 0.0, 960.0, 0.0, -10.0, 540.0, 0.0, 0.0, 1.0),
+        "reprojection_error_px": 0.2,
+        "reprojection_error_p95_px": 0.4,
+        "keypoints": (),
+        "observed_keypoint_count": 8,
+        "inlier_count": 8,
+        "source": "detected",
+        "age_frames": 0,
+        "template_id": "pitch-105x68-center-v1",
+        "reason": None,
+        "refinement": "accepted",
+        "line_support_count": 6,
+    }
+    outputs = {
+        "field": ModuleOutput("field", (5,), (((field),),)),
+        "ball": ModuleOutput(
+            "ball",
+            (5,),
+            (
+                (
+                    (
+                        {
+                            "box": (1075.0, 615.0, 1085.0, 625.0),
+                            "confidence": 0.9,
+                            "pitch_xy": (12.0, -8.0),
+                        }
+                    ),
+                ),
+            ),
+        ),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert perception.frames[0].ball is not None
+    assert perception.frames[0].ball.pitch_xy is None
+    assert perception.frames[0].field is not None
+    assert perception.frames[0].field.refinement == "accepted"
+    assert perception.frames[0].field.line_support_count == 6
 
 
 def _stub(kind: str) -> PerceptionModule:

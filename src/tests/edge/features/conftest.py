@@ -86,5 +86,16 @@ def _frame(
         )
         if ball
         else None,
-        field=FieldGeometry(homography=homography, reprojection_error_px=reprojection_error_px),
+        field=FieldGeometry(
+            homography=homography,
+            reprojection_error_px=reprojection_error_px,
+            reprojection_error_p95_px=reprojection_error_px,
+            keypoints=(),
+            observed_keypoint_count=6 if homography is not None else 0,
+            inlier_count=6 if homography is not None else 0,
+            source="detected" if homography is not None else "unavailable",
+            age_frames=0,
+            template_id="pitch-105x68-center-v1",
+            reason=None if homography is not None else "insufficient-keypoints",
+        ),
     )

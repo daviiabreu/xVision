@@ -230,3 +230,25 @@ def test_a_bola_tem_peso_proprio_e_nao_o_de_jogadores() -> None:
     entradas = {c.kind: c for c in read_config(Path("config/pipeline.models.toml"))}
 
     assert entradas["ball"].artifact != entradas["players"].artifact
+
+
+def test_o_campo_de_producao_usa_o_modulo_real_e_o_manifesto_versionado() -> None:
+    entrada = {c.kind: c for c in read_config(MODELOS)}["field"]
+
+    assert entrada.impl == "edge.modules.field:YoloField"
+    assert entrada.artifact == ("models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml")
+    assert entrada.options["method"] == "ransac"
+    assert entrada.options["min_inliers"] == 6
+
+
+def test_o_onnx_do_campo_registra_o_pt_pai_e_os_shapes_fixos() -> None:
+    manifesto = read_manifest(
+        Path("models/manifests/field/pitch-keypoints-yolo11n-pose-onnx-0.1.0.toml")
+    )
+
+    assert manifesto.entrypoint == "best.onnx"
+    assert manifesto.source["parent_pt_sha256"] == (
+        "650a84407ae9833106d87b39a2063d2ab8b92e8ac12c2d4f36ffd09f0de37674"
+    )
+    assert manifesto.source["input"] == "images:float32:1x3x544x960:NCHW"
+    assert manifesto.source["output"] == "output0:float32:1x92x10710"

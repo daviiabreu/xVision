@@ -89,10 +89,12 @@ def test_o_carregador_do_modelo_de_homografia_continua_onde_o_render_o_busca() -
     assert [argumento.arg for argumento in carrega.args.args] == ["path"]
 
 
-def test_o_pipeline_do_repositorio_declara_os_dois_pesos_do_render() -> None:
-    configuracao = render.read_config(PIPELINE)
+@pytest.mark.parametrize("name", ["pipeline.toml", "pipeline.models.toml"])
+def test_o_pipeline_do_repositorio_declara_os_dois_pesos_do_render(name: str) -> None:
+    pipeline = PROJETO / "config" / name
+    configuracao = render.read_config(pipeline)
 
-    assert configuracao is not None, f"{PIPELINE} nao declara [{render.SECAO}]"
+    assert configuracao is not None, f"{pipeline} nao declara [{render.SECAO}]"
     for manifesto in (configuracao.players, configuracao.field):
         assert (PROJETO / manifesto).is_file(), f"{manifesto} nao existe"
 

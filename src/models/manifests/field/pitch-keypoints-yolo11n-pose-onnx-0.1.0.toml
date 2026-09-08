@@ -1,0 +1,20 @@
+schema_version = "1.0"
+kind = "field"
+name = "pitch-keypoints-yolo11n-pose-onnx"
+version = "0.1.0"
+entrypoint = "best.onnx"
+
+[[files]]
+path = "best.onnx"
+sha256 = "26fa41064a962dd05e24f136c0e6b915aa730cfc266b3d56992e1bb1288042ca"
+bytes = 13062996
+
+[source]
+parent_pt_sha256 = "650a84407ae9833106d87b39a2063d2ab8b92e8ac12c2d4f36ffd09f0de37674"
+exporter = "ultralytics-8.4.123"
+onnx = "1.22.0"
+opset = "17"
+input = "images:float32:1x3x544x960:NCHW"
+output = "output0:float32:1x92x10710"
+dynamic = "false"
+nms = "false"

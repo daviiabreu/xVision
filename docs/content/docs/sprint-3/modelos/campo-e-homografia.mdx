@@ -1,0 +1,475 @@
+---
+title: Campo e homografia
+description: Integração do modelo de 29 keypoints, calibração robusta e projeção de jogadores no campo canônico
+---
+
+Esta entrega substitui o `StubField` da configuração de modelos por uma percepção real de campo.
+Ela se encaixa no [pipeline da Sprint 3](/docs/sprint-3) antes das features espaciais e não depende
+dos módulos de identidade ou de classificação da jogada.
+
+Estado em 08/09/2026: integração parcial do modelo de campo e da avaliação. A varredura de
+parâmetros de 06/09 fechou a hipótese de que afrouxar o ajuste recuperaria os quadros sem
+homografia, e nada mudou na configuração padrão por causa dela. A qualidade continua sem
+medida independente: das 30 anotações de campo, apenas três são humanas. A integração não
+representa aprovação de acurácia; a segunda anotação cega e a medição na Jetson permanecem
+pendentes.
+
+## Onde se encaixa no fluxo
+
+```text
+FrameBatch 960 x 544
+  -> backend PyTorch FP32
+  -> 29 keypoints semânticos
+  -> RANSAC
+  -> refinamento global por retas brancas, opcional
+  -> FieldGeometry
+  -> projeção do centro inferior das caixas de jogadores
+```
+
+Falha técnica do backend encerra a etapa como `failed`. Evidência visual insuficiente termina a
+etapa normalmente, mas produz um `FieldGeometry` indisponível com motivo fechado. A bola não é
+projetada no plano porque pode estar no ar.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que não faz |
+| --- | --- | --- |
+| `YoloField` | executar o peso, converter os pontos ao quadro original e produzir um registro por frame | não reutiliza a última homografia |
+| `PyTorchBackend` | validar artefato, bindings, shape, dtype, device e ciclo de vida | não interpreta keypoint ou classe |
+| `FieldTemplate` | nomear os 29 índices e fixar o campo nominal de 105 x 68 m | não afirma a dimensão física do estádio |
+| `calibrate` | comparar mínimos quadrados, RANSAC e MAGSAC e rejeitar ajuste frágil | não acessa vídeo nem estado temporal |
+| `refine_white_lines` | ajustar uma única matriz com apoio de retas brancas próximas ao gramado | não identifica o campo sem keypoints nem salva anotação |
+| `edge.graph.runner` | projetar o centro inferior da caixa de cada jogador | não projeta bola aérea |
+| `api.render` | preservar o top view original, com tracking e identificação de jogadores | não valida a homografia usada nas features |
+| `xvision eval-field` | medir linhas independentes, completude e erro | não abre o conjunto reservado por padrão |
+
+## Fluxo de dados
+
+A entrada é um `FrameBatch` BGR `uint8`, com `source_size`. O backend recebe `images` FP32 no
+shape fixo `1 x 3 x 544 x 960`. A rede devolve `output0` no shape `1 x 92 x 10710`, e o
+pós-processamento produz 29 triplas de posição e confiança.
+
+A homografia pública sempre segue a direção campo para imagem. O campo canônico tem origem no
+centro, eixo x da esquerda para a direita e eixo y na direção da lateral inferior do template. O
+resultado carrega matriz, erro mediano, erro p95, pontos observados, inliers, template, fonte e
+motivo. `refinement` registra ajuste aceito, desativado ou recusado; `line_support_count` informa
+quantas retas deram apoio. Essa procedência chega ao `FieldGeometry` montado pelo runner. Uma
+matriz ausente nunca vira identidade, zero ou coordenada em pixel com nome de metro.
+
+## Decisões
+
+**RANSAC é o padrão inicial.** O caminho anterior usava todos os pontos por mínimos quadrados, então
+um único ponto deslocado contaminava a matriz. RANSAC usa o mesmo peso, expõe inliers e resolve a
+deficiência com menor superfície nova. MAGSAC permanece selecionável pela configuração e só será
+promovido se vencer sobre os mesmos frames e limiares normalizados. A documentação do
+[`findHomography`](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html) define os métodos e a
+máscara de inliers.
+
+**O limiar robusto é uma fração da diagonal.** Um valor absoluto mudaria de significado entre
+resoluções. O módulo converte a fração para pixels no momento do ajuste.
+
+**O template inicial é nominal.** A Lei 1 da
+[IFAB](https://www.theifab.com/laws/latest/the-field-of-play/) permite dimensões dentro de faixas.
+Por isso todo resultado registra `pitch-105x68-center-v1`, e a coordenada não é apresentada como
+medida exata do estádio sem dimensão confirmada.
+
+**O runtime usa bindings nomeados e shapes fixos.** Shape dinâmico foi descartado porque nenhum
+consumidor atual envia outra forma e porque aumenta a superfície de paridade no dispositivo. O
+backend recusa digest, shape, dtype e chamada concorrente incompatíveis.
+
+**A avaliação usa linhas independentes dos keypoints da rede.** Medir nos mesmos pontos usados para
+ajustar a matriz favoreceria o estimador. O schema `field-calibration-v1` registra polilinhas no
+quadro e suas correspondências canônicas.
+
+O avaliador exige a confirmação `human-annotated` e exclui propostas ainda pendentes, registrando
+o total recebido e o denominador efetivamente medido. A opção `--include-proposals` preserva o
+diagnóstico exploratório, identificado no JSON; esse resultado não mede acurácia independente.
+Anotações assistidas por branco ou propagação têm contagem separada e não equivalem a revisão
+cega. Antes da inferência, o comando confere SHA-256, dimensões e índice do quadro contra o vídeo.
+
+O módulo `yolo-field` passou à versão `0.1.1` para invalidar seu cache anterior. A calibração e o
+refinamento compartilham a recusa de matriz sem inversa finita ou com horizonte cruzando o campo
+canônico, usando os limites geométricos já adotados pelo refinamento. Esses gates de integridade
+não substituem a medição de qualidade; os resultados históricos abaixo antecedem essa correção.
+
+## Artefatos e resultados reproduzidos
+
+| Artefato ou verificação | Resultado |
+| --- | --- |
+| PyTorch | SHA-256 `650a84407ae9833106d87b39a2063d2ab8b92e8ac12c2d4f36ffd09f0de37674`, 29 keypoints |
+| ONNX | SHA-256 `26fa41064a962dd05e24f136c0e6b915aa730cfc266b3d56992e1bb1288042ca`, 13.062.996 bytes |
+| Export | Ultralytics 8.4.123, ONNX 1.22.0, opset 17, batch 1, shape fixo, NMS fora do grafo |
+| Checker | modelo aceito e shapes inferidos como entrada `1 x 3 x 544 x 960` e saída `1 x 92 x 10710` |
+| Reexportação normalizada em 04/09 | dois arquivos de 13.062.983 bytes idênticos; SHA-256 `0cedbca07747b3692001a2db9e0888cc37f93b749d36d20a2945711610488ba5` |
+| Paridade sintética FP32 | p95 absoluto `0,0000305`, máximo `0,001282`, ONNX Runtime em CPU |
+| Paridade pós-processada FP32 | 34/34 frames de 17 partidas mantiveram disponibilidade e decisão geométrica; p95 de keypoint `0,000153 px`, máximo `0,000492 px` e diferença máxima de confiança `0,00000119` |
+| Smoke do módulo real | uma entrada sintética, uma saída explícita `no-field-instance`, sem fallback |
+| Preflight de desenvolvimento | 30 frames, 15 partidas, somente dobras 0 a 2; LS disponível em 28, RANSAC em 22 e MAGSAC em 17 |
+| Erro interno do preflight | mediana de `3,557 px` em LS, `0,964 px` em RANSAC e `0,000061 px` em MAGSAC |
+
+O smoke e a primeira paridade usam tensores sintéticos. A paridade pós-processada e o preflight
+usam somente frames das dobras 0 a 2. O preflight manteve peso, limiar e resolução fixos, mas mede
+reprojeção nos próprios keypoints usados para o ajuste. Ele prova execução no domínio e mostra o
+conflito entre cobertura e ajuste interno, não a qualidade da homografia. MAGSAC repetiu a mesma
+decisão em três passagens. A seleção entre os métodos continua dependendo das linhas anotadas de
+forma independente.
+
+Comandos realmente executados para validar o código e resolver o artefato provisionado:
+
+```bash
+cd src
+uv run --all-extras pytest -q tests/edge/modules/field tests/edge/test_runtime.py
+uv run --all-extras python -c 'from edge.artifacts import entrypoint_of; print(entrypoint_of("models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"))'
+```
+
+O exportador versionado resolve o manifesto, faz duas exportações isoladas, normaliza somente
+a data e exige igualdade byte a byte. Comando executado, com a raiz privada ajustada ao ambiente:
+
+```bash
+cd src
+uv run --all-extras --with onnx --with onnxruntime python -m mlops.export_onnx \
+  --manifest models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml \
+  --height 544 --width 960 \
+  --output ../var/runs/model-onnx-parity/deterministic-field-20260904
+```
+
+Depois de concluir o piloto anotado, o comando previsto é:
+
+```bash
+cd src
+uv run xvision eval-field --labels ../var/labels/field-calibration-v1.jsonl --config config/pipeline.models.toml --dobra ajuste --saida ../var/runs/field-homography/<execucao>/metrics.json
+```
+
+O ONNX anterior continua identificado pelo SHA histórico; nenhum manifesto foi substituído.
+`mlops.export_onnx` fixa somente o metadata `date` e preserva grafo, licença e demais propriedades.
+O relatório registra digest do peso, manifesto, exportador e versões. A igualdade foi comprovada
+no mesmo ambiente, não entre versões arbitrárias do PyTorch ou plataformas.
+
+A paridade do ONNX normalizado foi repetida nos 30 quadros do piloto: disponibilidade e estado
+do refinamento coincidiram em 30/30, incluindo os três ajustes aceitos. O maior deslocamento
+de uma projeção visível foi 0,00118 pixel. Isso comprova equivalência com o PyTorch nesse
+piloto, não qualidade da homografia contra uma referência humana.
+
+## Trade-offs
+
+### Varredura no acervo de desenvolvimento
+
+Foram decodificados integralmente 367 clipes de 17 partidas nas dobras 0 a 2. A varredura
+executou o modelo em três índices fixos por clipe, a 25%, 50% e 75% da duração, totalizando
+1.101 quadros. A homografia ficou disponível em 764, tanto na baseline quanto no refinador.
+Os 337 restantes tiveram 265 recusas por inliers insuficientes, 59 por poucos keypoints,
+nove por degeneração e quatro sem instância de campo.
+
+Os 764 de 1.101 quadros são uma medição histórica do módulo `0.1.0`. A cobertura do módulo
+`0.1.1`, que acrescenta a recusa geométrica descrita acima, ainda não foi medida novamente.
+
+O alinhamento ao branco aceitou 65 ajustes, recusou 503 por geometria insegura e 196 por
+apoio insuficiente de linhas. Esses números medem cobertura e comportamento operacional,
+não acurácia: não há anotação humana independente nesses quadros adicionais. Também mostram
+que o refinador não recupera uma homografia inicial ausente. Artefatos privados em
+`var/runs/field-homography/expanded-development-20260904/`.
+
+### Varredura de parâmetros de calibração
+
+A varredura de 06/09/2026 testou a hipótese mais barata para os 337 quadros sem homografia: que o
+ajuste estava apertado demais. Ela guardou as observações cruas dos mesmos 1.101 quadros uma única
+vez e recalibrou offline em dezesseis combinações de método, limiar e mínimo de inliers. A
+configuração de produção reproduziu exatamente os 764 quadros da varredura anterior, o que também
+confirma que o caminho PyTorch e o caminho ONNX concordam nesta população, e não apenas nos 34
+quadros da paridade.
+
+A medida de qualidade aqui não é acurácia e não podia ser, porque não há anotação humana suficiente.
+É consistência por keypoint deixado de fora: com o conjunto de inliers que a configuração escolheu,
+o ajuste é refeito sem um dos pontos e o erro é medido justamente nesse ponto. O sub-ajuste usa
+mínimos quadrados de propósito, e não a configuração em teste. Sem isso, `min_inliers` apareceria
+duas vezes, escolhendo o conjunto e decidindo se o ajuste sem um ponto conta, e a comparação mediria
+a regra de aceite em vez do modelo.
+
+| Configuração | Disponibilidade | Mediana fora do ajuste | p95 fora do ajuste |
+| --- | ---: | ---: | ---: |
+| `ransac`, 0,0025, 6 (produção) | 69,4% | 4,81 px | 33,90 px |
+| `ransac`, 0,0025, 5 | 88,6% | 5,15 px | 265,16 px |
+| `magsac`, 0,0025, 5 | 88,1% | 4,07 px | 539,10 px |
+| `magsac`, 0,0025, 6 | 55,2% | 3,63 px | 22,41 px |
+| `ransac`, 0,005, 6 | 84,6% | 7,44 px | 43,34 px |
+
+Na comparação pareada, restrita aos quadros que as duas configurações cobrem, `ransac` com mínimo
+5 produz exatamente a mesma mediana e o mesmo p95 da produção: ele não muda nada nos quadros que já
+funcionavam e só acrescenta 211. O p95 global saltar de 33,90 px para 265,16 px diz o que são esses
+quadros acrescentados: homografias sustentadas por exatamente cinco pontos, que erram muito no
+sexto. `magsac` com mínimo 5 melhora a mediana pareada, de 4,81 px para 3,68 px, mas leva o p95
+pareado de 33,90 px para 245,37 px, ou seja, escolhe conjuntos de inliers piores em quadros que já
+estavam resolvidos.
+
+Nenhuma das dezesseis combinações compra cobertura sem piorar a consistência, então a configuração
+padrão continua `ransac`, 0,0025 e mínimo de seis inliers. O resultado é negativo e vale como
+resultado: os quadros sem homografia não são um problema de limiar, e sim de keypoint. A análise de
+suprimento da seção seguinte foi feita para descobrir de qual problema de keypoint se trata, e
+corrige a leitura mais óbvia: não é falta de pontos nem identidade trocada.
+
+Artefatos privados em `var/runs/field-homography/parameter-sweep-20260906-v3/`.
+
+### Análise de suprimento de keypoints
+
+A varredura de parâmetros disse que o limiar não é o gargalo, mas não disse qual é. A análise de
+07/09/2026 abriu as observações cruas dos mesmos 1.101 quadros e mediu o suprimento antes da
+calibração: quantos pontos confiantes cada quadro tem, quais nomes são esses, quão precisos eles
+são e o que acontece com os que a RANSAC descarta. Ela não executou o modelo de novo e não tocou
+nenhum arquivo do repositório.
+
+O primeiro número já elimina a hipótese de quantidade. Com o limiar de confiança de produção,
+**89,6% dos quadros têm os seis pontos que a calibração exige, e só 69,4% calibram**. A confiança do
+detector é bimodal, mediana de 0,84 a 0,99 quando passa e de 0,005 a 0,3 quando não passa, então
+mover o limiar entre 0,15 e 0,35 desloca essa reserva em cerca de dois pontos percentuais. Baixar o
+limiar também não acrescentaria suprimento limpo: das detecções abaixo de 0,25 que caem dentro do
+quadro, só 25% acertam dentro de 11 px.
+
+Dos 267 quadros recusados por inliers insuficientes, 216 tinham seis ou mais candidatos. Refazendo a
+RANSAC nesses 216 com o dobro do limiar geométrico, 167 passam a ter seis inliers; com o triplo,
+191. O erro dos pontos descartados contra o modelo que a RANSAC ajustou fica entre 11 px e 50 px em
+56% dos casos e abaixo de 11 px em 18%. Ou seja, cerca de três quartos das recusas são pontos poucos
+pixels fora de um modelo que já é consistente: **imprecisão, e não identidade**.
+
+Que não é identidade foi medido de forma independente, por invariantes de ordenação que uma troca de
+rótulo quebraria. Ordenação `pt1` antes de `pt2` dentro de um mesmo lado: zero inversões em 2.278
+comparações. Ordenação de topo e base: zero em 2.102. Colinearidade dos pontos de linha de fundo com
+três ou mais pontos confiantes: uma violação em 956 quadros. Pares espelhados esquerda e direita são
+raramente co-visíveis, 34 quadros, e neles a ordenação em x se inverte em dois. **A confusão de
+identidade entre pontos confiantes é praticamente nula.**
+
+A imprecisão, ao contrário, se concentra em tipos específicos de ponto. Medindo cada detecção
+confiante contra a homografia aceita do próprio quadro, sobre 6.358 detecções, a mediana é 1,5 px e
+o p90 é 16,7 px, com 21,4% acima do limiar de 5,5 px. A distribuição por nome separa dois grupos:
+
+| Nome do keypoint | p90 do erro | Acima de 5,5 px |
+| --- | ---: | ---: |
+| `big_rect_left_bottom_pt2` | 54 px | 33% |
+| `big_rect_right_bottom_pt2` | 33 px | 30% |
+| `big_rect_right_top_pt2` | 27 px | 29% |
+| `left_semicircle_right` | 25 px | 31% |
+| `right_semicircle_left` | 24 px | 35% |
+| `big_rect_left_top_pt1` a `big_rect_right_top_pt1` | 3 a 4 px | baixo |
+| grupo `small_rect_*` | 7 a 13 px | baixo |
+
+O padrão é geométrico e não aleatório: os pontos de tangência do semicírculo e as quinas distantes da
+grande área, os `*_pt2`, são justamente os que a imagem define por interseção de curva com reta ou
+por uma quina em perspectiva rasa. As quinas próximas, `*_pt1`, e a pequena área ficam uma ordem de
+grandeza melhores. Os mesmos nomes lideram a taxa de descarte pela RANSAC nos quadros que falham:
+`big_rect_left_bottom_pt2` é descartado em 52% das vezes em que se candidata, `big_rect_right_bottom_pt2`
+em 49%, `left_semicircle_right` em 39%.
+
+Este número tem um limite que precisa ser dito: a homografia aceita foi ajustada sobre parte desses
+mesmos pontos, então o erro dos inliers é otimista. A conclusão não depende disso, porque a
+recuperação com limiar dobrado foi medida nos 216 quadros que não têm homografia aceita nenhuma, e a
+consistência fora do ajuste da seção anterior já mede o mesmo efeito sem circularidade.
+
+Os nomes que quase nunca aparecem são periféricos, não difíceis: linha de fundo próxima, grupo da
+linha de meio campo e círculo central. A mediana de confiança quando eles faltam é de 0,005 a 0,007,
+ou seja o detector afirma ausência e não dá um palpite fraco, e o enquadramento de finalização
+realmente os corta. Projetados pelas homografias aceitas, eles caem dentro do quadro em 0,3% dos
+casos. Torná-los confiáveis somaria cerca de zero.
+
+Com isso as duas alavancas ficam medidas e ordenadas:
+
+| Alavanca | O que ela recupera | Teto |
+| --- | --- | ---: |
+| Quantidade | quadros com menos de seis candidatos | 114 quadros, 10,4 pp |
+| Qualidade | quadros com seis ou mais candidatos e sem homografia | 223 quadros, 20,3 pp |
+
+**A alavanca de qualidade é o dobro da de quantidade.** O teto de quantidade é ainda mais otimista do
+que parece: dos 114 quadros curtos, 94 têm no mesmo clipe um quadro calibrado que serve de
+referência de visibilidade, e todos os 94 chegariam a seis candidatos somente se todo nome visível
+no clipe fosse detectado. Esses quadros perdem de três a nove nomes visíveis ao mesmo tempo, moda
+quatro, distribuídos por igual entre os nomes, o que descreve degradação do quadro inteiro e não
+deficiência de um nome.
+
+Três achados laterais que valem para o planejamento. A taxa de falha por partida vai de 12% a 57%, e
+seis das dezessete partidas concentram metade das falhas, com a dobra 2 em 33% de inliers
+insuficientes contra 18% a 22% nas dobras 0 e 1: sede e câmera importam, e a estratificação por
+partida do split existente é o que impede isso de virar viés silencioso. Pontos extrapolados para
+fora da imagem são super-representados entre os descartados, 11,2% contra 6,4% dos aceitos, e 2,6%
+das detecções confiantes em quadros calibrados nomeiam um ponto que projeta fora do quadro. E nos 33
+quadros de enquadramento central, `field_center` fica a mais de 16,5 px do eixo em 18 deles, o que
+sugere deslocamento sistemático do grupo do círculo central em relação à definição do template,
+afetando cerca de 3% dos quadros.
+
+A hipótese que estes números apontam, e que ainda não foi testada, é limiar por tipo de ponto ou
+peso menor para os tipos de cauda longa dentro da RANSAC, medido pela mesma consistência fora do
+ajuste da seção anterior para que a comparação não recompense simplesmente aceitar mais coisa. É uma
+hipótese de configuração e não de modelo, o que a torna mais barata do que trocar o detector, e ela
+passa a ser a próxima medição do campo em lugar da direção de mais pontos.
+
+### Refinamento automático por linhas brancas
+
+Em 04/09/2026 foi implementada a opção experimental `line_refinement = true` em
+`modules.field`. Ela continua desligada na configuração padrão. O modelo de keypoints fornece
+a identidade das marcações; branco próximo ao gramado fornece apoio local. Pelo menos quatro
+retas em duas famílias restringem uma única homografia por ajuste linear normalizado. Linhas
+paralelas insuficientes, baixo apoio, ambiguidades, inversão de orientação, horizonte no campo e
+deslocamento excessivo preservam a matriz original. Nenhuma homografia anterior é reutilizada.
+
+O ajuste nunca desloca cada linha por conta própria. Círculos e arcos continuam pertencendo ao
+mesmo template projetado. Se a correção completa ultrapassar o limite já configurado de erro
+dos keypoints, são tentados passos menores, sem aumentar esse limite. Os erros são recalculados
+nos inliers originais e em pixels do vídeo, incluindo a inversão do letterbox. Alterar a opção
+muda a identidade do cache de percepção.
+
+Nos 30 frames de desenvolvimento, o ajuste foi aceito em três, recusado por geometria em 14 e
+por apoio insuficiente em cinco. Oito continuaram sem homografia. A disponibilidade permaneceu
+22/30. O pós-processamento completo do módulo, sem a rede, mediu p50 de 8,67 ms e p95 de 11,26 ms
+na CPU do Mac; esses tempos não representam a Jetson.
+
+Há somente três frames revisados por Davi, de duas partidas. Nesse diagnóstico assistido, a
+mediana do erro de linhas passou de 3,87 para 3,61 px e o p95 de 13,24 para 11,53 px. JaC@5
+permaneceu 0,3519. A amostra não sustenta promoção nem estimativa de acurácia independente.
+Os registros estão em `var/runs/field-homography/white-lines-20260904-v3/`, fora do Git.
+
+Testes sintéticos verificam translação, perspectiva, oclusão parcial, ausência de gramado,
+faixas paralelas, objetos brancos isolados, homografia degenerada, limite dos keypoints e
+procedência no runner. O uso de retas para restringir a câmera tem precedentes em
+[PnLCalib](https://arxiv.org/abs/2404.08401) e [TVCalib](https://arxiv.org/abs/2207.11709).
+Esta implementação é uma heurística local com OpenCV, não uma reprodução desses métodos.
+
+### Comparação com PnLCalib
+
+O [código oficial PnLCalib](https://github.com/mguti97/PnLCalib), commit `8c87391`, foi executado
+isoladamente com `SV_kp` e `SV_lines`, sem fine-tuning. A entrada seguiu RGB, valores de zero
+a um e resize Torchvision para 540 x 960, com os limiares oficiais 0,3434 e 0,7867. A otimização
+conjunta de pontos e linhas foi ativada. A câmera 3D foi convertida para H campo-imagem no plano
+do gramado, com a mesma origem central do contrato local.
+
+Nos mesmos 30 quadros, houve calibração bruta em 29. Nos três quadros humanos, JaC@5 foi 0,5159,
+mediana de 3,68 pixels e p95 de 9,36 pixels, contra 0,3519 e p95 de 13,24 no baseline. A amostra
+é assistida e pequena, portanto esse ganho é sinal para investigação, não aceite de qualidade.
+Uma verificação conservadora com erro p95 de todos os pontos de chão limitado a 10 pixels
+preservou somente cinco calibrações. Esse erro interno não é diretamente o erro dos inliers
+selecionados pelo RANSAC do YOLO e não pode ser comparado como se fosse a mesma medida.
+
+O par ocupa 529.822.538 bytes e mediu p50 de 932,69 ms e p95 de 985,52 ms por quadro no Mac,
+incluindo redes MPS e otimização CPU. Não houve medição na Jetson. O código é GPL-2.0 e a
+licença específica dos pesos permanece pendente de esclarecimento. O experimento está em
+`var/runs/field-homography/pnlcalib-20260904/`; não integra a distribuição da borda.
+
+### Visualização e análise
+
+`ClipResult` conserva a `Perception` internamente para inspeção da análise. O vídeo da API
+continua usando o top view original em `models/top_view/create_top_view.py`, com tracking,
+identificação de jogadores e sua própria calibração. A configuração de modelos declara os
+manifestos de campo e jogadores usados por esse render.
+
+O renderer personalizado introduzido durante esta entrega foi removido: sua amostragem
+intermitente apagava os jogadores e substituía a visualização existente. O top view original
+continua separado da geometria nominal de 105 x 68 metros usada nas features. Assim, o vídeo
+não comprova a qualidade das coordenadas da análise, que deve ser medida por `eval-field`.
+O MP4 usa H.264, permanece em `var/` e só substitui o resultado anterior após a conclusão.
+A integração visual da bola é uma entrega posterior, na MR dependente de trajetória.
+
+### Custo e limitações
+
+O peso existente evita novo treinamento e o ajuste robusto mantém o custo de rede atual. A
+desvantagem principal é perder completude em enquadramentos com menos de seis inliers, porque a
+primeira versão não propaga uma matriz antiga. Essa perda é deliberada até existir validação de
+movimento de câmera.
+
+O adapter de runtime torna provider e forma verificáveis e prepara a migração para TensorRT. O
+custo é manter bindings e pós-processamento explícitos no projeto.
+
+## Riscos e incertezas
+
+O piloto humano de campo ainda está em anotação. O preflight encontrou maior cobertura em mínimos
+quadrados e menor erro interno nos estimadores robustos, mas não pode dizer qual projeção está mais
+próxima das linhas reais. O template de 105 x 68 m pode não representar a dimensão física de cada
+partida. MAGSAC está disponível no ambiente de desenvolvimento, mas ainda precisa ser confirmado
+na imagem da Jetson. O render da API usa outra calibração, portanto sua aparência não valida
+a H produzida para as features. A exportação normalizada é repetível no
+ambiente registrado; paridade e orçamento no dispositivo continuam gates separados.
+
+## Anotação e split
+
+O piloto de validação contém 30 frames das dobras 0 a 2, dos quais apenas três têm anotação
+humana confirmada. As demais propostas não contam como verdade. A ampliação autorizada usa
+o acervo de desenvolvimento e fontes externas verificadas, separando treino de revisão por
+partida. Pelo menos 20% do piloto deve receber segunda anotação cega. O arquivo fica em
+`var/labels/field-calibration-v1.jsonl`, fora do Git.
+
+O primeiro quadro de cada lance começa sem a projeção ou a proposta do modelo. O anotador escolhe o elemento em um
+mapa canônico clicável, registra as duas extremidades visíveis das linhas retas e usa pelo menos
+nove pontos para círculos e arcos. Cada elemento pode ser editado ou excluído separadamente.
+Trechos ocultos não são completados por suposição. Esse procedimento mantém a anotação
+independente dos keypoints que produziram a homografia avaliada e segue o grão de linhas
+semânticas usado no protocolo do SoccerNet.
+
+Para evitar redesenhar o mesmo lance, o anotador privado pode reutilizar uma referência humana
+salva no mesmo clipe. Correspondências visuais ORB e uma homografia entre imagens estimada por
+RANSAC compensam o movimento de câmera. Isso é auxílio à anotação, não a homografia do modelo
+avaliado. Copiar os mesmos pixels foi descartado porque pan e zoom mudam a posição das linhas.
+
+A sugestão exige correspondências suficientes, distribuição espacial e erro geométrico limitado.
+Quando a estimativa falha, nenhuma linha é propagada; linhas com pontos fora da imagem são
+omitidas. A interface agrupa os 30 frames em 15 lances, carrega a sugestão quando há referência e
+oferece o atalho R. O anotador confere alinhamento e visibilidade e salva explicitamente com
+Enter. A propagação não altera um frame já salvo, não cruza clipes e não conta como revisão humana
+antes da confirmação. A origem fica registrada nos flags privados.
+
+O teste sintético de translação recuperou as posições esperadas dentro de dois pixels; testes
+separados recusam imagens não relacionadas, preservam anotações existentes e verificam a ausência
+de salvamento automático. Isso valida o mecanismo, não sua precisão em todos os lances. A
+desvantagem é propagar também um erro da referência humana ou uma transformação incorreta. A
+segunda anotação cega continua necessária e não reutiliza essas sugestões.
+
+A auditoria real da procedência encontrou somente um par de quadros humanos no mesmo clipe.
+O alvo desse par já estava marcado como revisado após propagação temporal. Assim, existem
+zero pares independentes para medir a qualidade do propagador: comparar a sugestão contra
+esse alvo mede reconstrução da própria saída. O erro quase nulo observado foi descartado
+como evidência de acurácia. O diagnóstico final está em
+`var/runs/field-homography/propagation-human-pair-20260904-v3/`, e o hash das anotações
+permaneceu inalterado. Os três registros assistidos continuam utilizáveis para diagnóstico
+do modelo de campo, mas não substituem a revisão cega.
+
+O anotador também refina retas pela tinta branca próxima, dentro do gramado. Após compensar a
+câmera, ele procura apoio distribuído em uma faixa estreita ao redor de cada reta e usa
+[`fitLine`](https://docs.opencv.org/4.x/d3/dc0/group__imgproc__shape.html) com distância Welsch para
+reduzir o efeito de pontos isolados. O ajuste é recusado quando o apoio é insuficiente, há faixas
+concorrentes ou a mudança de posição e direção é grande. Buscar qualquer pixel branco da imagem
+foi descartado porque uniforme, rede e publicidade também podem ser brancos.
+
+O atalho F aplica o alinhamento à reta em edição ou às marcações concluídas; Z desfaz o último
+alinhamento, desde que não existam edições posteriores. As propostas reaproveitadas já passam por
+essa conferência e cada linha informa se recebeu ajuste ou exige revisão manual. Círculos e
+meias-luas são preservados, não transformados em retas. Nada é salvo antes de Enter, e o registro
+privado identifica a assistência por cor. Esse auxílio do anotador é separado da opção de
+refinamento global do modelo, descrita acima. Como ambos usam o branco, a validação dessa opção
+precisa da segunda anotação cega sem assistência por cor para evitar viés compartilhado.
+
+O teste de regressão sintético começou com as extremidades seis pixels acima e abaixo da tinta e
+passou a alinhá-las dentro de um pixel. Testes adicionais cobrem oclusão parcial, objetos brancos,
+faixas concorrentes, curvas, ausência de gramado e preservação dos pontos originais. Isso verifica
+o mecanismo local, não comprova qualidade em todos os enquadramentos ou iluminação.
+
+Os 14 clipes das dobras 3 e 4 continuam reservados. O comando `eval-field` usa `ajuste` por padrão.
+O pacote final terá dois frames por clipe e será aberto uma vez depois de peso, mapeamento,
+estimador, limiares e precisão estarem congelados. Nenhum frame, coordenada individual,
+identificador de partida ou amostra do gabarito entra nesta página.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| qualidade no domínio do produto | anotar o piloto de 30 frames e comparar mínimos quadrados, RANSAC e MAGSAC nas mesmas entradas |
+| 27 dos 30 frames do piloto ainda são proposta do próprio modelo | conferência humana na fila já montada, sem a qual toda métrica de campo é circular |
+| 30,6% dos quadros sem homografia | a análise de suprimento mostrou que 89,6% já têm pontos bastantes: medir limiar por tipo de ponto e peso menor para os tipos de cauda longa, pela consistência fora do ajuste |
+| taxonomia cobrindo 80% das falhas | classificar as falhas do piloto antes de escolher rede nova |
+| precisão métrica dos pontos de tangência e das quinas `*_pt2` | ampliar a comparação PnLCalib, cuja restrição por linhas ataca exatamente esses tipos, resolver licença e avaliar custo ou um aluno menor |
+| deslocamento sistemático do grupo do círculo central | conferir a definição do template contra os 33 quadros de enquadramento central, que hoje são 3% do acervo |
+| desenho entre quadros amostrados | validar propagação por movimento de câmera, sem copiar matrizes silenciosamente |
+| TensorRT FP16 e orçamento embarcado | construir a engine na Jetson alvo, medir p50, p95, memória, potência e ausência de fallback |
+| pacote reservado | executar uma única vez depois do congelamento, sem recalibrar no mesmo conjunto |
+
+## Referências
+
+1. OpenCV. [`findHomography`](https://docs.opencv.org/4.x/d9/d0c/group__calib3d.html).
+2. OpenCV. [USAC](https://docs.opencv.org/4.x/de/d3e/tutorial_usac.html).
+3. SoccerNet. [Camera Calibration](https://github.com/SoccerNet/sn-calibration).
+4. IFAB. [Law 1, The Field of Play](https://www.theifab.com/laws/latest/the-field-of-play/).
+5. Ultralytics. [Export mode](https://docs.ultralytics.com/modes/export/).
+6. ONNX. [Python API Overview](https://onnx.ai/onnx/repo-docs/PythonAPIOverview.html).

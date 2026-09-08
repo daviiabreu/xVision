@@ -25,7 +25,20 @@ from edge.modules.base import ModuleError, ModuleOutput
 REQUIRED: Mapping[str, frozenset[str]] = {
     "players": frozenset({"box", "confidence"}),
     "ball": frozenset({"box", "confidence"}),
-    "field": frozenset(),
+    "field": frozenset(
+        {
+            "homography",
+            "reprojection_error_px",
+            "reprojection_error_p95_px",
+            "keypoints",
+            "observed_keypoint_count",
+            "inlier_count",
+            "source",
+            "age_frames",
+            "template_id",
+            "reason",
+        }
+    ),
     "tracking": frozenset({"track_id"}),
     "identity": frozenset({"track_id"}),
     "pose": frozenset({"track_id", "keypoints"}),

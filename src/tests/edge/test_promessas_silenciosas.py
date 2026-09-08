@@ -40,7 +40,24 @@ def test_metres_never_survive_a_field_without_homography() -> None:
 
     com_campo_cego = assemble(
         _clipe(),
-        {"players": _saida("players", jogador), "field": _saida("field", {"confidence": 0.5})},
+        {
+            "players": _saida("players", jogador),
+            "field": _saida(
+                "field",
+                {
+                    "homography": None,
+                    "reprojection_error_px": None,
+                    "reprojection_error_p95_px": None,
+                    "keypoints": (),
+                    "observed_keypoint_count": 0,
+                    "inlier_count": 0,
+                    "source": "unavailable",
+                    "age_frames": 0,
+                    "template_id": "pitch-105x68-center-v1",
+                    "reason": "insufficient-keypoints",
+                },
+            ),
+        },
     )
 
     assert com_campo_cego.frames[0].players[0].pitch_xy is None, (

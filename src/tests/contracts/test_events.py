@@ -8,7 +8,7 @@ from dataclasses import is_dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import UnionType
-from typing import Union, cast, get_args, get_origin, get_type_hints
+from typing import Any, Union, cast, get_args, get_origin, get_type_hints
 
 import pytest
 
@@ -92,7 +92,18 @@ def test_shot_id_is_deterministic() -> None:
 
 def test_pitch_xy_is_none_when_homography_is_none() -> None:
     box = Box(x1=10.0, y1=20.0, x2=40.0, y2=90.0)
-    sem_homografia = FieldGeometry(homography=None, reprojection_error_px=None)
+    sem_homografia = FieldGeometry(
+        homography=None,
+        reprojection_error_px=None,
+        reprojection_error_p95_px=None,
+        keypoints=(),
+        observed_keypoint_count=0,
+        inlier_count=0,
+        source="unavailable",
+        age_frames=0,
+        template_id="pitch-105x68-center-v1",
+        reason="insufficient-keypoints",
+    )
 
     with pytest.raises(ContractError):
         FramePerception(
@@ -117,6 +128,54 @@ def test_pitch_xy_is_none_when_homography_is_none() -> None:
         field=sem_homografia,
     )
     assert sem_coordenada.players[0].pitch_xy is None
+
+
+def test_detected_field_requires_a_valid_homography() -> None:
+    with pytest.raises(ContractError, match="detected"):
+        FieldGeometry(
+            homography=None,
+            reprojection_error_px=None,
+            reprojection_error_p95_px=None,
+            keypoints=(),
+            observed_keypoint_count=0,
+            inlier_count=0,
+            source="detected",
+            age_frames=0,
+            template_id="pitch-105x68-center-v1",
+            reason=None,
+        )
+
+
+def test_detected_field_rejects_a_singular_homography() -> None:
+    with pytest.raises(ContractError, match="degenerada"):
+        FieldGeometry(
+            homography=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0),
+            reprojection_error_px=1.0,
+            reprojection_error_p95_px=2.0,
+            keypoints=(),
+            observed_keypoint_count=6,
+            inlier_count=6,
+            source="detected",
+            age_frames=0,
+            template_id="pitch-105x68-center-v1",
+            reason=None,
+        )
+
+
+def test_unavailable_field_rejects_an_unknown_reason() -> None:
+    with pytest.raises(ContractError, match="reason"):
+        FieldGeometry(
+            homography=None,
+            reprojection_error_px=None,
+            reprojection_error_p95_px=None,
+            keypoints=(),
+            observed_keypoint_count=0,
+            inlier_count=0,
+            source="unavailable",
+            age_frames=0,
+            template_id="pitch-105x68-center-v1",
+            reason=cast("Any", "guess"),
+        )
 
 
 def test_confidence_fora_do_intervalo_e_recusada() -> None:

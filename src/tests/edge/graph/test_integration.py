@@ -147,7 +147,7 @@ def test_full_pipeline_with_all_stubs_produces_a_schema_valid_event(execucao: Ru
     assert quadro.field is not None
     assert quadro.field.homography == gabarito.homography
     assert quadro.ball is not None
-    assert quadro.ball.pitch_xy == gabarito.ball_pitch_xy[SHOT_FRAME_INDEX]
+    assert quadro.ball.pitch_xy is None
 
 
 def test_the_platform_runs_end_to_end_without_a_single_feature_installed(

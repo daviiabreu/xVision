@@ -8,9 +8,8 @@
 #
 #   xvision run --all --config config/pipeline.models.toml
 #
-# `field` e `identity` continuam stub. O `field` e o card #53 do Danilo e nao tem substituto aqui;
-# o `identity` nao bloqueia nenhuma das sete metricas declaradas e fica declaradamente de fora.
-# Trocar cada um e trocar duas linhas aqui.
+# `identity` continua stub e nao bloqueia nenhuma das sete metricas declaradas. `field` usa o peso
+# versionado de 29 keypoints e recusa por quadro qualquer homografia sem evidencia suficiente.
 
 [frames.coarse]
 strategy = "uniform"
@@ -42,8 +41,16 @@ ladrilhos       = 2
 sobreposicao_px = 100
 
 [modules.field]
-impl   = "edge.modules.stubs:StubField"
+impl     = "edge.modules.field:YoloField"
+artifact = "models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
 frames   = "dense"
+imgsz                         = 960
+conf                          = 0.25
+method                        = "ransac"
+keypoint_confidence           = 0.25
+threshold_diagonal_fraction   = 0.0025
+min_inliers                   = 6
+max_reprojection_p95_px       = 10.0
 
 [modules.shot]
 impl   = "mlops.oracle:AnnotatedShot"

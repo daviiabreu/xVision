@@ -20,6 +20,7 @@ def test_the_shell_lists_the_commands_it_carries() -> None:
     assert resultado.exit_code == 0
     assert "clip" in resultado.output
     assert "cache" in resultado.output
+    assert "eval-field" in resultado.output
 
 
 def test_clip_writes_the_canonical_fixture_where_it_was_told(tmp_path: Path) -> None:

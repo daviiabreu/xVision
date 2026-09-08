@@ -2,9 +2,36 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from typing import Literal
 
 from contracts.events import ContractError
+
+FieldUnavailableReason = Literal[
+    "no-field-instance",
+    "insufficient-keypoints",
+    "collinear-keypoints",
+    "insufficient-inliers",
+    "mirrored-correspondence",
+    "degenerate-homography",
+    "high-reprojection-error",
+    "non-finite-projection",
+    "outside-template",
+]
+FIELD_UNAVAILABLE_REASONS = frozenset(
+    {
+        "no-field-instance",
+        "insufficient-keypoints",
+        "collinear-keypoints",
+        "insufficient-inliers",
+        "mirrored-correspondence",
+        "degenerate-homography",
+        "high-reprojection-error",
+        "non-finite-projection",
+        "outside-template",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -89,7 +116,72 @@ class BallDetection:
 class FieldGeometry:
     homography: tuple[float, ...] | None
     reprojection_error_px: float | None
-    keypoints: tuple[tuple[str, float, float], ...] = ()
+    reprojection_error_p95_px: float | None
+    keypoints: tuple[tuple[str, float, float], ...]
+    observed_keypoint_count: int
+    inlier_count: int
+    source: Literal["detected", "unavailable"]
+    age_frames: Literal[0]
+    template_id: str
+    reason: FieldUnavailableReason | None
+    refinement: Literal[
+        "disabled", "unavailable", "insufficient-lines", "unsafe-fit", "keypoint-error", "accepted"
+    ] = "disabled"
+    line_support_count: int = 0
+
+    def __post_init__(self) -> None:
+        if self.refinement not in {
+            "disabled",
+            "unavailable",
+            "insufficient-lines",
+            "unsafe-fit",
+            "keypoint-error",
+            "accepted",
+        }:
+            raise ContractError("field recebeu refinement desconhecido")
+        if self.line_support_count < 0 or (
+            self.refinement == "accepted"
+            and (self.line_support_count < 4 or self.source != "detected")
+        ):
+            raise ContractError("field recebeu apoio de retas invalido")
+        if not self.template_id:
+            raise ContractError("field sem template_id")
+        if self.age_frames != 0:
+            raise ContractError("field por quadro exige age_frames=0")
+        if (
+            self.observed_keypoint_count < 0
+            or not 0 <= self.inlier_count <= self.observed_keypoint_count
+        ):
+            raise ContractError("contagens de keypoints do field sao invalidas")
+        if self.source == "detected":
+            if self.homography is None or len(self.homography) != 9:
+                raise ContractError("field detected exige homography com 9 valores")
+            if not all(math.isfinite(value) for value in self.homography):
+                raise ContractError("field detected exige homography finita")
+            if abs(_determinant3(self.homography)) < 1e-12:
+                raise ContractError("field detected recebeu homography degenerada")
+            if self.reprojection_error_px is None or self.reprojection_error_p95_px is None:
+                raise ContractError("field detected exige erros de reprojecao")
+            if (
+                not math.isfinite(self.reprojection_error_px)
+                or not math.isfinite(self.reprojection_error_p95_px)
+                or self.reprojection_error_px < 0
+                or self.reprojection_error_p95_px < self.reprojection_error_px
+            ):
+                raise ContractError("field detected recebeu erros de reprojecao invalidos")
+            if self.reason is not None:
+                raise ContractError("field detected nao aceita reason")
+            return
+        if self.source != "unavailable":
+            raise ContractError(f"field source {self.source!r} desconhecido")
+        if self.homography is not None:
+            raise ContractError("field unavailable nao aceita homography")
+        if self.reprojection_error_px is not None or self.reprojection_error_p95_px is not None:
+            raise ContractError("field unavailable nao aceita erro de reprojecao")
+        if not self.reason:
+            raise ContractError("field unavailable exige reason")
+        if self.reason not in FIELD_UNAVAILABLE_REASONS:
+            raise ContractError(f"field unavailable recebeu reason {self.reason!r} desconhecido")
 
 
 @dataclass(frozen=True)
@@ -115,3 +207,8 @@ class FramePerception:
 class Perception:
     clip_id: str
     frames: tuple[FramePerception, ...]
+
+
+def _determinant3(matrix: tuple[float, ...]) -> float:
+    a, b, c, d, e, f, g, h, i = matrix
+    return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)

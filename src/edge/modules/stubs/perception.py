@@ -70,9 +70,16 @@ class StubField(StubModule):
             {
                 "homography": truth.homography,
                 "reprojection_error_px": REPROJECTION_ERROR_PX,
+                "reprojection_error_p95_px": REPROJECTION_ERROR_PX,
                 "keypoints": tuple(
                     (nome, *project(truth.homography, x, y)) for nome, x, y in KEYPOINTS
                 ),
+                "observed_keypoint_count": len(KEYPOINTS),
+                "inlier_count": len(KEYPOINTS),
+                "source": "detected",
+                "age_frames": 0,
+                "template_id": "pitch-105x68-center-v1",
+                "reason": None,
             },
         )
 

@@ -30,6 +30,7 @@ from contracts import (
     Box,
     Clip,
     FieldGeometry,
+    FieldUnavailableReason,
     FramePerception,
     Keypoint,
     Perception,
@@ -50,6 +51,7 @@ from edge.modules.base import (
     PreprocessSpec,
     Temporal,
 )
+from edge.modules.field.geometry import PITCH_105X68, FieldProjectionError, image_to_pitch
 from edge.modules.records import check_records
 
 StageStatus = Literal["ok", "failed", "skipped"]
@@ -336,7 +338,6 @@ def _frame(
     por_quadro: Mapping[str, Mapping[int, tuple[Mapping[str, object], ...]]],
 ) -> FramePerception:
     campo = _field(por_quadro.get("field", {}).get(indice, ()))
-    calibrado = campo is not None and campo.homography is not None
     trajetorias = {
         int(cast("Any", r["detection_index"])): int(cast("Any", r["track_id"]))
         for r in por_quadro.get("tracking", {}).get(indice, ())
@@ -353,14 +354,14 @@ def _frame(
         if "keypoints" in r
     }
     jogadores = tuple(
-        _player(registro, trajetorias.get(posicao), camisas, poses, calibrado)
+        _player(registro, trajetorias.get(posicao), camisas, poses, campo)
         for posicao, registro in enumerate(por_quadro.get("players", {}).get(indice, ()))
     )
     return FramePerception(
         frame_index=indice,
         timestamp_s=indice / clip.fps,
         players=jogadores,
-        ball=_ball(por_quadro.get("ball", {}).get(indice, ()), calibrado),
+        ball=_ball(por_quadro.get("ball", {}).get(indice, ())),
         field=campo,
     )
 
@@ -370,18 +371,31 @@ def _player(
     track_id: int | None,
     camisas: Mapping[int, int],
     poses: Mapping[int, tuple[Keypoint, ...]],
-    calibrado: bool,
+    field: FieldGeometry | None,
 ) -> PlayerDetection:
+    box = Box(*cast("Any", registro["box"]))
     return PlayerDetection(
-        box=Box(*cast("Any", registro["box"])),
+        box=box,
         confidence=float(cast("Any", registro["confidence"])),
         track_id=track_id,
         team=cast("Any", registro.get("team")),
         role=cast("Any", registro.get("role")),
         jersey_number=camisas.get(track_id) if track_id is not None else None,
-        pitch_xy=_pitch(registro, calibrado),
+        pitch_xy=_player_pitch(box, field),
         keypoints=poses.get(track_id, ()) if track_id is not None else (),
     )
+
+
+def _player_pitch(box: Box, field: FieldGeometry | None) -> tuple[float, float] | None:
+    if field is None or field.homography is None:
+        return None
+    try:
+        point = image_to_pitch(field.homography, ((box.x1 + box.x2) / 2.0, box.y2))
+    except FieldProjectionError:
+        return None
+    if abs(point[0]) > PITCH_105X68.length_m / 2.0 or abs(point[1]) > PITCH_105X68.width_m / 2.0:
+        return None
+    return point
 
 
 def _keypoints(valor: object) -> tuple[Keypoint, ...]:
@@ -404,7 +418,7 @@ def _keypoints(valor: object) -> tuple[Keypoint, ...]:
     return tuple(pontos)
 
 
-def _ball(registros: tuple[Mapping[str, object], ...], calibrado: bool) -> BallDetection | None:
+def _ball(registros: tuple[Mapping[str, object], ...]) -> BallDetection | None:
     if not registros:
         return None
     registro = registros[0]
@@ -412,7 +426,7 @@ def _ball(registros: tuple[Mapping[str, object], ...], calibrado: bool) -> BallD
     return BallDetection(
         box=Box(*cast("Any", registro["box"])),
         confidence=float(cast("Any", registro["confidence"])),
-        pitch_xy=_pitch(registro, calibrado),
+        pitch_xy=None,
         source=None if origem is None else str(origem),
     )
 
@@ -424,19 +438,23 @@ def _field(registros: tuple[Mapping[str, object], ...]) -> FieldGeometry | None:
     return FieldGeometry(
         homography=_tuple_of_floats(registro.get("homography")),
         reprojection_error_px=_optional_float(registro.get("reprojection_error_px")),
+        reprojection_error_p95_px=_optional_float(registro.get("reprojection_error_p95_px")),
         keypoints=tuple(
             (str(nome), float(u), float(v))
             for nome, u, v in cast("Any", registro.get("keypoints", ()))
         ),
+        observed_keypoint_count=int(cast("Any", registro["observed_keypoint_count"])),
+        inlier_count=int(cast("Any", registro["inlier_count"])),
+        source=cast("Any", registro["source"]),
+        age_frames=cast("Any", registro["age_frames"]),
+        template_id=str(registro["template_id"]),
+        reason=cast(
+            "FieldUnavailableReason | None",
+            None if registro.get("reason") is None else str(registro["reason"]),
+        ),
+        refinement=cast("Any", registro.get("refinement", "disabled")),
+        line_support_count=int(cast("Any", registro.get("line_support_count", 0))),
     )
-
-
-def _pitch(registro: Mapping[str, object], calibrado: bool) -> tuple[float, float] | None:
-    valor = registro.get("pitch_xy")
-    if not calibrado or valor is None:
-        return None
-    x, y = cast("Any", valor)
-    return (float(x), float(y))
 
 
 def _tuple_of_floats(valor: object) -> tuple[float, ...] | None:
