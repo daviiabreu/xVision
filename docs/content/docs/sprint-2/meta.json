@@ -1,17 +1,11 @@
 {
-	"title": "Sprint 2",
-	"pages": [
-		"planejamento",
-		"backend",
-		"frontend",
-		"jogadores",
-		"rastreamento-da-bola",
-		"line_tracking",
-		"visao-superior",
-		"97-deteccao-do-instante-da-finalizacao",
-		"crowded",
-		"marcacao",
-		"o-que-falta",
-		"slides"
-	]
+  "title": "Sprint 2",
+  "pages": [
+    "planejamento",
+    "processamento",
+    "backend",
+    "frontend",
+    "o-que-falta",
+    "slides"
+  ]
 }

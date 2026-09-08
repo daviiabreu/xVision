@@ -1,0 +1,146 @@
+---
+title: Como sabemos que funciona
+description: Os quatro portões, o que cada um prova e o que a mutação encontrou embaixo de 96% de cobertura de linha
+---
+
+Esta página sustenta o que as outras páginas do backend afirmam: qual evidência existe de que o
+código faz o que a documentação diz e quais são os limites dos portões. As pendências e os
+experimentos para resolvê-las estão no [quadro consolidado da sprint](/docs/sprint-2/o-que-falta).
+
+## Onde se encaixa no fluxo
+
+Os portões não ficam em volta do sistema, ficam em volta de cada alteração. Esta é a posição
+deles, e não o desenho do backend, que está na
+[visão geral](/docs/sprint-2/backend).
+
+```text
+      alteração em src/ ou infra/
+              │
+              ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  os quatro portões, os mesmos na máquina e no runner     │
+   │                                                          │
+   │   1  ruff check + ruff format --check      forma         │
+   │   2  pyright, modo estrito                 tipos         │
+   │   3  pytest --cov, piso de 80%             comportamento │
+   │   4  uv export + uv pip compile aarch64    a placa       │
+   └────────────────────────┬─────────────────────────────────┘
+                            │  toda MR, e todo commit em develop
+                            ▼
+       CI do GitLab: 5 jobs de Python, 6 de frontend, 3 de
+       Terraform, 2 de docs, mais pipeline:check e branch-rules
+                            │
+                            ▼
+                          merge
+
+   fora do laço, à mão, depois de mudança grande:
+
+   teste de mutação ──► replanta um defeito plausível de cada vez e
+                        roda a suíte inteira. O que sobrevive vira
+                        teste novo, ou vira risco escrito aqui.
+```
+
+## Componentes e responsabilidades
+
+| Componente | O que ele prova | O que ele não prova |
+| --- | --- | --- |
+| `ruff check` e `ruff format --check` | que o código respeita as seis famílias de regra selecionadas e sai formatado igual na mão de todo mundo | nada sobre comportamento: um módulo inteiro errado passa formatado |
+| `pyright` em modo estrito | que os tipos fecham em todo o `src/`, sem `Any` implícito, verificado no piso 3.10, com os scripts de operador de `src/models` fora do alcance por `exclude` | que o tipo descreve a intenção: um `float` bem tipado continua podendo trazer pixel onde a feature espera metro |
+| `pytest --cov` | que os 1205 testes de Python passam e que as linhas do pacote foram executadas | que alguém afirmou algo sobre elas: linha executada por um teste sem asserção conta igual |
+| `uv pip compile` para `aarch64` | que existe roda binária de cada dependência de execução para a arquitetura da placa, no piso 3.10 | que roda na Jetson: resolução não é instalação, e ninguém do grupo tem a placa nesta sprint |
+| meta-testes na raiz de `src/tests/` | que a fronteira entre áreas, o piso de Python, o escopo da cobertura, o diretório de configuração, a configuração que roda os modelos de verdade, o `.gitignore`, o `.dockerignore`, a topologia do Terraform e a correspondência entre o CI e os portões locais continuam de pé | nada sobre o produto: eles testam o repositório, não o caminho do clipe ao evento |
+| `conftest.py` da suíte | que nenhum teste escreve no `var/` de quem roda, que o segredo de assinatura existe e que o dump do parceiro está escondido | não impede um teste de criar estado dentro do próprio `tmp_path` e depender dele |
+| suíte de conformidade de módulo | que um módulo respeita o pré-processamento que declarou, é determinístico, fecha o que abriu e entrega as chaves da espécie | que o módulo acerta: ela cobra o contrato, nunca a acurácia |
+| teste de mutação | que a suíte derruba um defeito plausível replantado no código | que os defeitos plausíveis foram bem escolhidos: a lista é escrita à mão |
+| guarda estrutural por AST | que a primitiva certa está escrita no lugar certo, onde o comportamento não é observável | que ela é usada corretamente: casa forma, não comportamento |
+
+## Fluxo de dados
+
+Entra a árvore de trabalho inteira. Sai texto: quatro saídas de terminal e um relatório de
+cobertura, que no CI também vira `coverage.xml` no formato Cobertura para o GitLab desenhar a
+porcentagem na MR. Os comandos são estes, e são os quatro do CI, que só acrescenta
+`--cov-report=term --cov-report=xml` ao último para escrever esse arquivo:
+
+```bash
+cd src
+uv run --all-extras ruff check .
+uv run --all-extras ruff format --check .
+uv run --all-extras pyright
+uv run --all-extras pytest --cov -q
+```
+
+A saída medida no dia 28/08/2026, no worktree da branch `docs/o-que-fica-para-a-proxima-sprint`,
+num Apple M5 com Python 3.10.20:
+
+```text
+All checks passed!
+216 files already formatted
+0 errors, 0 warnings, 0 informations
+TOTAL                                   6260    553    91%
+Required test coverage of 80.0% reached. Total coverage: 91.17%
+1205 passed, 1 skipped in 12.54s
+```
+
+A cobertura de hoje é 91,17% sobre 6260 linhas, e ela não é comparável com os 85,62% que esta
+página registrava antes, porque o denominador mudou. `[tool.coverage.run]` declara cinco áreas,
+`api`, `cli`, `contracts`, `edge` e `mlops`, e os scripts de operador de `src/models`, que só rodam
+com peso, GPU ou dado local na máquina, ficaram fora dessa lista. O que impede a escolha de virar
+elogio é um teste: ele lê a lista do próprio `pyproject.toml` e cobra que todo módulo de dentro de
+uma área apareça no relatório, mesmo a zero, para que código sem teste puxe o total para baixo em
+vez de sumir da medida. O caso visível hoje é `mlops/zoom.py`, 27 linhas a 0% dentro do relatório.
+
+Com o ambiente já sincronizado e a máquina ociosa, a suíte leva por volta de 9,5 segundos sem cobertura e 13 com ela. Esse é o piso, e não uma constante: em cinco execuções seguidas na mesma árvore os tempos foram de 9,45 a 9,58 segundos sem cobertura e de 12,72 a 13,60 com ela, porque
+parte da suíte sobe threads e disputa CPU com o que mais estiver rodando. A primeira execução
+depois de um `uv sync` limpo levou 21 segundos, número medido quando a suíte tinha 864 testes e
+não refeito aqui; é essa a ordem de grandeza que o runner vê, porque lá o cache começa frio a cada
+job.
+
+O teste pulado tem nome e motivo, e o motivo é ele mesmo se recusando a depender de arquivo que o
+CI não tem:
+
+```text
+SKIPPED [1] tests/test_ci_gates.py:270: pipeline.config.json nao e versionado
+e nao existe neste ambiente
+```
+
+O piso de cobertura é declarado uma vez, em `[tool.coverage.report] fail_under` do
+`pyproject.toml`, e o job do CI só liga a medição. Isso também é cobrado por teste: um assert
+compara o valor do `pyproject.toml` com o script do job e recusa `--cov-fail-under` na linha de
+comando, para o número não passar a existir em dois arquivos com dois valores.
+
+## Referências
+
+- [Documentação do coverage.py](https://coverage.readthedocs.io/en/latest/faq.html), cuja própria
+  FAQ aponta para os limites da medição e sustenta a decisão de não tratar cobertura de linha como
+  meta.
+- [Ned Batchelder, *Flaws in coverage measurement*](https://nedbatchelder.com/blog/200710/flaws_in_coverage_measurement.html),
+  o texto que a FAQ acima cita, e que descreve por que linha executada não é linha verificada.
+- [Papadakis et al., *Mutation Testing Advances: An Analysis and Survey*](https://doi.org/10.1016/bs.adcom.2018.03.015),
+  base da distinção entre cobertura e capacidade de detecção que o escore de 76,5% contra 96%
+  materializou aqui.
+- [Documentação do `hmac.compare_digest`](https://docs.python.org/3/library/hmac.html), que
+  sustenta a exigência de comparação em tempo constante para senha e assinatura.
+- [Documentação do módulo `ast` da biblioteca padrão](https://docs.python.org/3/library/ast.html),
+  o mecanismo com que as guardas estruturais são escritas, e cuja natureza sintática é a origem da
+  fragilidade declarada nos trade-offs.
+- [Documentação do `secrets`](https://docs.python.org/3/library/secrets.html), que fundamenta o
+  tamanho do token de serviço afirmado por teste depois do mutante de 3 bytes.
+- [OWASP, *Authentication Cheat Sheet*](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html),
+  que sustenta a resposta uniforme do login e a comparação em tempo constante.
+- [Documentação do pytest sobre `monkeypatch`](https://docs.pytest.org/en/stable/how-to/monkeypatch.html)
+  e [sobre fixtures](https://docs.pytest.org/en/stable/reference/fixtures.html), base da fixture
+  `autouse` que tornou a suíte hermética.
+- [Documentação do Ruff](https://docs.astral.sh/ruff/rules/), para as famílias de regra
+  selecionadas no portão de forma.
+- [Documentação do pyright](https://microsoft.github.io/pyright/#/configuration), base do portão de
+  tipos em modo estrito verificado no piso 3.10.
+- [Referência de linha de comando do uv](https://docs.astral.sh/uv/reference/cli/), onde estão
+  documentadas as três opções que fazem o job `python:arm64` valer alguma coisa: `--python-platform`,
+  `--python-version` e `--only-binary`.
+- [NVIDIA JetPack 6.2](https://developer.nvidia.com/embedded/jetpack-sdk-62), que declara Ubuntu
+  22.04 como base da placa, de onde sai o piso de Python 3.10. A página não versionada do JetPack
+  já mostra o 7 sobre Ubuntu 24.04, então o piso vale enquanto a placa ficar no 6.
+- [NVIDIA JetPack SDK](https://developer.nvidia.com/embedded/jetpack), que descreve as bibliotecas
+  de visão computacional que já vêm na imagem, origem da armadilha da OpenCV duplicada que a página de infraestrutura registra.
+- [Terraform, comando `plan`](https://developer.hashicorp.com/terraform/cli/commands/plan), que
+  sustenta a decisão de validar e planejar a topologia no CI sem nunca aplicar.

@@ -16,7 +16,7 @@ duas. O stub que sobra não é acidente: ele responde do gabarito de uma fixture
 pelo próprio código, não de vídeo, e é o que permite a plataforma ser exercitada de ponta a ponta
 numa máquina sem peso nenhum. Trocar um stub por um modelo continua sendo editar uma linha de
 configuração. O quadro consolidado do que ficou de fora está em
-[o que fica para a próxima sprint](../o-que-falta).
+[o que fica para a próxima sprint](/docs/sprint-2/o-que-falta).
 
 Esta é a página de entrada da pasta e o ponto de integração das outras:
 [o contrato do evento](/docs/sprint-2/backend/contrato),
@@ -25,7 +25,7 @@ Esta é a página de entrada da pasta e o ponto de integração das outras:
 [a autenticação e a posse do vídeo](/docs/sprint-2/backend/autenticacao),
 [o dado do parceiro e o número](/docs/sprint-2/backend/dados-e-avaliacao),
 [a infraestrutura e a integração contínua](/docs/sprint-2/backend/infraestrutura) e
-[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+[como sabemos que funciona](/docs/sprint-2/backend/qualidade).
 
 ## Onde se encaixa no fluxo
 
@@ -61,13 +61,13 @@ direção delas é o que o teste de fronteira cobra.
 
 ## Componentes e responsabilidades
 
-| Área | Responsabilidade | O que ela **não** faz |
-| --- | --- | --- |
-| [`contracts`](/docs/sprint-2/backend/contrato) | o acordo entre quem produz e quem consome o evento, com o JSON Schema dentro do pacote | não importa nenhuma outra área, não abre vídeo, não valida regra de negócio |
-| [`edge`](/docs/sprint-2/backend/borda) | decode único, os sete módulos de percepção, o grafo que os liga, as features e o cache | não lê CSV, não serve HTTP, não conhece o parceiro nem o conceito de partição |
-| [`mlops`](/docs/sprint-2/backend/dados-e-avaliacao) | o conjunto da Footstats, rótulos declarados, partição por partida e avaliação contra o gabarito | não roda pipeline, não abre vídeo, não sabe o que é um módulo de percepção |
-| [`api`](/docs/sprint-2/backend/servico-http) | serviço HTTP, fila de processamento, sessão e [posse do vídeo enviado](/docs/sprint-2/backend/autenticacao) | não lê CSV, não conhece partição, e ninguém a importa |
-| `cli` | o ponto de entrada de terminal, único, que junta `edge` e `mlops` | não serve HTTP, não implementa regra nenhuma, e ninguém o importa |
+| Área                                                | Responsabilidade                                                                                            | O que ela **não** faz                                                         |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [`contracts`](/docs/sprint-2/backend/contrato)      | o acordo entre quem produz e quem consome o evento, com o JSON Schema dentro do pacote                      | não importa nenhuma outra área, não abre vídeo, não valida regra de negócio   |
+| [`edge`](/docs/sprint-2/backend/borda)              | decode único, os sete módulos de percepção, o grafo que os liga, as features e o cache                      | não lê CSV, não serve HTTP, não conhece o parceiro nem o conceito de partição |
+| [`mlops`](/docs/sprint-2/backend/dados-e-avaliacao) | o conjunto da Footstats, rótulos declarados, partição por partida e avaliação contra o gabarito             | não roda pipeline, não abre vídeo, não sabe o que é um módulo de percepção    |
+| [`api`](/docs/sprint-2/backend/servico-http)        | serviço HTTP, fila de processamento, sessão e [posse do vídeo enviado](/docs/sprint-2/backend/autenticacao) | não lê CSV, não conhece partição, e ninguém a importa                         |
+| `cli`                                               | o ponto de entrada de terminal, único, que junta `edge` e `mlops`                                           | não serve HTTP, não implementa regra nenhuma, e ninguém o importa             |
 
 A fronteira negativa dessa tabela não é comentário de boa intenção. Ela é uma tabela executável em
 `src/tests/test_import_boundary.py`, que percorre a AST de cada arquivo `.py` da área e reprova
@@ -237,7 +237,7 @@ GET  /v1/videos/1                200   resultado por etapa
 
 O `uploadUrl` sai como caminho relativo à raiz do serviço, e não absoluto: o absoluto só podia ser
 montado com o `Host` que o cliente mandou, e quem chama já sabe a base. O detalhe está em
-[o serviço HTTP](/docs/sprint-2/backend/servico-http#decisoes). O log do serviço, na mesma
+[o serviço HTTP](/docs/sprint-2/backend/servico-http#fluxo-de-dados). O log do serviço, na mesma
 execução, registra a passagem pela borda:
 
 ```text
@@ -293,149 +293,6 @@ mesma execução registra o aviso `sem visao superior: o peso de players nao est
 O frontend vive em `src/interface`, e é TypeScript: ele fica fora dos portões de Python e tem os
 seus próprios, seis jobs em `.gitlab/ci/frontend.yml`. Os testes que varrem `src/` percorrem a lista fixa das cinco áreas, `api`, `cli`, `contracts`, `edge` e `mlops`, ou procuram só arquivo `.py`, e é isso que faz o merge do frontend não quebrar portão nenhum por um motivo que não tem nada a ver com a mudança. O que a tela faz com esse corpo está em
 [a interface](/docs/sprint-2/frontend).
-
-## Decisões
-
-**Um pacote só, com a fronteira entre as áreas verificada por teste.** O desenho inicial foi um
-espaço de trabalho `uv` com um pacote por área, e ele dava a mesma garantia de graça: o resolvedor
-de dependências recusava o import indevido na instalação, e não na Jetson. *Alternativa
-descartada:* manter esse espaço de trabalho. O commit que o desfez (`ab43e05`) apagou três
-`pyproject.toml`, e o caminho mais curto até um arquivo de área era
-`apps/cloud/src/xvision/cloud/`, seis níveis de pasta que repetiam o nome da área duas vezes. Para
-um time de oito pessoas que compartilha uma máquina, isso custava três versões e um passo de
-publicação interna, sobre o `uv.lock` único que o espaço de trabalho já compartilhava entre os
-membros. A fronteira virou teste, que custa 27 linhas de código e menos de meio segundo.
-
-**As três raízes do sistema de arquivos têm significado único.** `../data/` é o que o parceiro
-mandou e nada nosso escreve lá, `../var/` é tudo que o sistema produz e pode ser apagado inteiro,
-`config/` é o que a pessoa edita dentro da raiz Python. *Alternativa descartada:* uma pasta só, ou
-escrever cache ao lado do dado.
-Misturar o que escrevemos com os 3,5 GB restritos faz o contexto de um `docker build` passar a
-incluir vídeo de partida, o que o RNF-08 e o contrato com a Footstats proíbem. O `compose.yaml`
-monta `./data/footstats:/data:ro`, então a garantia é técnica e não promessa em documento.
-
-**Caminho relativo ao diretório de trabalho, e nunca derivado de `__file__`.** *Alternativa
-descartada:* `Path(__file__).parents[N]`, que parece mais robusto e não é. Instalado como wheel, a
-raiz cai dentro de `site-packages`: isso aconteceu de verdade quando `mlops` fazia assim, e
-`xvision run --all` morria com `FileNotFoundError` apontando para dentro do venv. Hoje um teste
-varre a AST de `src/` e recusa o padrão. O JSON Schema é o caso oposto e por isso é lido por
-`importlib.resources`: ele precisa viajar dentro do wheel, e caminho relativo ao repositório
-quebraria em qualquer instalação que não fosse editável.
-
-**O modelo entra por configuração, e não por código.** Cada módulo é uma linha em
-`config/pipeline.toml` com `impl` no formato `pacote.modulo:Classe`, e o registry carrega o que
-estiver declarado. *Alternativa descartada:* uma lista de imports no código do pipeline, que é mais
-simples de ler e obriga a mexer em Python para trocar um modelo, contrariando o RNF-09. A troca de
-um stub por um modelo real é a edição de uma linha, e isso deixou de ser promessa nesta sprint:
-`config/pipeline.models.toml` é o mesmo grafo com quatro `impl` trocados e o `artifact` de cada
-peso, sem uma linha de Python diferente. A suíte de conformidade passa a rodar contra a
-implementação nova ao custo de três linhas: uma classe que herda `ModuleConformance` e a fixture
-que devolve o módulo. Caso de teste, nenhum precisa ser escrito.
-
-**A plataforma antes do modelo, com stub declarado como stub.** *Alternativa descartada:* começar
-por um detector real e montar a plataforma em volta dele. Ela adia o fluxo demonstrável de ponta a
-ponta para depois do primeiro modelo funcionar, e concentra o risco num item só. Com stubs, o
-caminho clipe até evento até frontend já existe, é medido e falha de forma declarada, e o que falta
-é substituível peça a peça. A aposta se pagou dentro da própria sprint: cinco das sete espécies
-passaram a ter implementação real sem que o grafo, o contrato do evento ou a tela mudassem. O preço
-continua nomeado em Riscos: nenhum número de tempo desta página mede inferência, porque a
-configuração padrão não carrega peso nenhum.
-
-## Trade-offs
-
-O que o desenho compra é concreto. Uma pessoa troca um módulo mexendo em uma linha de configuração,
-sem tocar em código. O decode acontece uma vez por clipe e é compartilhado por todos os módulos.
-Nenhuma área pode crescer para dentro da outra sem o teste de fronteira reprovar, e isso é
-verificado em cada execução da suíte, não revisado no olho. E o mesmo código atende os dois
-consumidores, o terminal e o navegador, sem duplicar a cola.
-
-**A desvantagem principal:** um pacote só significa que a lista de dependências de runtime é comum.
-O extra `api` separa o que o serviço HTTP **instala**, não o que ele **pode importar**: nada impede
-a borda importar `fastapi` numa máquina onde o extra esteja instalado, e o teste de fronteira não
-cobre dependência de terceiro, só as cinco áreas nossas. Separar de verdade exigiria um pacote por
-área, e esse preço já foi pago uma vez e revertido.
-
-Segunda desvantagem, menor e real: a configuração é lida a cada vídeo processado, dentro do
-worker, em vez de uma vez na subida. Custa milissegundos e permite trocar o modelo sem reiniciar o
-serviço, mas significa que um erro de digitação no `pipeline.toml` só aparece no primeiro vídeo
-processado. A mitigação é parcial: o serviço confere a existência do arquivo na subida e recusa a
-subir sem ele, mas não abre o conteúdo.
-
-Terceira: `var/` não tem teto nem expiração. Ele cresce com execuções, cache de percepção e vídeos
-enviados, e quem limpa é a pessoa. O que está verificado é a metade que protege o dado do parceiro:
-`test_the_two_roots_never_overlap` e
-`test_the_perception_cache_never_writes_inside_the_partner_dump`, os dois em
-`src/tests/edge/test_paths.py`, provam que nada dentro de `var/` cruza para `data/`. A outra metade,
-que o sistema se recomponha depois de um `rm -rf var/`, está declarada em
-[a borda](/docs/sprint-2/backend/borda) e não tem teste.
-
-## Riscos e incertezas
-
-**A configuração padrão não carrega modelo, e isso contamina toda medida de tempo desta página.**
-Em `config/pipeline.toml`, seis das sete espécies respondem do gabarito da fixture e a sétima,
-`shot`, é uma regra geométrica sobre a saída delas: nenhuma rede roda. Os 16 ms que o log do
-serviço registra são, portanto, o custo da plataforma numa estação de trabalho. Com
-`config/pipeline.models.toml`, que carrega três pesos, e numa Jetson, o tempo por clipe muda de
-ordem de grandeza. É a maior incerteza aberta, e nenhum número aqui deve ser lido como evidência
-sobre o RNF-01.
-
-**Ninguém tem a placa nesta sprint.** A imagem para a Jetson não existe: o `Dockerfile` de hoje
-constrói sobre `ghcr.io/astral-sh/uv:python3.10-bookworm-slim` e não menciona a placa. A armadilha
-conhecida ficou registrada na documentação, em vez de ser redescoberta na hora errada: a base do
-JetPack já traz uma OpenCV instalada pelo sistema, e pôr `opencv-python-headless` do PyPI dentro
-dela deixa duas cópias da mesma biblioteca no mesmo contêiner. Creditar CUDA à cópia do JetPack não
-se sustenta, e a fonte disso, com o efeito sobre o caminho previsto, está em [infraestrutura,
-contêiner e integração contínua](/docs/sprint-2/backend/infraestrutura). O portão
-`python:arm64` do CI resolve o lock para `aarch64` exigindo roda binária, o que prova que os
-pacotes existem para a arquitetura, e não que rodam na placa.
-
-**O transporte da borda para a nuvem não existe.** O contrato do evento está pronto e é validado
-nos dois sentidos contra o mesmo arquivo de schema, mas quem carrega o evento pela rede ainda não
-foi escrito. Até lá, o RNF-07 tem a chave de idempotência sem ter o caminho onde ela seria exercida.
-
-**A avaliação tem duas das sete métricas para avaliar.** O `config/labels.toml` declara sete
-métricas com gabarito do parceiro, e só `body_part` e `type_of_play` têm feature que as produza. A
-`marked` está no meio do caminho: a lógica existe em `edge/participants/marking.py` e falta a
-`Feature` que a liga ao pipeline. As outras quatro não existem. O relatório é honesto sobre a
-diferença, mas ela é fácil de ler errado, e o detalhe está na
-[página do dado e do número](/docs/sprint-2/backend/dados-e-avaliacao) e em
-[o que fica para a próxima sprint](../o-que-falta).
-
-**O gabarito do parceiro tem grão grosso, e isso limita o critério de aceite de qualquer modelo
-futuro.** O que está medido: a coluna de distância tem exatamente dez valores distintos, de 5 a 50
-metros em passos de 5, nas 2585 linhas em que está preenchida, e a marcação de tempo é em segundos
-inteiros, cerca de 60 quadros a 59,94 fps. O que é derivação, e não medição: se o resíduo do
-arredondamento for uniforme, a grade de 5 metros sozinha já contribui com erro absoluto médio de
-1,25 m, e 2,5 m é o pior caso de uma leitura e não a média. Abaixo dessa faixa o número mede o
-rótulo, e não o modelo. A derivação completa está em
-[o dado do parceiro e o número](/docs/sprint-2/backend/dados-e-avaliacao).
-
-## Ainda não implementado
-
-O quadro consolidado da sprint inteira, com as sete espécies e as sete métricas lado a lado, está
-em [o que fica para a próxima sprint](../o-que-falta). A tabela abaixo é o recorte do backend.
-
-| O que falta | Como a hipótese será testada |
-| --- | --- |
-| As duas espécies que continuam stub nas duas configurações, `field` e `identity` | Trocar o `impl` de `modules.field` pela implementação sobre `src/models/line_tracking/`, rodar `xvision run --all --config config/pipeline.models.toml` e conferir que os quadros passam a carregar `pitch_xy`, hoje nulo por falta de homografia. Integrar `identity` para preencher `team`, dado necessário para calcular `marked` |
-| As cinco métricas de `config/labels.toml` que não têm feature | Declarar cada uma em `[features.*]`, rodar `xvision run --all` seguido de `xvision eval`, e exigir que a acurácia bata a linha de base de maioria com margem maior que o grão do gabarito. A `marked` é a mais próxima: a lógica já existe em `edge/participants/marking.py` e falta a `Feature` que a liga ao pipeline |
-| A dobra reservada para as duas features que já medem | Os números de `body_part` e `type_of_play` saíram da dobra de ajuste, que é a que guiou a escolha dos limiares. Rodar `xvision eval` sobre a dobra reservada é o que separa regra que generaliza de regra ajustada ao conjunto |
-| O tempo de um clipe com modelo de verdade | Todo número de latência desta página saiu da configuração sem peso. Repetir a medida com `config/pipeline.models.toml` sobre clipe de partida é o que fixa o teto da fila e o `Retry-After` do serviço |
-| Imagem para a Jetson | Construir na placa a partir de `nvcr.io/nvidia/l4t-jetpack`, com `uv venv --system-site-packages`, e comparar ms por clipe contra o número da estação registrado aqui |
-| Transporte da borda para a nuvem | Enviar o evento e validar do outro lado contra o mesmo `shot_event.v1.json`, depois repetir o envio e conferir que o `shot_id` mantém um único registro |
-| Visualização do quadro no resultado | O campo `frame` já existe no contrato e responde `null`; o teste é a tela do frontend exibir o quadro do contato sem mudança de contrato |
-| PostgreSQL em produção | A topologia em `infra/` declara o armazenamento sem amarrar provedor, e a decisão depende de escolha que o time ainda não tomou |
-
-Os portões internos, rodados em 28/08/2026 nesta base: `ruff check` responde `All checks passed!`,
-`ruff format --check` responde `216 files already formatted`, `pyright` em modo estrito responde
-`0 errors, 0 warnings, 0 informations`, e `pytest --cov` responde `1205 passed, 1 skipped` com
-cobertura de linha de 91,17% contra um piso de 80%. O `[tool.coverage.run]` mede exatamente as
-cinco áreas do backend, e `src/models`, que são scripts de operador sem suíte, fica de fora da
-conta. As linhas não cobertas se concentram em `cli/__init__.py`, o ponto de entrada de terminal,
-com 217 delas, e no código de percepção que chegou nesta sprint. O tempo de parede da suíte fica de
-fora de propósito: ele varia por máquina e não é resultado de portão nenhum. O que esses números
-provam, e principalmente o que eles não provam, está em
-[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
 
 ## Referências
 

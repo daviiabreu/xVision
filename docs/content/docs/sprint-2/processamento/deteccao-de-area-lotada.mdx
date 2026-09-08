@@ -59,11 +59,11 @@ homografia resolvida?
 Nenhum peso vem no git (`*.pt` é ignorado de propósito — política do projeto pra conteúdo derivado de
 dado restrito). Os três foram localizados e verificados por sha256 antes do uso:
 
-| modelo | peso | sha256 conferido | origem |
-|---|---|---|---|
-| Jogador + bola | `football-player-detection.pt` (137 MB) | ✅ | Google Drive (link no manifesto `models/players/*.toml`) |
-| Campo / homografia | `pitch-keypoints-yolo11n-pose.pt` (6,6 MB) | ✅ | commitado em `feature/line_tracking`, `git show` |
-| Bola dedicada | `ball_yolov8n.pt` (6,3 MB) | ✅ | commitado em `feat/ball-tracking`, `git show` |
+| modelo             | peso                                       | sha256 conferido | origem                                                   |
+| ------------------ | ------------------------------------------ | ---------------- | -------------------------------------------------------- |
+| Jogador + bola     | `football-player-detection.pt` (137 MB)    | ✅               | Google Drive (link no manifesto `models/players/*.toml`) |
+| Campo / homografia | `pitch-keypoints-yolo11n-pose.pt` (6,6 MB) | ✅               | commitado em `feature/line_tracking`, `git show`         |
+| Bola dedicada      | `ball_yolov8n.pt` (6,3 MB)                 | ✅               | commitado em `feat/ball-tracking`, `git show`            |
 
 Os dois últimos não têm link de download direto (só uma Merge Request do GitLab) — foram recuperados
 direto do histórico de commit das branches dos colegas, já que o peso tinha sido versionado ali antes de
@@ -73,13 +73,13 @@ ser absorvido pelo padrão atual do projeto (`src/edge/participants/`, ex-`xvisi
 
 Contra as 32 anotações manuais, cada mudança de abordagem foi testada e medida — não assumida:
 
-| abordagem | acurácia | cobertura | observação |
-|---|---|---|---|
-| Heurística inicial (YOLO genérico COCO, par mais próximo, pixels) | 81,2% | 32/32 | detector genérico, sem homografia |
-| Bola real (combinada), raio em pixels | 71,9% | 32/32 | primeira tentativa com modelo real |
-| Bola real, raio em metros (homografia) | 68,8% | 32/32 | mesma limitação, não é a unidade |
-| Corredor bola→gol (metros reais) | 65,0% | 20/32 | preciso mas conservador — 0 falso positivo, muitos falso negativo |
-| Bola dedicada + combinada + fallback, metros reais (calibrado) | **59,4%** | 32/32 | versão final |
+| abordagem                                                         | acurácia  | cobertura | observação                                                        |
+| ----------------------------------------------------------------- | --------- | --------- | ----------------------------------------------------------------- |
+| Heurística inicial (YOLO genérico COCO, par mais próximo, pixels) | 81,2%     | 32/32     | detector genérico, sem homografia                                 |
+| Bola real (combinada), raio em pixels                             | 71,9%     | 32/32     | primeira tentativa com modelo real                                |
+| Bola real, raio em metros (homografia)                            | 68,8%     | 32/32     | mesma limitação, não é a unidade                                  |
+| Corredor bola→gol (metros reais)                                  | 65,0%     | 20/32     | preciso mas conservador — 0 falso positivo, muitos falso negativo |
+| Bola dedicada + combinada + fallback, metros reais (calibrado)    | **59,4%** | 32/32     | versão final                                                      |
 
 A acurácia caiu a cada tentativa "mais correta" — padrão consistente demais pra ser só ruído de sinal
 ruim. A leitura mais provável: **32 amostras é pouco pra calibrar com confiança** (o threshold ótimo bateu
@@ -91,10 +91,10 @@ bruta menor porque é a única fisicamente defensável (metros reais, não um ar
 
 Matriz de confusão da versão final (radius_m=6,5, threshold=1):
 
-| | manual: crowded | manual: não crowded |
-|---|---|---|
-| **predito: crowded** | 18 (VP) | 10 (FP) |
-| **predito: não crowded** | 3 (FN) | 1 (VN) |
+|                          | manual: crowded | manual: não crowded |
+| ------------------------ | --------------- | ------------------- |
+| **predito: crowded**     | 18 (VP)         | 10 (FP)             |
+| **predito: não crowded** | 3 (FN)          | 1 (VN)              |
 
 23/32 clipes usaram a bola como âncora; 9/32 caíram no fallback por cor (bola não detectada nesse frame
 exato — instante de contato costuma ser o momento mais difícil pra detectar a bola, borrada ou sob o pé do
@@ -196,9 +196,9 @@ Requer os pesos em `var/models/{players,ball,field}/` (ver proveniência acima) 
 
 ## Referências
 
-- [Rastreamento da bola](/docs/sprint-2/rastreamento-da-bola) — o detector de bola dedicado usado aqui.
-- [Line tracking](/docs/sprint-2/line_tracking) — o modelo de campo/homografia usado aqui.
-- [Detecção do instante da finalização](/docs/sprint-2/97-deteccao-do-instante-da-finalizacao) — resolve
+- [Rastreamento da bola](/docs/sprint-2/processamento/rastreamento-da-bola): o detector de bola dedicado usado aqui.
+- [Keypoints e homografia](/docs/sprint-2/processamento/keypoints-e-homografia): o modelo de campo/homografia usado aqui.
+- [Detecção do instante da finalização](/docs/sprint-2/processamento/deteccao-do-instante-da-finalizacao): resolve
   o mesmo problema que o offset heurístico de 3,08s aproxima nos clipes sem anotação manual.
 - `src/edge/features/crowded.py` — a feature oficial, no contrato de percepção do time.
 - `scripts/crowded_pipeline.py`, `scripts/anotar_clips.py`, `scripts/avaliar_crowded.py`,

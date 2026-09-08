@@ -12,7 +12,7 @@ contrato de conteúdo restrito exige. Os números do conjunto e da partição fo
 comandos sobre o dump real em 25/08/2026, os portões desta área em 28/08/2026, e o que for derivação
 ou estimativa está marcado como tal. A acurácia das duas features que hoje têm implementação foi
 medida por quem as escreveu e mora em
-[detecção do instante da finalização](../97-deteccao-do-instante-da-finalizacao); aqui elas aparecem
+[detecção do instante da finalização](/docs/sprint-2/processamento/deteccao-do-instante-da-finalizacao); aqui elas aparecem
 só como o que a avaliação faz com elas.
 
 ## Onde se encaixa no fluxo
@@ -52,15 +52,15 @@ precisa do quadro e o pede ao `FrameProvider` da borda, em vez de abrir o arquiv
 
 ## Componentes e responsabilidades
 
-| Componente | Responsabilidade | O que ele **não** faz |
-| --- | --- | --- |
-| `mlops.catalog` | unir as duas tabelas, achar o clipe de cada finalização, marcar truncado e atribuir o fold | não abre vídeo, não decodifica quadro, não importa `cv2`, não normaliza vocabulário de rótulo, não escreve em disco |
-| `config/labels.toml` | declarar qual coluna do parceiro é o gabarito de cada métrica, com tipo, domínio, grão e obrigatoriedade | não define limiar, não descreve a saída do extractor, não decide se o rótulo é bom |
-| `mlops.labels` | ler e validar essa tabela e converter o texto do parceiro para `bool`, `enum` ou número | não calcula métrica, não implementa feature, não traduz vocabulário |
-| `config/split.toml` | fixar o sal, o número de folds e o agrupamento | não guarda identificador de partida do parceiro |
-| `mlops.split` | decidir em qual fold cada partida cai, por hash salgado | não escolhe o sal em tempo de execução, não obriga ninguém a usar fold |
-| `mlops.evaluate` | casar predição com gabarito e reportar cada métrica ao lado da linha de base | não diz se um número é bom, não tem nota de corte, não plota, não compara execuções de populações diferentes, não guarda predição individual |
-| `mlops.run` | registrar procedência: commit, árvore suja, digest da configuração, versão e tempo por módulo, ambiente | não calcula métrica, não compara execuções, não sobe nada para servidor |
+| Componente           | Responsabilidade                                                                                         | O que ele **não** faz                                                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mlops.catalog`      | unir as duas tabelas, achar o clipe de cada finalização, marcar truncado e atribuir o fold               | não abre vídeo, não decodifica quadro, não importa `cv2`, não normaliza vocabulário de rótulo, não escreve em disco                          |
+| `config/labels.toml` | declarar qual coluna do parceiro é o gabarito de cada métrica, com tipo, domínio, grão e obrigatoriedade | não define limiar, não descreve a saída do extractor, não decide se o rótulo é bom                                                           |
+| `mlops.labels`       | ler e validar essa tabela e converter o texto do parceiro para `bool`, `enum` ou número                  | não calcula métrica, não implementa feature, não traduz vocabulário                                                                          |
+| `config/split.toml`  | fixar o sal, o número de folds e o agrupamento                                                           | não guarda identificador de partida do parceiro                                                                                              |
+| `mlops.split`        | decidir em qual fold cada partida cai, por hash salgado                                                  | não escolhe o sal em tempo de execução, não obriga ninguém a usar fold                                                                       |
+| `mlops.evaluate`     | casar predição com gabarito e reportar cada métrica ao lado da linha de base                             | não diz se um número é bom, não tem nota de corte, não plota, não compara execuções de populações diferentes, não guarda predição individual |
+| `mlops.run`          | registrar procedência: commit, árvore suja, digest da configuração, versão e tempo por módulo, ambiente  | não calcula métrica, não compara execuções, não sobe nada para servidor                                                                      |
 
 A última fronteira negativa é a que protege o conteúdo restrito. O relatório é agregado por
 construção: `MetricReport` não tem campo para predição individual nem para identificador de
@@ -149,25 +149,25 @@ O artefato que outra pessoa lê é o `report.json`, e nele uma métrica ocupa es
 
 ```json
 {
- "feature": "goalkeeper_position",
- "label": "goalkeeper_position",
- "type": "bool",
- "n_labeled": 604,
- "n_predicted": 0,
- "n_unavailable": 604,
- "coverage": 0.0,
- "scores": {},
- "confusion": null,
- "baseline_majority": {
-  "accuracy": 0.8758278145695364,
-  "macro_f1": 0.46690203000882613,
-  "n": 604
- },
- "baseline_majority_covered": null,
- "baseline_metadata": null,
- "mcnemar": null,
- "threshold": null,
- "label_grain": null
+  "feature": "goalkeeper_position",
+  "label": "goalkeeper_position",
+  "type": "bool",
+  "n_labeled": 604,
+  "n_predicted": 0,
+  "n_unavailable": 604,
+  "coverage": 0.0,
+  "scores": {},
+  "confusion": null,
+  "baseline_majority": {
+    "accuracy": 0.8758278145695364,
+    "macro_f1": 0.46690203000882613,
+    "n": 604
+  },
+  "baseline_majority_covered": null,
+  "baseline_metadata": null,
+  "mcnemar": null,
+  "threshold": null,
+  "label_grain": null
 }
 ```
 
@@ -176,22 +176,22 @@ dizer que foi a versão do detector que mudou o número:
 
 ```json
 {
- "schema_version": "1.0",
- "run_id": "20260825-030532-4245a1",
- "started_at": "2026-08-25T03:05:35.064Z",
- "git_sha": "b7ec82a",
- "git_dirty": false,
- "config_sha256": "b8ea042d6954f8f48028550c1e87aef71df45a991d920df74c47016cca202713",
- "dataset": {
-  "clips": 0,
-  "failed": 6,
-  "population": "n=6"
- },
- "modules": {},
- "features": [],
- "host": "(nome da maquina, omitido aqui)",
- "python": "3.10.20",
- "platform": "darwin-arm64"
+  "schema_version": "1.0",
+  "run_id": "20260825-030532-4245a1",
+  "started_at": "2026-08-25T03:05:35.064Z",
+  "git_sha": "b7ec82a",
+  "git_dirty": false,
+  "config_sha256": "b8ea042d6954f8f48028550c1e87aef71df45a991d920df74c47016cca202713",
+  "dataset": {
+    "clips": 0,
+    "failed": 6,
+    "population": "n=6"
+  },
+  "modules": {},
+  "features": [],
+  "host": "(nome da maquina, omitido aqui)",
+  "python": "3.10.20",
+  "platform": "darwin-arm64"
 }
 ```
 
@@ -199,295 +199,10 @@ O `run_id` combina o instante com seis dígitos hexadecimais aleatórios porque 
 colide: duas execuções no mesmo segundo escreviam na mesma pasta, e o `events.jsonl` e o
 `run.json` dela passavam a descrever execuções diferentes, com código de saída zero.
 
-## Decisões
-
-**A junção é por `id_match_shot`, e a chave de nome óbvio casa zero linha.** Medido: o `id` da
-tabela de xG casa 0 das 2557 linhas com o `id` da tabela de finalizações, e `id_match_shot` casa
-2557 de 2557. A alternativa descartada é a chave homônima, que é o que qualquer pessoa tenta
-primeiro, e o problema dela não é errar: é errar em silêncio. O mapa de junção fica vazio, o
-catálogo devolve registros sem nenhuma coluna de xG, e isso passa por catálogo pequeno. Por isso
-o leitor exige as colunas de junção e nomeia a que faltar, em vez de estourar `KeyError`: a falha
-mais provável na vida real é o próximo dump mudar de esquema.
-
-**O `clip_id` é o identificador da finalização, e nunca o nome do arquivo.** O nome dos 633
-arquivos tem cinco campos separados por `_`, e o quarto é o desfecho do lance. Medido: 78 dos 633
-trazem `gol` nesse campo. Em xG o desfecho é o alvo, como a definição da Opta deixa explícito ao
-descrever xG como a probabilidade de o lance virar gol. A alternativa descartada é usar o nome do
-arquivo como identificador, que é uma linha de código a menos. Com ela o rótulo viaja dentro do
-`clip_id`, vira prefixo do `shot_id` de todo evento e chega até a chave do cache de percepção;
-qualquer coisa que aprenda sobre o identificador ganha o alvo de graça.
-
-**Os rótulos são declarados em TOML, não em código.** Cada entrada de `config/labels.toml` diz a
-tabela, a coluna, o tipo (`bool`, `enum` ou `numeric`), o domínio, o texto que conta como ausente,
-o grão quando existe, e se o rótulo é obrigatório para a finalização entrar na população. Um
-segundo bloco, as entradas `[[metric]]`, liga o nome da feature ao rótulo que ela mede. A
-alternativa descartada eram sete nomes cravados no CLI: eles duplicavam a tabela, e tirar um
-rótulo do TOML mudava a contagem da população em silêncio. Hoje a linha "604 completos, com os 7
-rótulos obrigatórios" conta o que está declarado, e nada mais.
-
-Duas propriedades da tabela existem para não decidir pelo dono da métrica. A primeira: pé ou
-cabeça tem duas colunas de gabarito, uma com três classes e outra com duas, e escolher uma delas
-seria escolher o espaço de saída da métrica, então as duas entram e o dono aponta a feature para a
-que usar. A segunda: o mapeamento de feature para rótulo aceita muitos para um, porque a
-mesma métrica pode cair para duas pessoas, e duas implementações concorrentes precisam aparecer
-lado a lado no mesmo relatório em vez de disputarem um nome. Hoje as sete entradas `[[metric]]`
-apontam para sete rótulos distintos, então a capacidade existe e ainda não foi exercida.
-
-Quatro rótulos declarados **não** têm `[[metric]]` apontando para eles, e a ausência é
-deliberada em cada caso. `expected_goals` e `is_goal` são alvo e desfecho, não coisas que a
-borda mede a partir do vídeo: eles entram para a avaliação poder relatar sobre que população a
-medida foi tirada, e comparar uma feature contra eles seria comparar a entrada com a saída do
-mesmo modelo. `shot_distance_m` tem grão de 5 metros, então serve de referência e de corte de
-população, e não de rótulo de precisão: uma feature que acerte dentro de 5 metros não prova
-nada contra ele. E `body_part_2` é a versão de dois valores do mesmo rótulo, pelo motivo do
-parágrafo acima.
-
-**A partição agrupa por partida, e a aleatória por finalização vaza.** Medido: os 604 clipes
-avaliáveis moram em 28 partidas, entre 12 e 38 clipes cada. Dentro de uma partida se repetem
-gramado, ângulo de câmera, iluminação e os mesmos 22 jogadores. A alternativa descartada é a
-partição aleatória por finalização, que é o padrão de qualquer `train_test_split`: ela põe
-vizinhos quase idênticos dos dois lados e mede memorização da partida, não generalização. A
-documentação do scikit-learn descreve exatamente esse caso ao explicar por que `GroupKFold`
-existe, e Kapoor e Narayanan catalogam esse tipo de vazamento em 329 artigos de 17 áreas, então
-não é preocupação teórica. O fold sai de `sha256(sal + ":" + id_da_partida)`, com 16 dígitos
-hexadecimais, módulo o número de folds: é determinístico, e oito pessoas em oito máquinas chegam
-à mesma partição sem trocar arquivo nenhum.
-
-**São cinco folds, e não uma divisão 70/15/15.** Medido sobre os 604: a classe positiva de
-`looked_before` tem 64 exemplos no total. Uma validação de 15% ficaria com 91 clipes e, por
-proporção, cerca de dez positivos (estimativa). Com cinco folds, o pior fold tem 10 positivos e o
-melhor tem 19, e esses dois são medidos. A aritmética do F1 nesse tamanho é dura: com 10 positivos
-e nenhum falso positivo, acertar cinco dá F1 de 0,667 e acertar seis dá 0,750, ou seja, um único
-acerto move o número em 0,083. A alternativa descartada é aumentar o número de folds, que só
-piora: com 28 partidas, oito folds deixariam três ou quatro partidas em cada um, e dez folds
-deixariam duas ou três. A saída é mais partidas, e
-ela depende do parceiro.
-
-**O sal é versionado, e a lista de partidas não.** `config/split.toml` tem quatro linhas e nenhum
-identificador do parceiro dentro, e um teste varre o arquivo para garantir isso. A alternativa
-descartada é versionar a lista das 28 partidas por fold, que é o jeito mais direto de fixar uma
-partição e o que a maioria dos projetos faz: ela poria identificador do parceiro num arquivo que
-vai para o repositório e para a imagem de contêiner. O sal foi escolhido varrendo 400 candidatos, procurando
-um que equilibrasse o tamanho dos folds e deixasse positivo suficiente das classes raras em todos,
-e está cravado em teste junto com a atribuição que ele produz, em
-`src/tests/mlops/test_split.py`. Trocá-lo reatribui as 28 partidas e
-invalida toda comparação já publicada, então a troca precisa ser deliberada.
-
-**Toda métrica booleana ou categórica sai ao lado da linha de base de maioria, e o campo não é
-opcional.** Medido sobre os 604: o chute constante acerta 0,894 em `looked_before`, 0,876 em
-`goalkeeper_position` e 0,844 em `marked`. Um modelo com 0,88 de acurácia parece bom até a linha de
-base aparecer ao lado. A alternativa descartada é reportar só acurácia e deixar a comparação para
-quem lê. `baseline_majority` é campo do relatório, e não opção de linha de comando, pela mesma razão
-que o scikit-learn documenta o `DummyClassifier`: sem ele, o número não tem escala. Para rótulo
-numérico o campo sai nulo de propósito, porque maioria não significa nada sobre alvo contínuo, e o
-piso ali é outro: `label_grain`, que carrega o grão declarado da coluna. As sete métricas de hoje
-são todas booleanas ou categóricas, então as sete trazem a linha de base preenchida.
-
-Dentro da linha de base há uma segunda decisão. A maioria sai da população inteira e o acerto é
-medido no subconjunto que o modelo cobriu. A alternativa descartada é medir os dois no coberto:
-assim, um modelo que responde só onde a classe é óbvia infla a própria linha de base e depois se
-compara favoravelmente contra ela, que é exatamente o viés que o campo existe para expor.
-
-Há ainda uma terceira linha de base, e ela é mais dura que a maioria. O campo opcional
-`baseline_metadata` de uma entrada `[[metric]]` guarda o que a marcação do parceiro já alcança sem
-olhar o vídeo: para `body_part` ele vale 1,0, porque a coluna `foot` dos metadados do corte reproduz
-o rótulo em 633 de 633; para `type_of_play` vale 0,7964, que é o melhor mapa possível da coluna
-`origin_of_move`, com 485 acertos em 609. Ler a acurácia de uma feature só contra a maioria responde
-metade da pergunta: a maioria diz se o modelo aprendeu alguma coisa, e este campo diz se vale a pena
-extrair do vídeo o que já está na planilha.
-
-**As métricas saem das entradas `[[metric]]`, e não das predições.** Uma métrica declarada e sem
-nenhuma predição aparece com cobertura 0%, que é o estado de cinco das sete métricas hoje, em vez de
-sumir da tabela. A alternativa descartada é iterar as predições, que hoje produziria uma tabela com
-duas linhas e a impressão de que ninguém prometeu mais do que isso, quando sete pessoas prometeram.
-`coverage` e
-`n_unavailable` são a forma em número de declarar entrega parcial, e indisponível vira categoria
-própria em vez de erro ou acerto calado.
-
-**A procedência mora num arquivo irmão, e não dentro do evento.** A alternativa descartada é
-crescer o `ShotEvent`. O esquema `shot_event.v1.json` tem `additionalProperties: false` nos três
-níveis e um digest cravado em teste, então cada campo novo custaria bump de versão, o
-validador de JSON Schema, o `from_dict` e a nuvem, sem desbloquear uma pessoa sequer. A saída de menor
-resistência seria enfiar `git_sha` dentro do mapa de versões, que valida porque ele é mapa de
-texto, e em duas semanas o evento vira saco de gato sem tipo. A segunda alternativa descartada é
-MLflow, e o motivo não é servidor: ele roda local gravando em `mlruns/`, sem servidor nem banco.
-O motivo é o peso. Medido com `uv pip compile` no piso 3.10, `mlflow` resolve para 91 pacotes,
-entre eles numpy, pandas, scipy, scikit-learn, SQLAlchemy, Flask e gunicorn, que são justamente os
-que esta área evita para caber na Jetson. Para um JSON de doze campos o custo não se paga nesta
-sprint.
-
-**Nada no caminho da avaliação importa pandas, numpy ou scikit-learn.** A leitura das duas tabelas
-usa o módulo `csv` da biblioteca padrão e as métricas são aritmética sobre listas. A alternativa descartada é
-pandas para a junção e scikit-learn para as métricas, que resolveriam em bem menos linhas. O alvo
-é uma Jetson com JetPack 6, cujo Python é 3.10, e cada dependência nova precisa de roda ARM64 para
-uma junção de duas tabelas de 2680 e 2557 linhas. O extra `mlops` do `pyproject.toml` é uma lista
-vazia, e essa é a forma verificável da afirmação. numpy e OpenCV são o caso de fronteira, e a
-fronteira se moveu nesta sprint: `mlops.scrub` e `mlops.sheets`, as duas ferramentas com que uma
-pessoa anota o instante do contato à mão, importam `cv2`, e a segunda importa numpy para montar a
-imagem da folha. Nenhuma das duas roda no caminho da avaliação, e as duas dependências já estavam na
-árvore por causa da borda, então o extra continua vazio. O que a lista vazia verifica é que `mlops`
-não acrescenta dependência, e não que nenhum módulo dele importe uma que a imagem já carrega. O
-mesmo piso de 3.10 obriga o backport `tomli`, porque `tomllib` só entrou na biblioteca padrão no
-3.11.
-
-## Trade-offs
-
-O que se ganha é um caminho curto e auditável: 852 linhas executáveis no pacote `mlops`, das quais
-382 são o catálogo, os rótulos, a partição, a avaliação e a procedência, e 470 são as ferramentas de
-anotação e diagnóstico que chegaram nesta sprint. Nenhuma delas traz serviço, banco ou dependência
-que a placa carregue à toa. A configuração que decide a população, o gabarito e a partição cabe em
-dois arquivos TOML de 127 e 4 linhas, que aparecem no diff da revisão, e o `compose.yaml` monta `src/config/` como volume somente-leitura, então quem opera troca a tabela de rótulos sem tocar em código.
-
-**A desvantagem principal é que a aritmética das métricas é nossa, e é ela que pode estar errada
-sem ninguém notar.** O comando roda, imprime uma tabela bem formatada, e a decisão de aceitar ou
-recusar um modelo sai de um valor que ninguém conferiu. Antes de `src/tests/mlops/test_numeros.py`
-existir, três mutações passavam pela suíte inteira: o RMSE reportado sem a raiz, o falso positivo
-contado como falso negativo, e a maioria tirada do próprio subconjunto coberto. As três mudam o
-número sem mudar a forma da saída, e a segunda inverte o diagnóstico, fazendo um modelo que
-inventa detecção parecer um que deixa de detectar. Dá para repetir a verificação: aplique a
-mutação, rode `pytest src/tests --ignore=src/tests/mlops/test_numeros.py` e veja a suíte fechar
-verde nas três. Com scikit-learn esse risco seria de outra
-pessoa; a contrapartida foi escrever os três testes que cobram cada uma.
-
-A segunda desvantagem é estrutural e não tem conserto interno: as 28 partidas caem nos cinco
-folds como 6, 6, 5, 5 e 6, então o intervalo de confiança de qualquer métrica por fold será
-largo.
-Aumentar o número de folds piora, porque reduz partidas por fold. Mais dados do parceiro é a única
-saída, e ela não está na nossa mão.
-
-A terceira é o filtro de clipe truncado. `big_enough` compara tamanho e não abre arquivo, o que é
-barato e funciona hoje por sorte de escala: medido, os 24 truncados têm exatamente 261 bytes e o
-menor arquivo abrível tem 2,01 MB, um vão de quatro ordens de grandeza em torno do limiar de 4096
-bytes. Um download interrompido de 5 MB passaria pelo limiar e só falharia na abertura, virando
-etapa com motivo em vez de linha fora da população. É o comportamento correto, só que mais tarde
-do que se o arquivo tivesse sido aberto antes.
-
-## Riscos e incertezas
-
-**O gabarito tem grão grosso, e isso limita o que o RNF-03 consegue verificar.** Medido: a coluna
-de distância tem exatamente dez valores distintos entre 5 e 50 metros, em passos de 5, sobre as
-2585 linhas em que está preenchida. As marcações de tempo do recorte, entrada, saída, duração e
-minuto, são todas inteiras nos 633 clipes, ou seja, grão de 1 segundo. A taxa de quadros foi medida
-nos 609 clipes abríveis, um a um: 582 declaram 59,94 fps e 27 declaram 60,0. Em qualquer um dos
-dois, 1 segundo são cerca de 60 quadros.
-
-A consequência é derivação aritmética, e não medição: arredondar uma distância contínua para uma
-grade de 5 metros contribui sozinho com erro absoluto médio de 1,25 m e desvio padrão de 5
-dividido pela raiz de 12, cerca de 1,44 m, se o resíduo for uniforme. Um MAE reportado contra essa
-coluna não desce abaixo dessa faixa a menos que o modelo esteja reproduzindo o arredondamento, e
-não a distância. O [RNF-03](/docs/sprint-1/requisitos/nao-funcionais) pede erro absoluto médio
-para features numéricas e macro F1 para categóricas, com tolerância temporal declarada, e os
-valores mínimos continuam pendentes do parceiro. Este grão é o teto do que a comparação consegue
-distinguir, e é por isso que a distância está declarada sem entrada `[[metric]]`: ela serve de
-corte de população e de referência, não de rótulo de precisão.
-
-**O sal resolve reprodutibilidade, mas não confidencialidade.** A propriedade que ele entrega, e
-que está verificada por teste, é que o arquivo versionado não contém identificador do parceiro. A
-propriedade que ele não entrega é sigilo: quem tem o sal e o espaço de identificadores refaz o
-mapeamento por força bruta em segundos, porque SHA-256 é rápido de propósito, e a própria
-documentação do `hashlib` diz isso ao recomendar `pbkdf2_hmac` para qualquer uso que precise
-resistir a busca exaustiva. Tratar o sal como segredo seria erro de leitura desta decisão.
-
-**A tabela impressa mistura dois `n`, e ficou mais fácil de ler errado.** Cinco das sete métricas
-continuam com cobertura 0%, porque nenhuma feature as prediz, e as outras duas saem com cobertura
-alta. O `report.json` é honesto nos dois casos, com `n_predicted`, `n_unavailable` e `coverage`
-separados, mas a coluna `n` da tabela mostra 604 em toda linha, e esse é o `n` do gabarito, não o da
-medida. Enquanto todas as linhas estavam em zero, ler a tabela errado não mudava conclusão nenhuma;
-com duas linhas cobertas e cinco vazias, comparar acurácia de uma linha com maioria de outra passou
-a ser um erro possível.
-
-**A avaliação passou a ter o que avaliar, e o que ela diz é que as duas features perdem para a
-linha de base.** Cinco das sete espécies de módulo têm implementação real em
-`config/pipeline.models.toml`, e a cadeia completa processou os 604 clipes sem uma falha. Medido
-sobre essa população, `body_part` fica em 0,339 de acurácia contra maioria de 0,522, e
-`type_of_play` em 0,391 contra 0,667: as duas perdem em acurácia, ganham em macro F1, e o teste
-pareado diz que a perda não é ruído. A medição e as causas estão em
-[detecção do instante da finalização](../97-deteccao-do-instante-da-finalizacao). É exatamente o
-caso que o campo `baseline_majority` existe para tornar visível, e ele apareceu na primeira execução
-em que houve número para comparar.
-
-**A população não é amostra aleatória do conjunto.** Medido: 633 das 2680 finalizações têm clipe,
-2557 das 2680 têm linha de xG, e as 28 partidas com clipe são 28 das 104 presentes na tabela. Quem
-escolheu quais lances receberam recorte foi o parceiro, e o critério não nos foi informado. Toda
-métrica desta página vale sobre os 604; generalizar para o campeonato inteiro é hipótese não
-testada, e a primeira coisa a perguntar na próxima conversa com a Footstats.
-
-**24 clipes truncados, 3,8% dos 633.** Todos têm exatamente 261 bytes, o que parece envio
-interrompido e não arquivo curto legítimo. Vale confirmar com o parceiro: se for corrupção de
-transferência, a base cresce sem custo de marcação nova.
-
-**O próximo dump pode mudar de esquema.** O catálogo recusa a tabela e diz qual coluna falta, e a
-tabela de rótulos aponta para colunas que precisam existir, com teste que confere a declaração
-contra o que o parceiro realmente entrega. Isso transforma a falha em mensagem de uma linha, mas
-não a evita.
-
-## Ainda não implementado
-
-**Duas features declaradas contra sete métricas com gabarito.** `config/labels.toml` declara sete
-entradas `[[metric]]` e `edge.features` implementa duas delas, `body_part` e `type_of_play`, as
-mesmas nas duas configurações de pipeline. As outras cinco não existem, e `marked` é a mais próxima:
-a lógica de marcação já está escrita em `edge/participants/marking.py` e falta a `Feature` que a
-liga ao pipeline. Essa distância entre sete declaradas e duas medidas é o principal risco de escopo
-desta entrega, e o quadro inteiro, com o que falta em cada métrica e como cada hipótese será
-testada, está em [o que fica para a próxima sprint](../o-que-falta).
-
-O critério de aceite de cada uma continua sendo o mesmo, e não é acurácia alta: é bater a linha de
-base de maioria daquele rótulo por margem maior que o ruído do fold. Para `looked_before`, cuja
-linha de base é 0,894 e cujo fold mais pobre tem 10 positivos, uma diferença abaixo de 0,08 no F1 da
-classe positiva não distingue melhora de sorte. As duas features que já existem ainda não passaram
-nesse critério.
-
-**O fold já é consumido, mas não por `xvision eval`.** O comando `xvision eval-ball` recebe
-`--dobra` e separa as dobras 0 a 2, onde se calibra, das dobras 3 e 4, que nenhuma decisão de peso
-ou limiar viu; sobre os 38 clipes com instante anotado à mão isso dá 24 para ajustar e 14 para
-medir, e foi essa separação que sustentou o número da percepção da bola. O `xvision eval` continua
-reportando sobre a população inteira: falta a opção que restringe a avaliação a um fold e o laço que
-roda os cinco. O experimento da próxima sprint é rodar a mesma feature nos cinco folds e publicar
-média e dispersão, porque a diferença entre um número único e um número com dispersão é o que separa
-uma medida de uma impressão.
-
-**Resultado por cenário.** O RNF-03 pede a quebra por rebote, corte de plano e câmera lenta, e
-nada no catálogo marca esses casos hoje. A hipótese a testar é se essas marcações existem no lado
-do parceiro. Se não existirem, elas precisam ser rotuladas à mão sobre uma amostra dos 604, e o
-custo dessa rotulagem ainda não foi medido.
-
-**Tolerância temporal.** Duas tolerâncias diferentes se escondiam sob este nome, e só uma continua
-pendente. A interna já está declarada e medida: `mlops.instant` fixa 30 quadros como alvo, que é o
-erro que ainda preserva dois terços do contexto anterior da janela, e 90 como limite, acima do qual
-a janela perde esse contexto inteiro. Os dois saem da janela de extração de `config/pipeline.toml`,
-que com `before_s = 1.5` e `after_s = 0.5` a 59,94 fps são 90 quadros antes e 30 depois do instante,
-e `xvision eval-instant` mede o detector contra um gabarito anotado à mão.
-
-A externa continua pendente do parceiro, e a razão ficou concreta. Pousar
-`match_events.time_play_in_seconds` dentro do clipe exige o offset da transmissão, e o resíduo dele
-em torno da mediana por partida e tempo de jogo tem p50 de 2,0 s e p90 de 7,5 s; somado ao grão de 1
-segundo da própria marcação, isso põe a incerteza entre 180 e 510 quadros, contra clipes de 240 a
-420. A marcação do parceiro não serve de gabarito do instante, e foi por isso que o gabarito manual
-precisou existir. Qual tolerância vale para casar evento automático com marcação histórica continua
-sendo a informação que precisa entrar na conversa antes de qualquer acordo de número.
-
-**Varredura de limiar sobre dado real.** O relatório já traz, para feature booleana que emite
-número, o melhor F1 da varredura e o limiar que o atinge, para quem ainda não tem curva não ser
-obrigado a chutar um. O campo `threshold` só é calculado quando o rótulo tem `type = "bool"`, e as
-duas features implementadas medem rótulos `enum`, então a varredura continua sem nunca ter rodado
-sobre dado do parceiro. Quem vai exercê-la é a primeira feature booleana a existir, provavelmente
-`marked`; até lá o comportamento está coberto por teste sintético, e isso é cobertura de código, não
-evidência de qualidade.
-
-O estado dos portões desta área, medido em 28/08/2026: 142 testes em `src/tests/mlops`, todos
-passando, em menos de um segundo. A suíte inteira do backend fecha em 1205 testes passando e 1
-pulado, e é ela que leva a cobertura do pacote `mlops` a 91,3%, com 74 linhas não executadas de 852.
-Rodando só `src/tests/mlops`, a mesma medida dá 90,7% e 79 linhas: a diferença são os caminhos de
-`run.py` que só o CLI exercita, e vale registrar qual das duas contas está sendo citada. A queda em
-relação aos 96% da medição anterior não é regressão de teste: são as ferramentas de anotação que
-chegaram nesta sprint, e `mlops/zoom.py`, que tem 27 linhas e nenhum teste próprio, responde sozinho
-por mais de um terço do que falta. O que esses números provam e o que eles não provam está em
-[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
-
 ## Referências
 
 - [Validação cruzada no scikit-learn](https://scikit-learn.org/stable/modules/cross_validation.html), que descreve amostras dependentes por grupo e o motivo de `GroupKFold` existir, e sustenta a partição agrupada por partida.
-- [Kapoor e Narayanan, *Leakage and the Reproducibility Crisis in ML-based Science*](https://arxiv.org/abs/2207.07048), que cataloga oito tipos de vazamento em 329 artigos de 17 áreas, e é a razão de a partição ser decidida antes de existir modelo.
+- [Kapoor e Narayanan, _Leakage and the Reproducibility Crisis in ML-based Science_](https://arxiv.org/abs/2207.07048), que cataloga oito tipos de vazamento em 329 artigos de 17 áreas, e é a razão de a partição ser decidida antes de existir modelo.
 - [`DummyClassifier` do scikit-learn](https://scikit-learn.org/stable/modules/generated/sklearn.dummy.DummyClassifier.html), documentado como linha de base simples para comparação, que sustenta o campo obrigatório `baseline_majority`.
 - [O que são expected goals, pela Opta](https://theanalyst.com/articles/what-are-expected-goals-xg), que lista posição do goleiro, pressão da defesa e tipo de assistência entre as entradas do modelo e o gol como desfecho previsto, e sustenta a decisão de o desfecho não viajar dentro do identificador.
 - [Especificação TOML 1.0.0](https://toml.io/en/v1.0.0), que define a tabela e o array de tabelas usados por `labels.toml` e `split.toml`.

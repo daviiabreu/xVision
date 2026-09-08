@@ -1,0 +1,14 @@
+{
+  "title": "Processamento de vídeo",
+  "pages": [
+    "deteccao-do-instante-da-finalizacao",
+    "rastreamento-da-bola",
+    "keypoints-e-homografia",
+    "jogadores",
+    "deteccao-e-rastreamento-de-jogadores",
+    "identificacao-por-equipe",
+    "visao-superior",
+    "metrica-de-marcacao",
+    "deteccao-de-area-lotada"
+  ]
+}

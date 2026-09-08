@@ -30,7 +30,7 @@ A escolha por movimento deveria impedir falsos positivos imóveis, mas o rastrea
 esse ganho sozinho: venceu em 1 dos 24 clipes da dobra de ajuste, resultado indistinguível de ruído,
 e no clipe 4996262 preferiu um borrão imóvel de confiança 0,367 ao candidato correto de 0,493,
 terminando a 131,8 px do finalizador, contra zero sem o rastreador. O diagnóstico completo está em
-[detecção do instante da finalização](./97-deteccao-do-instante-da-finalizacao).
+[detecção do instante da finalização](/docs/sprint-2/processamento/deteccao-do-instante-da-finalizacao).
 
 ## Pré-processamento
 
@@ -74,10 +74,10 @@ rodou estável). No SoccerNet, o mAP50 chegou a cerca de 0,47 e estabilizou por 
 Rodamos o modelo ajustado e o YOLO do COCO no mesmo corte da Footstats (15 s, 480 quadros), com o mesmo
 rastreador e filtro, mudando só os pesos.
 
-| Modelo | Detectado | Cobertura | Falsos positivos descartados por forma |
-|---|---|---|---|
-| Ajustado (SoccerNet) | 73% | 78% | 0 |
-| COCO (sem ajuste) | 71% | 79% | 63 |
+| Modelo               | Detectado | Cobertura | Falsos positivos descartados por forma |
+| -------------------- | --------- | --------- | -------------------------------------- |
+| Ajustado (SoccerNet) | 73%       | 78%       | 0                                      |
+| COCO (sem ajuste)    | 71%       | 79%       | 63                                     |
 
 Recall e cobertura empatam. A diferença está na última coluna: o COCO gerou 63 detecções que o filtro de
 forma teve que descartar, e o modelo ajustado gerou zero. Mesmo recall, muito mais precisão. Os falsos
@@ -88,9 +88,9 @@ Como o modelo ajustado quase não gera falso positivo, dá para baixar a confian
 sem poluir:
 
 | conf | Detectado | Cobertura | Falsos positivos |
-|---|---|---|---|
-| 0,15 | 73% | 78% | 0 |
-| 0,05 | 77% | 81% | 0 |
+| ---- | --------- | --------- | ---------------- |
+| 0,15 | 73%       | 78%       | 0                |
+| 0,05 | 77%       | 81%       | 0                |
 
 Em `conf 0,05` a cobertura sobe para 81% neste corte de 15 s, mas esse não é o ponto de operação em vigor: a configuração de produção usa 0,10, e 0,05 foi medido e recusado sobre os 38 clipes anotados, porque leva a contagem de candidatos por quadro de 1 para 3,5 sem mover `body_part`.
 

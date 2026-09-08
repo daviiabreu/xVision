@@ -6,7 +6,7 @@ description: A imagem única que vira sete trocando um argumento, a topologia de
 Esta página cobre como o backend sai da máquina de quem escreveu: a imagem que empacota o sistema,
 o wheel que uma instalação produz, a topologia declarada em HCL e os jobs do CI. Ela é o par
 operacional da [visão geral do backend](/docs/sprint-2/backend), e o que cada portão
-prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+prova está detalhado em [como sabemos que funciona](/docs/sprint-2/backend/qualidade).
 
 ## Onde se encaixa no fluxo
 
@@ -96,7 +96,7 @@ docker run --rm --network none --entrypoint sh xvision-edge -c \
 A coluna de tempo varia muito de uma execução para outra, e `ball` já apareceu entre 7,6 ms e
 22,1 ms na mesma máquina. Ela serve para mostrar que as sete etapas rodaram dentro do contêiner
 isolado, e não como medida de desempenho: o número que vale para desempenho está em
-[como sabemos que funciona](/docs/sprint-2/backend/qualidade-e-limites).
+[como sabemos que funciona](/docs/sprint-2/backend/qualidade).
 
 O wheel carrega cinco pacotes e o dado empacotado que eles precisam, e nada mais:
 
@@ -125,7 +125,7 @@ Plan: 3 to add, 0 to change, 0 to destroy.
 
 O formato que um passo de implantação futuro consome é o de `outputs.tf`, um `terraform output
 -json topology` com os mesmos campos. Ele ainda não existe nesta sprint, porque `output` só
-responde depois de um `apply` que a decisão abaixo proíbe de propósito.
+responde depois de um `apply`, que o CI não executa.
 
 O job `python:arm64` não produz artefato de instalação: ele produz uma resolução. O comando é
 `uv export --frozen --all-extras --no-dev --no-emit-project --no-hashes`, que transforma o
@@ -134,207 +134,6 @@ para `aarch64-unknown-linux-gnu` em Python 3.10, todos com roda binária publica
 `numpy==2.2.6` e `opencv-python-headless==5.0.0.93`. O `--all-extras` é o que põe `fastapi` e
 `uvicorn` nessa conta: o portão resolve o pacote inteiro, e não só o subconjunto que a borda
 instala.
-
-## Decisões
-
-**Uma imagem parametrizada por `ARG EXTRA`, e não um Dockerfile por área.** A alternativa
-descartada era oito arquivos, um por pessoa, que é o desenho que aparece sozinho quando cada dono
-de módulo precisa de dependências diferentes. Oito arquivos não compartilhariam camada e
-divergiriam no primeiro mês. Com um arquivo só, a base, o usuário, o healthcheck e a política de
-cache são os mesmos para todo mundo, e a diferença entre a imagem da borda e a do serviço HTTP
-cabe em uma linha do `compose.yaml`.
-
-**A base fixada por digest, e a instalação com `--frozen`.** Alternativa descartada: fixar pela
-tag `python3.10-bookworm-slim`, que se move. Tag móvel faz duas pessoas construírem ambientes
-diferentes a partir do mesmo arquivo, e o sintoma aparece semanas depois como "na minha máquina
-funciona". O digest resolve a metade de baixo e o `--frozen` resolve a de cima: ele recusa
-atualizar o `uv.lock` durante a construção, então a imagem instala exatamente o que a revisão
-aprovou. Um teste cobra a forma do `FROM`, porque a linha é fácil de afrouxar sem ninguém notar.
-
-**O usuário não-root existe antes do primeiro `COPY`, e cada `COPY` já chega com o dono certo.**
-Alternativa descartada: copiar como root e corrigir depois com `chown -R /app`. Ela custa uma
-camada com o venv inteiro reescrito. Medido em 25/08/2026, construindo as duas variantes lado a lado: 715 MB contra 498 MB em disco, 186 MB contra 127 MB de conteúdo. São 59 MB a mais em toda transferência
-da imagem, por uma linha que não muda comportamento nenhum. Uma medição anterior, feita em outro momento e hoje sem registro no repositório, dava 716 MB contra 566 MB; o valor da variante ruim reproduziu, o da boa não,
-provavelmente por diferença de arquitetura ou de versão de dependência.
-
-**`UV_NO_CACHE=1`, com um ganho menor do que a justificativa original prometia.** Alternativa
-descartada: montar o cache do uv com `RUN --mount=type=cache`, que acelera a reconstrução e
-também não deixa nada na camada final. Ela foi recusada porque amarra a construção ao cache
-local de quem constrói, e o job que constrói a imagem no CI começa com o cache frio a cada execução,
-então o ganho ficaria na máquina de quem desenvolve enquanto o arquivo passaria a depender de um recurso do BuildKit
-que a base da Jetson ainda vai ter de suportar. Dentro do contêiner
-o cache do uv ocupa 150 MB ao lado dos 147 MB do venv, e o `du` confirma os dois números. O que
-não se confirmou foi a economia: construindo sem a variável, a imagem foi de 498 MB para 503 MB em
-disco e ficou em 127 MB de conteúdo, ou seja, sem diferença nenhuma no que trafega. O motivo é que
-o uv liga o venv ao cache por hardlink, então os mesmos bytes aparecem duas vezes na listagem e
-uma vez no disco. A decisão fica de pé com a justificativa corrigida: cache de construção não tem
-função dentro de uma imagem de execução, e o ganho é de higiene, não de tamanho.
-
-**O `ENTRYPOINT` usa `uv run --no-sync`, e isso é o que faz o contêiner subir sem rede.** Sem a
-flag, `uv run` sincroniza antes de executar, e a sincronização inclui o grupo `dev` por padrão,
-desfazendo o `--no-dev` da construção. Medido: com `--network none` e a flag, o CLI responde
-normalmente; sem a flag, o uv começa reconstruindo `xvision @ file:///app/src` e morre num download
-de dependência do grupo `dev`, na execução que registrei o `idna`, com a própria mensagem do uv
-rastreando o caminho até `xvision:dev` depender de `httpx2`. Qual pacote aparece primeiro depende
-da ordem dos downloads, então o nome não é estável e a causa é. Alternativa descartada:
-fixar o `PATH` para o venv e chamar o console script direto, que funcionaria e perderia o
-diagnóstico que o uv dá quando o ambiente está incoerente.
-
-**O healthcheck mora na imagem, e não só no `compose.yaml`.** Alternativa descartada: declarar só
-no compose, que é onde a maioria dos exemplos coloca. Quem usar a imagem fora do compose, e a
-unidade systemd da Jetson é o caso previsto, fica sem sinal de saúde nenhum. Medido em duas
-execuções: o contêiner do serviço HTTP passa a `healthy` aos 5 s e aos 6 s, bem dentro do
-`start-period` de 20 s, porque o Docker sonda a cada 5 s enquanto o período de partida corre em
-vez de esperar o `interval` de 10 s. `/health` responde `{"status":"ok"}` e o processo roda como
-`uid 10001`, os dois conferidos de dentro do contêiner.
-
-**A configuração padrão vai para a imagem, mesmo com o compose montando `./src/config` por cima.**
-Alternativa descartada: manter `config/` só como bind mount. A imagem passava a só funcionar
-montada, e qualquer outro uso falhava com a mensagem de configuração ausente, que hoje é
-`/caminho/pipeline.toml nao existe: passe --config com o caminho do arquivo`. Com a cópia na
-imagem, o bind mount continua sendo o caminho normal de quem opera, e passa a ser uma escolha e
-não uma obrigação.
-
-**O `.dockerignore` nasceu no mesmo commit do `Dockerfile`, e o que ele protege é o `COPY`, não o
-tamanho do contexto.** Alternativa descartada: não versionar arquivo de exclusão nenhum e confiar
-no `COPY` estreito que o `Dockerfile` já tem, que copia apenas `src/`. Ela cai porque a proteção
-some no dia em que alguém escreve `COPY . .`, e a raiz do
-repositório tem 3,5 GB de clipe do parceiro: um `COPY` largo demais assa material restrito dentro
-de uma camada, que é exatamente o que o acordo com a Footstats proíbe. Medido nesta estação com
-Docker 29.2.1, num diretório de 200 MB montado só para isso: com `COPY um-arquivo.txt` o daemon
-recebe 39 B, e com `COPY . /app` recebe 209,77 MB. Ou seja, o número que o BuildKit imprime em
-`transferring context` mede o que o `COPY` alcança e não o que existe na pasta, e por isso ele
-não serve de evidência aqui: neste repositório ele deu 9,26 kB numa reconstrução e 1,01 MB numa
-cópia limpa, com o arquivo de exclusão no lugar. A evidência que dá para conferir é direta e é
-outra: com o `.dockerignore`, `src/tests/` não entra na imagem, e `ls /app/src/tests` dentro do
-contêiner responde que o caminho não existe. Um teste cobra que cada raiz perigosa (`data/`, `var/`, `.git/`, `src/.venv/`) esteja listada, porque o job que constrói a imagem confere que ela sobe
-e responde, e não o que ela deixou de carregar.
-
-**Terraform declara a topologia e nunca aplica, e é por isso que ele é entrega e não decoração.**
-A proposta tinha sido rejeitada antes, com motivo escrito: o provider comunitário do provedor
-cogitado acrescenta dependência de terceiro numa sprint que já tem risco, e o `apply` inverte o
-risco do projeto. Hoje o perigo é criar recurso sem querer; com `apply`, passaria a ser apagar
-configuração de que oito pessoas dependem. Um segundo provider chegou a ser cogitado, o do próprio
-GitLab, para declarar label e milestone como código, e a consulta à instância real matou a ideia:
-as labels institucionais voltam com `is_project_label: false`, ou seja, são de grupo, e um recurso
-de label de projeto criaria sombras com o mesmo nome. O que sobrou foi o recorte que mata a
-objeção: HCL sem bloco `provider`, resolvido com o recurso
-`terraform_data` que o próprio Terraform fornece, com `fmt`, `validate` e `plan` como portão e
-nenhum `apply`. Um teste varre os arquivos e reprova qualquer recurso cujo tipo comece com
-`aws_`, `google_`, `azurerm_`, `kubernetes_`, `docker_`, `heroku_` ou `railway_`, e outro afirma
-que nem `apply` nem `destroy` aparecem nos três jobs. O ganho concreto é que `terraform plan` roda
-no CI de verdade, sem credencial e sem escolha de nuvem ainda feita, e o que a MR revisa é a
-topologia: dois serviços, um armazenamento, quem depende de quem e qual rota de saúde cada um
-expõe. Três validações de variável recusam porta fora da faixa, `needs` apontando para recurso não declarado e `build_args` apontando para dependência que o serviço não listou em `needs`.
-
-**A regra do CI cobre a branch de integração, e não só a MR.** Alternativa descartada: manter
-`merge_request_event` mais a branch padrão, que é o recorte que vem de fábrica. Como toda MR deste
-projeto tem `develop` como alvo, o commit de merge que integra o trabalho de oito pessoas era
-justamente o único momento em que nada rodava. A regra `.actions-rules:python` acrescenta
-`develop` explicitamente, e um teste compara essa constante com o alvo declarado no arquivo de
-configuração local da pipeline, pulando quando o arquivo não existe, porque ele não é versionado e
-o runner não o tem. O `pipeline:check` ficou de fora dessa correção: ele herda a regra genérica,
-que cobre a merge request e a branch padrão, e a branch padrão do projeto é `main`. São nove jobs
-sempre presentes na merge request e oito no commit que cai em `develop`, e fechar essa diferença é
-trabalho de uma linha que ainda não foi feito. Os seis do frontend e o da documentação entram por
-cima disso quando a mudança toca `src/interface` ou `docs`, e ficam de fora quando não toca: eles
-filtram por caminho de propósito, porque rodar `npm ci` numa mudança que só mexe em Python custa
-minuto de runner sem provar nada.
-
-**O `python:arm64` exige roda binária, e não só uma resolução.** Ele exporta o lock com as flags
-listadas acima e resolve o resultado para `aarch64-unknown-linux-gnu` com `--only-binary :all:`,
-sem instalar nada. Alternativa descartada: resolver sem a flag, que aceita
-distribuição de código fonte e não prova nada sobre a placa, já que a compilação aconteceria só na
-Jetson. Medido: `nvidia-pyindex==1.0.9`, que não publica roda nenhuma, resolve normalmente sem a
-flag e é recusado com `has no usable wheels` quando ela está lá.
-
-**O wheel declara os seis pacotes um a um, e nada resolve caminho a partir de `__file__`.**
-Alternativa descartada: descoberta automática de pacotes, que arrastaria `src/tests` para dentro
-da distribuição. A consequência menos óbvia está na outra ponta: o wheel não carrega `config/`,
-então `Path(__file__).parents[2] / "config"` resolve para dentro de `site-packages`, onde a pasta
-não existe. Foi assim que `mlops` quebrou uma vez, com `xvision run --all` morrendo com um
-`FileNotFoundError` cru apontando para dentro do venv. A regra passou a ser caminho relativo ao
-diretório de trabalho, com `importlib.resources` quando o arquivo for dado empacotado, e um teste
-varre a árvore sintática de `src/` recusando o padrão fora dos testes.
-
-## Trade-offs
-
-O que o desenho compra: um arquivo descreve o ambiente de todo mundo, o contêiner roda o pipeline
-inteiro sem rede e sem montagem, a topologia de produção é revisável numa MR antes de existir
-qualquer conta de nuvem, e os oito portões de código e de infraestrutura rodam tanto na MR quanto
-no commit que integra `develop`.
-
-**A desvantagem principal: o CI constrói as duas imagens e não toca a infraestrutura de verdade.**
-`api:image` e `frontend:image` constroem, sobem o contêiner e batem nele com `curl`, então uma
-regressão no `Dockerfile` deixou de esperar alguém construir à mão. O que continua sem verificação
-é a outra metade: o `plan` de uma configuração sem provedor não pode falhar do jeito que um `plan`
-com provedor falha, porque não há API do outro lado para discordar, e nenhum job chama `apply`. Os
-testes de infraestrutura compensam parte disso lendo os arquivos, mas ler um arquivo é mais fraco
-do que executá-lo. E o que as duas imagens provam é que sobem e respondem, e não que fazem o
-trabalho: a da API responde `/health` e recusa `/v1/videos/1/render` sem credencial, e a do
-frontend serve o `index.html` numa rota profunda e o favicon com o tipo certo.
-
-Segunda desvantagem: a imagem tem 498 MB em uma etapa só. Construção em múltiplas etapas não foi
-feita porque a camada do `uv sync` pesa 154 MB e as camadas da base somam cerca de 216 MB, medido
-em `docker history`, então o ganho estaria em trocar a base, e trocar a base é justamente o que a
-sprint 3 vai fazer ao ir para a Jetson. Otimizar agora seria trabalho jogado fora, e essa é uma
-estimativa, não uma medição.
-
-A terceira, medida nesta base e corrigida: o `.dockerignore` da raiz não alcançava
-`src/interface`. Os padrões de arquivo de exclusão do Docker são ancorados na raiz do contexto,
-então `node_modules/` casa contra `./node_modules` e nunca contra `src/interface/node_modules`, e
-o frontend inteiro ia junto na imagem do backend. Medido com `docker images`: 1,01 GB com o
-frontend dentro, 548 MB depois de acrescentar `src/interface/` ao arquivo, numa imagem que não
-executa uma linha de TypeScript. Os 498 MB e 538 MB citados acima são de antes de o frontend
-existir em `src/`, e um teste passou a cobrar a linha.
-
-Quarta, menor: sem registro de imagem, a reprodutibilidade depende do digest da base continuar
-disponível e de cada pessoa construir localmente. Publicar a imagem custaria configurar o registro
-do projeto e um job novo, e a troca foi aceitar o custo de construir em cada máquina enquanto o
-time cabe em oito pessoas.
-
-## Riscos e incertezas
-
-**A imagem da Jetson não existe, e a armadilha registrada no `Dockerfile` está pela metade.** A
-base `l4t-jetpack` já traz uma OpenCV instalada pelo sistema, então instalar
-`opencv-python-headless` do PyPI dentro dela põe duas OpenCV no mesmo contêiner, e qual delas o
-`import cv2` encontra passa a depender da ordem do `sys.path`. A nota do `Dockerfile` justifica o
-cuidado dizendo que a OpenCV do JetPack vem compilada com CUDA, e essa parte não se sustenta: a
-página do JetPack lista OpenCV entre os componentes sem afirmar suporte a CUDA, e o relato
-repetido no fórum da NVIDIA é que o pacote distribuído sai com `CUDA: NO` e precisa ser
-recompilado da fonte para acelerar. O caminho previsto continua sendo `uv venv
---system-site-packages` somado a `--no-install-package opencv-python-headless`, agora por uma
-razão mais modesta: evitar duas cópias da mesma biblioteca, e não herdar uma aceleração que
-provavelmente não vem pronta. Isso é hipótese registrada, não medição: ninguém do time tem a placa
-nesta sprint, e copiar o arquivo de dependências da estação para a imagem da Jetson continua sendo
-a forma mais provável de quebrar.
-
-**O portão `arm64` prova existência de roda, não execução.** As 105 rodas resolvidas para `aarch64-unknown-linux-gnu` dizem que os pacotes existem para a arquitetura. Elas não dizem nada
-sobre o driver, a versão do CUDA nem a memória da placa.
-
-**O `plan` de hoje não é o `plan` de amanhã.** `terraform_data` não confere nada contra uma API
-real. Quando um provedor entrar, os três recursos viram recursos de provedor, o `plan` passa a
-exigir credencial, e a distância entre o que está declarado e o que já existe na conta pode ser
-grande o bastante para exigir `import` antes de qualquer coisa. A escolha de provedor está aberta.
-
-**O segredo saiu do compose e virou requisito, e isso custa atrito.** O valor literal que estava
-no arquivo desfazia a decisão que `auth.segredo` defende, então ele virou
-`${XVISION_AUTH_SECRET:?...}`. O preço é que a substituição acontece quando o compose lê o arquivo,
-e não quando o serviço sobe: sem a variável, todo comando de compose recusa, inclusive
-`docker compose build frontend`, que não usa o segredo para nada. Quem clona copia o
-`.env.example` uma vez e não pensa mais nisso, e essa foi a troca aceita. O que continua faltando
-é um gerenciador de segredos no caminho da implantação: hoje o valor mora no `.env` de cada
-máquina, que não é versionado e vale o que valer o disco dela.
-
-## Ainda não implementado
-
-| O que falta | Como a hipótese será testada |
-| --- | --- |
-| Imagem para a Jetson | Construir sobre `l4t-jetpack` na placa e conferir que existe uma só OpenCV no contêiner e que ela enxerga a GPU |
-| Registro de imagem | Publicar no registro do projeto e comparar o tempo de download na borda com o tempo de construção local |
-| Provedor real no Terraform | Escolher, importar o que já existe e rodar `plan` contra a conta, comparando com a topologia declarada |
-| Segredo vindo de um cofre | O compose já recusa subir sem `XVISION_AUTH_SECRET`, e o valor mora no `.env` de cada máquina; falta a implantação lê-lo de variável de CI mascarada ou de um cofre, e o teste é derrubar o `.env` e conferir que nada sobe com segredo em claro |
-| `pipeline:check` na branch de integração | Acrescentar `develop` à regra genérica e conferir, no primeiro merge, que o pipeline volta com nove jobs sempre presentes e não oito |
 
 ## Referências
 
