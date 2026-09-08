@@ -1,0 +1,89 @@
+---
+title: Análises e resultados
+description: Envio do clipe, acompanhamento do histórico e leitura das métricas, evidências e vídeo processado
+---
+
+O painel é a entrada principal do [frontend](/docs/sprint-3/produto/frontend). Ele combina o envio
+de um novo clipe com o histórico da conta, permitindo acompanhar uma execução e abrir seus
+resultados sem depender da aba que iniciou o processamento.
+
+## Preparação e envio do clipe
+
+A interface recusa arquivos vazios, tipos que não começam com `video/` e arquivos maiores que
+128 MiB. Essa checagem dá retorno antes da transferência; a API também valida o envio e a leitura
+do vídeo. O arquivo é enviado como binário, sem conversão para base64 no navegador.
+
+O serviço primeiro reserva um identificador em `POST /v1/videos/upload-url` e depois faz `PUT` no
+endereço temporário recebido. O progresso de transferência vem do `XMLHttpRequest`. Chegar a 100%
+significa que o arquivo foi enviado; o cartão do histórico passa a acompanhar a fila e o pipeline.
+
+Uma conta sem vídeos recebe orientação para iniciar a primeira análise. O espaço do histórico,
+a busca e os filtros continuam visíveis para manter a estrutura da tela.
+
+![Painel antes do primeiro envio](/sprint-3/frontend/analises-vazias.png)
+
+## Histórico e atualização automática
+
+O `VideoProvider` lê `GET /v1/videos` ao abrir a área autenticada. Enquanto houver trabalhos
+pendentes ou em processamento, agenda novas consultas usando o menor `reconsultar_em_s` informado
+para esses trabalhos, com três segundos como valor alternativo quando o campo não estiver
+disponível. Uma falha temporária preserva a lista já recebida e não encerra o acompanhamento.
+
+A busca por nome e os filtros de situação são aplicados à lista carregada. Hoje a interface
+solicita os 100 primeiros registros da API e não oferece paginação para os demais; os contadores
+de resumo continuam vindo dos agregados completos da conta.
+
+| Situação | Informação apresentada |
+| --- | --- |
+| Pendente | Espera para processar e posição na fila, quando informada |
+| Em processamento | Etapa atual, etapas concluídas e porcentagem total |
+| Finalizado | Acesso ao resultado persistido |
+| Falhou | Motivo disponível e acesso aos artefatos que tenham sido preservados |
+
+![Histórico com uma análise em processamento](/sprint-3/frontend/analise-em-processamento.png)
+
+O botão de atualização permite consultar novamente. A tela distingue histórico vazio, filtro sem
+correspondência e falha ao carregar, evitando usar a mesma mensagem para situações diferentes.
+
+![Histórico após a conclusão da análise](/sprint-3/frontend/analises-finalizadas.png)
+
+## Página de resultado
+
+`/results/:id` pode ser aberta diretamente. Se a API responder `409` porque o trabalho ainda não
+terminou, a página mostra seu andamento e consulta novamente no intervalo informado. Um `404`
+apresenta resultado ausente; as demais falhas têm uma mensagem de erro própria.
+
+O resultado terminal apresenta a situação do vídeo, o total de etapas concluídas, a quantidade de
+métricas e a soma dos tempos de etapa. A área principal reúne as métricas da finalização e o vídeo
+processado. As demais etapas podem ser abertas para consultar situação, motivo, tempo e evidência.
+
+![Resultado com métricas, vídeo e diagnóstico das etapas](/sprint-3/frontend/resultado-da-analise.png)
+
+A interface distingue uma métrica válida de uma leitura com baixa confiança ou indisponível. O
+valor ausente não vira zero. Isso também permite explicar uma etapa ignorada por falta de uma
+dependência, sem apresentá-la como uma medição bem-sucedida.
+
+## Vídeo e evidências
+
+O render é baixado por uma requisição autenticada e exposto ao elemento de vídeo por uma URL
+`blob:`. Ao sair da página, a interface libera essa URL. Quando o arquivo não está disponível, as
+demais informações do resultado continuam acessíveis.
+
+O vídeo pode combinar a anotação da bola e a visão superior quando o ambiente está configurado
+para produzi-las. A anotação da bola usa a percepção da execução; a visão superior mantém seu
+processamento visual de jogadores e campo. Uma falha posterior na detecção da finalização ainda
+pode deixar esse render disponível para inspeção.
+
+As evidências por etapa chegam como imagens JPEG no resultado. Elas ajudam a conferir o quadro
+usado pelo pipeline e são independentes do arquivo MP4. A forma de geração, a escolha do quadro e
+os casos em que esses campos ficam nulos estão no
+[backend](/docs/sprint-3/produto/backend#evidências-e-vídeo-processado).
+
+## Implementação
+
+O envio está em [useVideoUpload.ts](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/hooks/useVideoUpload.ts)
+e [videoService.ts](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/services/videoService.ts).
+O histórico é mantido pelo
+[VideoProvider](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/contexts/VideoProvider.tsx),
+e a leitura do resultado fica em
+[Results.tsx](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/pages/Results/Results.tsx).

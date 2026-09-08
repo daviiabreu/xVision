@@ -1,0 +1,149 @@
+---
+title: Backend
+description: Contrato HTTP, contas, fila de execução e persistência dos resultados do produto
+---
+
+A API em FastAPI liga o [frontend](/docs/sprint-3/produto/frontend) ao pipeline. Ela recebe o
+arquivo, vincula a análise à credencial que fez o envio e controla o trabalho até sua conclusão.
+O processamento ocorre em um executor separado da requisição HTTP.
+
+## Organização do serviço
+
+| Componente | Responsabilidade |
+| --- | --- |
+| `api/rotas.py` e `api/schemas.py` | Definir endpoints, respostas e validação do contrato HTTP |
+| `api/store.py` | Persistir contas, trabalhos, progresso e resultados em SQLite |
+| `api/auth.py`, `api/seguranca.py` e `api/recuperacao.py` | Validar credenciais, conferir posse e recuperar acesso |
+| `api/execution.py` | Controlar a fila, executar o pipeline e atualizar o estado do trabalho |
+| `api/evidence.py` e `api/render.py` | Gerar evidências por etapa e entregar o render compartilhado com o pipeline |
+
+O backend não calcula métricas a partir de valores enviados pela interface. Os módulos e
+extratores configurados produzem as saídas; a API as adapta ao contrato do produto, preservando
+valor, unidade, tipo e situação. A arquitetura de base está documentada no
+[backend da Sprint 2](/docs/sprint-2/backend).
+
+## Contas e credenciais
+
+As rotas de cadastro e login são `POST /v1/auth/register` e `POST /v1/auth/login`.
+`GET /v1/auth/me` identifica a credencial atual. As consultas de vídeo verificam sua posse, de modo
+que conhecer o identificador não dá acesso ao conteúdo de outra conta.
+
+A sessão é assinada e inclui uma versão conferida contra a conta persistida. Trocar ou redefinir
+a senha incrementa essa versão, invalidando sessões anteriores. Senhas têm no mínimo 12
+caracteres; não há credencial padrão embutida na aplicação.
+
+| Operação | Endpoint | Efeito persistido |
+| --- | --- | --- |
+| Estatísticas | `GET /v1/auth/me/statistics` | Leitura dos totais de todos os vídeos da conta |
+| Troca de email | `PATCH /v1/auth/me` | Altera o endereço normalizado e preserva o identificador da conta |
+| Troca de senha | `POST /v1/auth/password/change` | Atualiza a credencial e devolve uma nova sessão |
+| Solicitação de recuperação | `POST /v1/auth/password/forgot` | Agenda o envio de um link se a conta existir |
+| Confirmação da recuperação | `POST /v1/auth/password/reset` | Consome o token e substitui a senha |
+
+Nas configurações da conta, as alterações exigem a senha atual. Email já usado, senha incorreta e
+repetição da senha são recusados. As estatísticas são calculadas sobre a conta inteira, sem
+depender da paginação do histórico ou dos filtros da interface.
+
+Na recuperação, a resposta da solicitação é igual para contas existentes e desconhecidas. O token
+é aleatório, dura 30 minutos por padrão e só seu hash é persistido. A confirmação consome esse
+registro uma única vez. Tokens inválidos, expirados e já usados recebem a mesma resposta de erro.
+
+Mudar email ou senha invalida links de recuperação em aberto. Pedidos que ainda aguardam envio
+também são descartados se a credencial mudar: a gravação do token confere email, versão da sessão
+e revogação na mesma transação. Solicitações e confirmações têm limite por origem. Sem SMTP e URL
+pública configurados, a solicitação responde `503`; a preparação está em
+[execução e validação](/docs/sprint-3/produto/execucao-e-validacao#email-real).
+
+## Reserva, envio e fila
+
+`POST /v1/videos/upload-url` recebe `fileName` e `contentType` e devolve `id` e `uploadUrl`.
+O cliente envia o binário por `PUT` nesse endereço temporário. A API valida tipo, tamanho e a
+possibilidade de ler o vídeo antes de aceitar o processamento. O endereço não deve ser reutilizado.
+
+A reserva expira após 15 minutos por padrão. Se o envio não começar, a próxima consulta marca a
+reserva expirada como falha e um `PUT` tardio é recusado. A variável
+`XVISION_UPLOAD_RESERVATION_TTL_S` controla esse prazo.
+
+O executor usa um trabalhador por padrão e limita os trabalhos aceitos. A fila evita abrir vários
+decodificadores sem controle de memória. A quantidade de trabalhadores e o teto são lidos de
+`XVISION_API_WORKERS` e `XVISION_API_MAX_FILA` pelo processo; a configuração padrão aceita até 32
+trabalhos ainda não concluídos, incluindo os que estão executando. Se o limite for atingido, o
+envio recebe `503`.
+
+Os estados persistidos são `Pendente`, `Em processamento`, `Finalizado` e `Falhou`. Exceções do
+processamento viram falha com motivo; caminhos internos do arquivo não são expostos na resposta.
+O arquivo de entrada é removido após a tentativa de processamento. Na subida do serviço,
+trabalhos interrompidos com arquivo disponível podem voltar à fila; casos sem arquivo recebem
+falha explícita.
+
+## Progresso e resultado
+
+`GET /v1/videos` lista os trabalhos da credencial, com paginação e totais. A consulta individual
+`GET /v1/videos/status/:id` informa situação, motivo, etapa atual, etapas concluídas, total,
+progresso, posição na fila e `reconsultar_em_s`. Este último campo orienta a próxima consulta e
+fica nulo em um estado terminal.
+
+O progresso acompanha os módulos e depois as etapas `render` e `evidence`. O callback do pipeline
+marca o início de cada módulo, permitindo que a interface mostre o trabalho corrente enquanto
+ele ainda está executando.
+
+`GET /v1/videos/:id` responde `409` enquanto o trabalho não terminou. No estado terminal, entrega
+os metadados do vídeo, a situação final, `motivo`, `render_url` e a lista `resultados`.
+
+| Campo de uma etapa | Significado |
+| --- | --- |
+| `nome_processo` | Nome da etapa executada |
+| `situacao` | `ok`, `failed` ou `skipped` |
+| `motivo` | Diagnóstico disponível para a etapa |
+| `duracao_ms` | Tempo registrado para a execução da etapa |
+| `frame` | Evidência JPEG como Data URL, ou nulo |
+| `metricas` | Valores produzidos, com nome, unidade, tipo e situação |
+
+As métricas da finalização são associadas à etapa `shot`. Sua situação pode ser `ok`,
+`low_confidence` ou `unavailable`, mantendo a diferença entre medida, baixa confiança e ausência.
+Resultados antigos com apenas o status booleano continuam legíveis: verdadeiro é adaptado para
+`ok` e falso para `failed`. Esses registros não distinguem uma etapa ignorada nem oferecem o tempo
+que não foi medido; a adaptação de leitura preserva o conteúdo salvo.
+
+## Evidências e vídeo processado
+
+O render combina a visão superior original com a anotação da bola. A visão superior executa seu
+próprio rastreamento de jogadores e homografia; a bola é sobreposta usando a percepção já calculada
+pelo pipeline. A homografia visual não deve ser confundida com a saída do módulo `field` da
+execução. O callback roda antes da decisão da finalização, permitindo preservar esse vídeo mesmo
+se a decisão falhar depois. Uma falha de renderização não derruba a análise. O endpoint
+`GET /v1/videos/:id/render` exige autenticação e posse do vídeo; `render_url` só informa um arquivo
+disponível.
+
+As evidências por etapa são geradas separadamente. A API seleciona a percepção mais próxima do
+instante da finalização e lê o quadro correspondente a essa amostra, evitando desenhar uma
+detecção sobre um frame de outro instante. A imagem é reduzida quando sua largura excede 720
+pixels e codificada em JPEG. Falhar nessa geração mantém a análise e deixa a evidência nula.
+
+Os resultados estruturados ficam no banco. Renders, banco e arquivos em trânsito usam o volume
+persistente do produto, descrito na
+[execução local](/docs/sprint-3/produto/execucao-e-validacao#persistência-e-reinício).
+
+## Integração de sistemas
+
+Uma integração automatizada pode usar token de serviço, emitido pelo operador:
+
+```bash
+docker compose exec api python -m api.tokens criar integracao-footstats
+```
+
+O valor aparece uma vez; o banco armazena seu hash. A sequência é reservar o envio, fazer `PUT`
+do binário, consultar o status e buscar o resultado terminal. Ainda não há webhook de conclusão.
+
+O OpenAPI e a coleção Bruno acompanham os endpoints e podem ser obtidos pela
+[central pública do frontend](/docs/sprint-3/produto/frontend#central-de-integração).
+O proxy publica `/docs`, `/openapi.json` e `/bruno.zip` na mesma origem da aplicação.
+
+## Implementação
+
+O contrato está em [rotas.py](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/api/rotas.py)
+e [schemas.py](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/api/schemas.py).
+A coordenação da execução fica em
+[execution.py](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/api/execution.py),
+e as transações de conta e trabalho em
+[store.py](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/api/store.py).

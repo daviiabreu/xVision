@@ -1,0 +1,83 @@
+---
+title: Frontend
+description: Organização da interface, navegação responsiva e comunicação com a API
+---
+
+O frontend em React e TypeScript transforma o [fluxo do produto](/docs/sprint-3/produto) em três
+tarefas: acessar uma conta, acompanhar análises e revisar resultados. A interface consulta o estado
+persistido pela API e apresenta o progresso do pipeline sem executar os modelos no navegador.
+
+<Cards>
+  <Card title="Acesso e conta" href="/docs/sprint-3/produto/frontend/acesso-e-conta">
+    Cadastro, login, recuperação de senha e atualização dos dados de acesso.
+  </Card>
+  <Card title="Análises e resultados" href="/docs/sprint-3/produto/frontend/analises-e-resultados">
+    Validação do arquivo, envio com progresso, histórico e evidências de cada etapa.
+  </Card>
+</Cards>
+
+## Organização da aplicação
+
+O `App.tsx` define as rotas e os provedores compartilhados. `SessaoProvider` mantém o acesso atual
+e reage à perda da sessão; `VideoProvider`, montado na área autenticada, consulta o histórico e
+agenda sua atualização. Os serviços convertem os campos do contrato HTTP para os tipos usados nas
+telas, concentrando essa adaptação fora dos componentes visuais.
+
+| Rota do produto | Conteúdo | Acesso |
+| --- | --- | --- |
+| `/` | Painel de análises; sem sessão, apresenta login e cadastro | Conta autenticada para abrir o painel |
+| `/account` | Estatísticas e alteração de email e senha | Conta autenticada |
+| `/results/:id` | Progresso ou resultado de uma análise | Conta com acesso ao vídeo |
+| `/forgot-password` | Solicitação de recuperação de senha | Público |
+| `/reset-password` | Definição da nova senha com o token recebido | Público |
+| `/api-docs` | Orientações e contrato para integração de sistemas | Público |
+
+O serviço HTTP acrescenta a credencial às chamadas autenticadas e recusa endereços absolutos de
+uma origem diferente da API configurada. Uma resposta `401` apaga a sessão local e devolve o acesso
+ao login. Falhas de conexão e recusas de envio têm mensagens próprias, em vez de aparecerem como
+uma análise concluída sem dados.
+
+## Navegação em desktop e celular
+
+Em telas amplas, a barra lateral pode ser recolhida. Ícones permanecem disponíveis e a preferência
+é salva no navegador. Largura, marca e textos mudam durante uma transição de 500 milissegundos,
+removida quando o sistema solicita menos movimento.
+
+No celular, o botão do cabeçalho abre um painel lateral sobre a página. O painel reúne análises,
+documentação da API, identificação, configurações e saída. Ao abrir, recebe o foco e impede que a
+navegação por teclado escape para o conteúdo ao fundo. Fecha pelo botão, pelo fundo ou por `Esc`,
+restaurando o foco ao controle que o abriu e liberando a rolagem da página.
+
+As configurações ficam no fim da navegação, junto à conta. Componentes compartilhados de botão,
+indicador de situação, progresso e estatística mantêm o mesmo comportamento entre o painel e o
+resultado. Carregamento, ausência de dados e erro são estados distintos.
+
+## Central de integração
+
+A página `/api-docs` pode ser aberta pelo login. Ela descreve a sequência de envio, mostra um
+exemplo com `curl` e oferece o OpenAPI e a coleção Bruno para download. O contrato atual usa
+consulta periódica de status; a tela declara que o webhook de conclusão ainda não existe.
+
+![Página pública com o fluxo de integração e os contratos disponíveis](/sprint-3/frontend/documentacao-da-api.png)
+
+O Swagger fica incorporado na mesma página. Em produção, o Nginx encaminha `/docs`,
+`/openapi.json` e `/bruno.zip` para a API, mantendo os artefatos acessíveis pela origem do produto.
+Os endpoints e a emissão de tokens de serviço estão descritos no
+[backend](/docs/sprint-3/produto/backend#integração-de-sistemas).
+
+![Swagger incorporado na central de integração](/sprint-3/frontend/swagger-incorporado.png)
+
+## Endereços desconhecidos
+
+Dentro da área autenticada, uma rota inexistente apresenta uma tela própria com um caminho de
+volta. Um identificador de vídeo inválido ou não acessível recebe um estado de resultado ausente,
+sem expor dados de outra conta.
+
+![Página não encontrada com acesso de volta ao produto](/sprint-3/frontend/pagina-nao-encontrada.png)
+
+## Implementação
+
+As rotas estão em [App.tsx](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/App.tsx),
+a navegação em [Layout.tsx](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/components/layout/Layout.tsx)
+e o tratamento comum das requisições em
+[api.ts](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/services/api.ts).

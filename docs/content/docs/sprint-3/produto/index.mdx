@@ -1,0 +1,59 @@
+---
+title: Produto
+description: Como a interface, a API e o processamento formam o fluxo de análise de um clipe
+---
+
+O XVision reúne criação de conta, envio de clipes, acompanhamento do processamento e consulta dos
+resultados. A integração da Sprint 3 permite percorrer esse fluxo no navegador, mantendo o
+histórico na API e apresentando o que cada etapa conseguiu produzir.
+
+<Cards>
+  <Card title="Frontend" href="/docs/sprint-3/produto/frontend">
+    Navegação, acesso à conta, envio de vídeos e leitura dos resultados, com as telas implementadas.
+  </Card>
+  <Card title="Backend" href="/docs/sprint-3/produto/backend">
+    Contrato HTTP, autenticação, fila de processamento, persistência e entrega de evidências.
+  </Card>
+  <Card title="Execução e validação" href="/docs/sprint-3/produto/execucao-e-validacao">
+    Preparação do ambiente, email local, configuração do pipeline e verificações da integração.
+  </Card>
+</Cards>
+
+## Do envio ao resultado
+
+<Mermaid chart={`flowchart TD
+  A[Frontend] -->|Envio do clipe| B[API e fila]
+  B --> C[Pipeline]
+  C -->|Resultado| B
+  B -->|Status e resultado| A
+  B --- D[(Histórico e arquivos)]
+`} />
+
+O frontend acompanha uma execução criada pela API. O processamento ocorre fora da requisição de
+envio, para que o navegador possa continuar consultando a fila e o progresso enquanto o pipeline
+trabalha. Ao terminar, a mesma análise reúne métricas, diagnóstico das etapas, imagens de evidência
+e o vídeo processado, quando esses artefatos estão disponíveis.
+
+| Parte | Responsabilidade nesta integração |
+| --- | --- |
+| Frontend | Receber a interação, enviar o arquivo e apresentar os estados devolvidos pela API |
+| Backend | Identificar a conta, controlar a execução e guardar o histórico e os resultados |
+| Pipeline | Executar módulos e extratores, registrar suas saídas e produzir o render configurado |
+
+O histórico pertence à conta e é lido do serviço. Recarregar a página ou entrar em outro navegador
+não exige reenviar um clipe cujo resultado já foi persistido.
+
+## Relação com os modelos
+
+A integração permite mostrar bola e visão superior no mesmo vídeo. A anotação da bola reaproveita
+a percepção da execução; a visão superior mantém seu processamento visual de jogadores e campo.
+Os detalhes dessas frentes estão em [bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria) e
+[campo e homografia](/docs/sprint-3/modelos/campo-e-homografia).
+
+O resultado depende dos módulos, pesos e extratores configurados no ambiente. Ter o fluxo de
+produto funcionando não comprova acurácia dos modelos nem desempenho no dispositivo embarcado.
+Uma métrica indisponível mantém esse estado, sem ser apresentada como zero ou falso. Vídeos e
+etapas podem incluir um motivo para a falha ou indisponibilidade.
+
+As capturas das páginas de frontend registram a interface em execução com contas e vídeos
+sintéticos, sem material restrito da Footstats.

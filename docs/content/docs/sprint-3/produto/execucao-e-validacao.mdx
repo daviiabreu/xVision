@@ -1,0 +1,158 @@
+---
+title: Execução e validação
+description: Ambiente local, persistência, envio de email e verificações da integração do produto
+---
+
+O [produto](/docs/sprint-3/produto) pode ser executado com Docker Compose. O ambiente reúne frontend,
+API e armazenamento persistente; o Mailpit é um complemento para inspecionar emails de recuperação
+sem entregá-los a destinatários reais.
+
+## Preparação do ambiente
+
+Em um checkout que ainda não tenha `.env`, copie o exemplo. Se o arquivo já existir, preserve seus
+valores e acrescente apenas a configuração necessária.
+
+```bash
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Coloque o valor gerado em `XVISION_AUTH_SECRET` no `.env` e inicie os serviços:
+
+```bash
+docker compose up --build --wait
+```
+
+A interface fica em [localhost:3000](http://localhost:3000). `XVISION_FRONTEND_PORT` permite mudar a
+porta publicada. A API usa a rede interna do Compose e não publica uma segunda porta no host;
+o Nginx encaminha `/v1/`, `/docs`, `/openapi.json` e `/bruno.zip` pela origem do frontend.
+
+O proxy substitui `X-Forwarded-For` pelo endereço da conexão. A API confia nesse cabeçalho no
+arranjo do Compose para aplicar limites por origem. Os serviços têm sondas de saúde, e o frontend
+aguarda a API estar saudável antes de iniciar.
+
+## Configuração do processamento
+
+`XVISION_PIPELINE` seleciona o arquivo de configuração usado pela API, com `pipeline.toml` como
+padrão. O Compose monta `src/config` e os manifests dos modelos para leitura. Essa configuração
+não baixa pesos nem instala dependências de inferência por conta própria: uma seleção de modelos
+reais exige os artefatos e o runtime correspondentes no ambiente.
+
+Os ajustes de [bola](/docs/sprint-3/modelos/bola-e-trajetoria) e
+[campo](/docs/sprint-3/modelos/campo-e-homografia) têm documentação própria. A demonstração com
+fixture sintética verifica a integração do produto; a avaliação dos modelos exige outro conjunto
+de evidências.
+
+## Persistência e reinício
+
+O volume `xvision-var` guarda o banco, os renders e arquivos em trânsito. Na primeira subida,
+`state-init` copia sem sobrescrever o conteúdo de um `var/` legado para esse volume e ajusta a
+propriedade para o usuário sem privilégios da API. Isso permite atualizar a forma de execução sem
+descartar o histórico existente.
+
+Resultados concluídos continuam disponíveis depois de reiniciar a API. O serviço também tenta
+recuperar trabalhos interrompidos cujo arquivo de entrada ainda existe, conforme o
+[controle de execução do backend](/docs/sprint-3/produto/backend#reserva-envio-e-fila).
+
+Para encerrar preservando o volume:
+
+```bash
+docker compose down
+```
+
+## Email local com Mailpit
+
+Inclua o arquivo complementar no comando de subida:
+
+```bash
+docker compose -f compose.yaml -f compose.mailpit.yaml up --build --wait
+```
+
+O complemento usa Mailpit 1.31.1 em `mailpit:1025`, sem autenticação ou STARTTLS, com remetente
+`xvision@example.test`. A API aguarda seu estado saudável. O link de recuperação aponta para a
+porta local do frontend e acompanha `XVISION_FRONTEND_PORT` quando ela é alterada.
+
+Crie uma conta, abra a recuperação no login e informe o email cadastrado. A mensagem aparece na
+[caixa local do Mailpit](http://localhost:8025). Abra o link recebido e confirme a nova senha.
+`XVISION_MAILPIT_PORT` permite mudar a porta dessa caixa se 8025 estiver ocupada.
+
+O SMTP fica na rede do Compose e a caixa de inspeção é publicada somente na interface local do
+computador. As mensagens são temporárias e desaparecem com a remoção do contêiner. Para encerrar,
+use os mesmos arquivos:
+
+```bash
+docker compose -f compose.yaml -f compose.mailpit.yaml down
+```
+
+## Email real
+
+Use apenas `compose.yaml` e configure o SMTP e o endereço público do produto no `.env`:
+
+```dotenv
+XVISION_PUBLIC_URL=https://xvision.exemplo.com
+XVISION_SMTP_HOST=smtp.exemplo.com
+XVISION_SMTP_PORT=587
+XVISION_SMTP_USER=
+XVISION_SMTP_PASSWORD=
+XVISION_SMTP_FROM=xvision@exemplo.com
+XVISION_SMTP_STARTTLS=1
+XVISION_PASSWORD_RESET_TTL_S=1800
+```
+
+O endereço público precisa corresponder ao ambiente acessível pela pessoa que receberá o link.
+Sem host, remetente e URL pública configurados, a recuperação permanece indisponível. A API não
+anuncia uma confirmação de envio para um ambiente sem esse serviço preparado.
+
+## Verificações da integração
+
+Os testes de frontend cobrem sessão, formulários, histórico, filtros, progresso do envio,
+acompanhamento, resultados e estados de erro. A suíte Python verifica o contrato HTTP, posse,
+persistência, expiração de reservas, recuperação de senha e integração com o pipeline.
+
+| Verificação | O que exercita |
+| --- | --- |
+| Testes de componentes e serviços | Interação das telas e interpretação das respostas da API |
+| Testes HTTP e de persistência | Recusas, transições de estado, transações e leitura dos resultados |
+| Playwright com Compose | Cadastro, alterações de conta, envio de clipe sintético, evidência e histórico no navegador |
+| Etapa após reinício no CI | Login, histórico e leitura autenticada de um render preservado no volume |
+
+O teste de produto também verifica navegação em desktop e celular, foco no painel móvel,
+fechamento por `Esc` e restauração do foco. Para o teste após reinício, o CI coloca um MP4 sintético
+no diretório de renders antes de reiniciar a API. Esse caso comprova persistência e entrega
+autenticada do arquivo, sem medir a qualidade visual da bola ou da homografia.
+
+No frontend, os checks usados pelo projeto são:
+
+```bash
+cd src/interface
+npm run lint
+npm run format:check
+npm run types:check
+npm test
+npm run build
+```
+
+Para executar a suíte e os checks de Python com o ambiente do projeto:
+
+```bash
+cd src
+uv sync --frozen --all-extras
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+uv run pytest --cov -q
+```
+
+O job `product:e2e` monta os contêineres e executa o fluxo completo no CI. Ele aguarda os testes de
+Python e, quando os checks condicionais de frontend estão presentes, também aguarda sua aprovação.
+Uma alteração de backend pode executar o teste de produto sem precisar criar jobs de interface
+cujo código não mudou.
+
+## Configuração e testes versionados
+
+O ambiente está em [compose.yaml](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/compose.yaml)
+e [compose.mailpit.yaml](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/compose.mailpit.yaml).
+O fluxo do navegador está em
+[product-flow.spec.ts](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/e2e/product-flow.spec.ts),
+e sua execução com reinício está em
+[frontend.yml](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/.gitlab/ci/frontend.yml).

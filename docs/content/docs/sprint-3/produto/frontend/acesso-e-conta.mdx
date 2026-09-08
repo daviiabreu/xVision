@@ -1,0 +1,77 @@
+---
+title: Acesso e conta
+description: Cadastro, sessão, recuperação de senha e atualização dos dados da pessoa conectada
+---
+
+O [frontend](/docs/sprint-3/produto/frontend) concentra o acesso e a manutenção da conta no mesmo
+fluxo. Não existe email ou senha padrão do produto: cada pessoa cria suas credenciais, e as contas
+das capturas abaixo são sintéticas.
+
+## Cadastro e login
+
+A tela inicial alterna entre entrar e criar conta sem trocar de contexto. Cadastro, troca e
+recuperação de senha exigem pelo menos 12 caracteres. Após criar a conta, a interface realiza o
+login e abre a área de análises.
+
+![Login com recuperação de senha e documentação pública da API](/sprint-3/frontend/login.png)
+
+![Criação de conta no mesmo cartão de acesso](/sprint-3/frontend/criar-conta.png)
+
+O token e sua expiração ficam no armazenamento local do navegador. O provedor de sessão restaura
+esse estado na visita seguinte; credencial expirada, registro local inválido ou resposta `401`
+remove a sessão. Sair da conta também limpa esse estado.
+
+Guardar a sessão permite recarregar a página sem repetir o login. A autorização de cada vídeo
+continua sendo conferida pela API, como descrito em
+[contas e credenciais](/docs/sprint-3/produto/backend#contas-e-credenciais).
+
+## Recuperação de senha
+
+O atalho do login abre `/forgot-password`. A pessoa informa o email e recebe uma confirmação
+uniforme, sem descobrir pela resposta se a conta existe. Se o ambiente não tiver envio de email
+configurado, a API responde `503` e a interface informa a indisponibilidade.
+
+![Solicitação do link de recuperação](/sprint-3/frontend/recuperar-senha.png)
+
+![Confirmação da solicitação sem revelar dados da conta](/sprint-3/frontend/recuperacao-enviada.png)
+
+O link recebido leva a `/reset-password` com um token na URL. A tela pede a nova senha e sua
+confirmação; tokens inválidos, expirados ou já usados não permitem concluir a operação. A validade
+padrão é de 30 minutos e cada token pode ser consumido uma única vez.
+
+![Definição e confirmação da nova senha](/sprint-3/frontend/nova-senha.png)
+
+![Confirmação da troca de senha](/sprint-3/frontend/senha-atualizada.png)
+
+A redefinição invalida as sessões anteriores. A nova credencial é usada no próximo login.
+O procedimento para inspecionar o email com Mailpit está em
+[execução e validação](/docs/sprint-3/produto/execucao-e-validacao#email-local-com-mailpit).
+
+## Configurações da conta
+
+A opção no fim da barra lateral abre `/account`. A tela consulta estatísticas de todos os vídeos
+da conta e apresenta total, finalizadas, em andamento e com falha. Os números não dependem da busca
+ou do filtro aplicado ao histórico.
+
+![Estatísticas e atualização dos dados de acesso](/sprint-3/frontend/configuracoes-da-conta.png)
+
+Os formulários de email e senha são separados. Ambos exigem a senha atual, exibem o andamento da
+requisição e mantêm as mensagens de erro junto à operação correspondente.
+
+| Alteração | Comportamento após a confirmação |
+| --- | --- |
+| Email | Atualiza a identificação na navegação, preservando a conta e suas análises |
+| Senha | Substitui o token local pela nova sessão e invalida as sessões anteriores |
+
+Email já utilizado, senha atual incorreta e repetição da senha são recusados. A troca de email ou
+senha também invalida links de recuperação pendentes, evitando que uma credencial antiga continue
+permitindo alterar a conta.
+
+## Implementação
+
+As telas são [Login](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/pages/Login/Login.tsx),
+[ForgotPassword](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/pages/ForgotPassword/ForgotPassword.tsx),
+[ResetPassword](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/pages/ResetPassword/ResetPassword.tsx)
+e [Account](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/pages/Account/Account.tsx).
+O armazenamento e a renovação da sessão ficam em
+[sessao.ts](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/services/sessao.ts).
