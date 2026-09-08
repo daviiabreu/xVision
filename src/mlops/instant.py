@@ -31,6 +31,14 @@ from pathlib import Path
 from edge.paths import var_dir
 
 ARQUIVO = "instants.jsonl"
+OBSERVATIONS_FILE = "instant-observations.jsonl"
+"""Procedencia do instante por clipe, ao lado dos eventos da execucao.
+
+Arquivo separado de proposito: `ShotEvent` esta em 1.0 e tem consumidor de API, frontend e
+persistencia, entao acrescentar campo ali obrigaria versionar o schema publico para resolver um
+problema de avaliacao. Ele mora em `var/`, junto do `events.jsonl`, e carrega identificador de
+clipe, entao nao entra em documentacao nem em pagina publica.
+"""
 TOLERANCIA_ALVO = 30
 """Erro em quadros que preserva dois tercos do contexto anterior da janela."""
 

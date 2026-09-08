@@ -1,0 +1,72 @@
+---
+title: Retomada e procedência das execuções
+description: Checkpoints de catálogo, verificação da população e proteção contra saídas antigas dos stubs.
+---
+
+A execução do catálogo grava checkpoints para recuperar trabalho após uma interrupção. Esta página descreve as garantias do comando `xvision run --all` e da avaliação do instante, no fluxo de [processamento de vídeo](/docs/sprint-2/backend/borda).
+
+## Como executar e retomar
+
+O comando mostra progresso e estimativa de tempo a cada dez clipes. Para trabalhar somente com as dobras de desenvolvimento:
+
+```bash
+cd src
+uv run --all-extras xvision run --all --dobra ajuste \
+  --config config/pipeline.models.toml --out ../var/runs/experimento
+```
+
+Após uma interrupção, repita os mesmos filtros e a configuração, passando o diretório daquela execução em `--resume`:
+
+```bash
+uv run --all-extras xvision run --all --dobra ajuste \
+  --config config/pipeline.models.toml \
+  --resume ../var/runs/experimento/ID_DA_EXECUCAO
+```
+
+`--gabarito` exige `--dobra` explícita, porque a população anotada também contém clipes reservados. Os filtros de avaliação aceitam `ajuste`, `reservado` e `tudo`. A escolha de parâmetros usa somente `ajuste`.
+
+## O que o checkpoint conserva
+
+| Artefato | Responsabilidade |
+| --- | --- |
+| `events.jsonl.parcial` | Eventos já escritos, ainda sem declarar a execução completa |
+| `progress.json` | Clipes concluídos, falhas, tempos de etapas, origens dos instantes e identidades da configuração, seleção e versões das features |
+| `instant-observations.jsonl` | Origem do instante para cada clipe com evento |
+| `run.json` | Manifesto e agregados da execução completa |
+| `.run.lock` | Arquivo do bloqueio exclusivo do diretório durante processamento e retomada |
+
+O checkpoint é gravado por arquivo temporário e substituição atômica, depois de descarregar o buffer dos eventos. A retomada descarta linhas posteriores ao último checkpoint e reprocessa esses clipes. Se o parcial tiver menos eventos que o checkpoint declara, IDs duplicados ou clipes diferentes dos confirmados, o comando recusa continuar sem alterar os arquivos. Ao terminar, publica `events.jsonl` e remove `progress.json`.
+
+Essa escolha evita conservar eventos sem os agregados correspondentes. O custo é perder até dez clipes de trabalho desde o último checkpoint, incluindo o clipe interrompido. Não há promessa de recuperação após falha física do armazenamento: `flush` e substituição atômica não equivalem a sincronizar todos os dados no dispositivo.
+
+O diretório aceita apenas uma execução ativa. O comando adquire um bloqueio não bloqueante antes de ler ou truncar o parcial e o mantém até publicar todos os arquivos. Outra tentativa recebe um erro de diretório em uso. O sistema operacional libera o bloqueio quando o processo termina, inclusive por interrupção abrupta; a presença do arquivo vazio `.run.lock` não significa que exista uma execução ativa. O bloqueio usa `flock`, disponível nos ambientes alvo Linux e macOS.
+
+Sem essa exclusividade, uma retomada poderia substituir o parcial enquanto outro processo ainda escreve no arquivo anterior. O processo anunciaria sucesso, mas publicaria menos eventos do que o manifesto declara. A recusa imediata evita essa perda; aguardar automaticamente foi descartado porque esconderia que já existe uma execução usando a mesma saída.
+
+## Identidade da execução
+
+A retomada compara o hash dos bytes do TOML, a quantidade e o conjunto de clipes selecionados, além do hash dos nomes e versões das features carregadas. Uma feature com outra versão é recusada mesmo quando o TOML não mudou. Checkpoints antigos sem identidade de seleção ou de features também são recusados; o parcial original é preservado para inspeção.
+
+A leitura também verifica tipos, contagens não negativas, clipes concluídos únicos, coerência entre sucessos, falhas e procedência, além dos agregados de etapas. Clipes concluídos devem pertencer à seleção atual. Um checkpoint inconsistente é recusado antes de cortar o parcial, preservando os arquivos para inspeção.
+
+Comparar somente a quantidade de clipes permitiria trocar desenvolvimento por reservado sem alterar a contagem. Comparar somente o TOML permitiria reunir versões diferentes de uma feature no mesmo relatório. As verificações adicionais impedem esses dois casos sem executar novamente os clipes já confirmados.
+
+A identidade das features depende da versão declarada em código. Alterações de implementação sem mudança de versão, pesos, runtime ou dependências não são todas identificadas por essa guarda. A execução deve manter código e artefatos congelados entre interrupção e retomada. Um novo experimento usa outro diretório.
+
+## Procedência na avaliação
+
+Quando `instant-observations.jsonl` existe, `eval-instant` exige um registro por clipe e o mesmo conjunto de clipes dos eventos. Ausência, excesso ou duplicação de registros faz o comando falhar. Assim, um arquivo incompleto não transforma parte de uma execução atual em origem desconhecida.
+
+Execuções antigas sem esse artefato continuam legíveis e declaram origem `desconhecida`. A origem distingue uma quebra de trajetória (`ball-break`) de uma estimativa pelo ponto médio (`midpoint`); ela não comprova que o instante está correto.
+
+## Stubs e cache antigo
+
+Os sete stubs usam o gabarito de uma fixture sintética. Eles recusam lotes cuja resolução ou taxa de quadros contradiz a fixture, e o runner registra a falha com motivo. A versão dos stubs passou de `0.1.0` para `0.1.1`, invalidando entradas antigas de cache que poderiam devolver registros sintéticos antes de chamar a nova verificação.
+
+A checagem compara metadados, sem autenticar o conteúdo do vídeo. Um vídeo diferente com a mesma geometria não é distinguido, e lotes sintéticos de conformidade podem omitir esses metadados. Os stubs continuam sendo instrumentos de teste, sem inferência de identidade sobre partidas.
+
+## Verificação e limites
+
+Os testes sintéticos interrompem a execução após um checkpoint, retomam pela CLI e conferem eventos, agregados e procedência. Um teste usa decodificação e pipeline reais sobre 12 clipes sintéticos; outros verificam contagens inconsistentes, prefixos de outra execução, concorrência entre processos e liberação do bloqueio após encerramento abrupto. Também reproduzem troca de versão sem alteração do TOML, checkpoint sem identidade e arquivos de procedência incompatíveis. A regressão dos stubs grava uma saída com a versão antiga no cache e verifica que ela não contorna a recusa da versão atual.
+
+Essas verificações cobrem integridade dos artefatos e recuperação de execução. Não medem qualidade dos modelos, latência na Jetson nem as integrações de jogadores, tracking e identidade dos outros responsáveis.

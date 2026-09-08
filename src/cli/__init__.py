@@ -13,12 +13,14 @@ para a Jetson nao carrega servidor web junto.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from time import perf_counter
+from typing import IO, Any, cast
 
 import typer
 
@@ -45,8 +47,17 @@ from edge.pipeline import ClipResult, PipelineError, process_clip
 from edge.testing.make_clip import make_synthetic_clip
 from edge.video import RenderUnavailable
 from mlops.catalog import CatalogError, ShotRecord, catalog_counts, load_catalog
+from mlops.checkpoint import (
+    CHECKPOINT_FILE,
+    Checkpoint,
+    CheckpointError,
+    read_checkpoint,
+    truncate_to,
+    write_checkpoint,
+)
 from mlops.evaluate import EvaluationError, evaluate
 from mlops.instant import (
+    OBSERVATIONS_FILE,
     TOLERANCIA_ALVO,
     Anotacao,
     InstantError,
@@ -68,6 +79,7 @@ from mlops.run import (
     new_run_id,
     write_run,
 )
+from mlops.run_lock import exclusive_run
 from mlops.sheets import coarse_indices, contact_sheet, fine_indices
 from mlops.split import SplitError, read_split, split_config
 
@@ -105,8 +117,20 @@ RUN_GABARITO = typer.Option(
 )
 RUN_LIMIT = typer.Option(0, help="Para depois de N clipes. Zero e sem limite.")
 RUN_DOBRA = typer.Option(
-    "tudo", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo. Restringe --all."
+    None,
+    help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo. Obrigatorio junto com --gabarito.",
+    show_default="tudo",
 )
+RUN_RESUME = typer.Option(
+    None, help="Retoma uma execucao interrompida, no diretorio dela. Exige a mesma configuracao."
+)
+PROGRESSO_A_CADA = 10
+"""De quantos em quantos clipes o checkpoint e gravado e o progresso e impresso.
+
+Dez porque o custo de gravar e de milissegundos e o custo de perder e um clipe de dezenas de
+segundos: no ritmo medido, dez clipes sao cerca de nove minutos de trabalho no pior caso, e esse e
+o teto do que uma queda joga fora.
+"""
 RUN_OUT = typer.Option(None, help="Onde gravar a execucao.", show_default="../var/runs")
 RUN_RENDER = typer.Option(
     False, "--render", help="Gera annotated.mp4 com top view e bola desta execucao."
@@ -165,7 +189,8 @@ def run(
     todos: bool = RUN_ALL,
     limit: int = RUN_LIMIT,
     gabarito: bool = RUN_GABARITO,
-    dobra: str = RUN_DOBRA,
+    dobra: str | None = RUN_DOBRA,
+    resume: Path | None = RUN_RESUME,
     render: bool = RUN_RENDER,
 ) -> None:
     """Processa um clipe, ou o catalogo inteiro com --all.
@@ -184,8 +209,11 @@ def run(
         typer.echo("--render exige um unico --clip; nao pode ser usado com --all", err=True)
         raise typer.Exit(code=1)
     if todos:
-        _run_catalog(out, config, limit, gabarito, dobra)
+        _run_catalog(out, config, limit, gabarito, dobra, resume)
         return
+    if resume is not None:
+        typer.echo("--resume vale para --all: um clipe so nao tem o que retomar", err=True)
+        raise typer.Exit(code=1)
     if clip is None:
         typer.echo("passe --clip com um clipe, ou --all para o catalogo", err=True)
         raise typer.Exit(code=1)
@@ -229,12 +257,20 @@ def _run_catalog(
     config: Path,
     limit: int,
     gabarito: bool = False,
-    dobra: str = "tudo",
+    dobra: str | None = None,
+    resume: Path | None = None,
 ) -> None:
     if not config.is_file():
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
-    dobras = dobras_de(dobra)
+    if gabarito and dobra is None:
+        typer.echo(
+            "--gabarito abre os 38 clipes anotados, e 14 deles sao o pacote reservado: passe "
+            f"--dobra explicitamente, com {', '.join(DOBRAS_DA_BOLA)}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    dobras = dobras_de(dobra or "tudo")
     try:
         tabela = read_labels(labels_config())
         catalogo = _populacao(load_catalog(), tabela)
@@ -253,35 +289,101 @@ def _run_catalog(
             typer.echo("nenhum clipe tem instante anotado; rode `xvision label scrub`", err=True)
             raise typer.Exit(code=1)
     escolhidos = catalogo[:limit] if limit else catalogo
-    destino = (runs_dir() if out is None else out) / new_run_id()
+    destino = resume if resume is not None else (runs_dir() if out is None else out) / new_run_id()
+    try:
+        with exclusive_run(destino):
+            _run_selected_catalog(escolhidos, config, destino, resume=resume is not None)
+    except CheckpointError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+
+
+def _run_selected_catalog(
+    escolhidos: Sequence[ShotRecord], config: Path, destino: Path, *, resume: bool
+) -> None:
+    digest = sha256_of(config)
+    selecao = hashlib.sha256("\0".join(sorted(r.shot_id for r in escolhidos)).encode()).hexdigest()
+    feature_digest = _feature_digest(config)
+    agora = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    if not resume:
+        estado = Checkpoint(
+            config_sha256=digest,
+            population=len(escolhidos),
+            started_at=agora,
+            selection_sha256=selecao,
+            features_sha256=feature_digest,
+        )
+        modo = "w"
+    else:
+        estado, modo = _retomada(
+            destino,
+            digest,
+            len(escolhidos),
+            selecao,
+            feature_digest,
+            selected_clips={record.shot_id for record in escolhidos},
+        )
+        estado.resumed += 1
+        write_checkpoint(destino, estado)
     destino.mkdir(parents=True, exist_ok=True)
     eventos = destino / EVENTS_FILE
     parcial = eventos.with_suffix(".jsonl.parcial")
-    tempos: dict[str, list[float]] = {}
-    identidade: dict[str, tuple[str, str]] = {}
-    falhas: dict[str, tuple[int, str | None]] = {}
-    origens: dict[str, int] = {}
-    ok = falhou = 0
-    with parcial.open("w", encoding="utf-8") as arquivo:
-        for registro in escolhidos:
+
+    tempos: dict[str, list[float]] = {k: list(v) for k, v in estado.tempos.items()}
+    identidade: dict[str, tuple[str, str]] = {
+        k: (v[0], v[1]) for k, v in estado.identidade.items() if len(v) == 2
+    }
+    falhas: dict[str, tuple[int, str | None]] = {
+        k: (int(v[0]), None if v[1] is None else str(v[1]))
+        for k, v in estado.falhas.items()
+        if len(v) == 2
+    }
+    origens: dict[str, int] = dict(estado.origens)
+    fontes: dict[str, str] = dict(estado.fontes)
+    feitos = set(estado.done)
+    ok, falhou = estado.ok, estado.failed
+    pendentes = [r for r in escolhidos if r.shot_id not in feitos]
+    if resume:
+        typer.echo(f"  retomando em {len(feitos)}/{len(escolhidos)}: {len(pendentes)} pendentes")
+    comeco = perf_counter()
+
+    def checkpoint() -> None:
+        estado.done = sorted(feitos)
+        estado.ok, estado.failed = ok, falhou
+        estado.origens = dict(origens)
+        estado.fontes = dict(fontes)
+        estado.tempos = {k: list(v) for k, v in tempos.items()}
+        estado.identidade = {k: [v[0], v[1]] for k, v in identidade.items()}
+        estado.falhas = {k: [v[0], v[1]] for k, v in falhas.items()}
+        write_checkpoint(destino, estado)
+
+    with parcial.open(modo, encoding="utf-8") as arquivo:
+        for posicao, registro in enumerate(pendentes, start=1):
             try:
                 resultado = _processa_registro(registro, config)
             except ERROS_DE_USO as erro:
                 falhou += 1
+                feitos.add(registro.shot_id)
                 typer.echo(f"  {registro.shot_id}: {erro}", err=True)
+                _marco(arquivo, checkpoint, posicao, len(feitos), len(escolhidos), comeco)
                 continue
             arquivo.write(json.dumps(resultado.event.to_dict()) + "\n")
             ok += 1
-            origens[resultado.shot_source or "sem-origem"] = (
-                origens.get(resultado.shot_source or "sem-origem", 0) + 1
-            )
+            feitos.add(registro.shot_id)
+            fonte = resultado.shot_source or "sem-origem"
+            origens[fonte] = origens.get(fonte, 0) + 1
+            fontes[registro.shot_id] = fonte
             for etapa in resultado.stages:
                 tempos.setdefault(etapa.kind, []).append(etapa.duration_ms)
                 identidade[etapa.kind] = (etapa.name, etapa.version)
                 if etapa.status != "ok":
                     quantas, motivo = falhas.get(etapa.kind, (0, None))
                     falhas[etapa.kind] = (quantas + 1, motivo or etapa.reason)
-    parcial.replace(eventos)
+            _marco(arquivo, checkpoint, posicao, len(feitos), len(escolhidos), comeco)
+        arquivo.flush()
+        checkpoint()
+    _escreve_procedencia(destino, fontes)
     modulos = resumo_dos_modulos(tempos, identidade, falhas)
     sha, sujo = git_state()
     host, python, plataforma = environment()
@@ -289,17 +391,16 @@ def _run_catalog(
         destino,
         RunRecord(
             run_id=destino.name,
-            started_at=datetime.now(timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
+            started_at=estado.started_at,
             git_sha=sha,
             git_dirty=sujo,
-            config_sha256=sha256_of(config),
+            config_sha256=digest,
             dataset={
                 "clips": ok,
                 "failed": falhou,
                 "population": f"n={len(escolhidos)}",
                 "shot_source": dict(sorted(origens.items())),
+                "resumed": estado.resumed,
             },
             modules=modulos,
             features=tuple(
@@ -310,8 +411,143 @@ def _run_catalog(
             platform=plataforma,
         ),
     )
+    parcial.replace(eventos)
+    (destino / CHECKPOINT_FILE).unlink(missing_ok=True)
     typer.echo(f"  {ok} eventos, {falhou} falhas")
     typer.echo(f"  {destino}")
+
+
+def _marco(
+    arquivo: IO[Any],
+    checkpoint: Callable[[], None],
+    posicao: int,
+    feitos: int,
+    total: int,
+    comeco: float,
+) -> None:
+    """Checkpoint e progresso a cada `PROGRESSO_A_CADA` clipes, inclusive nos que falharam.
+
+    Inclusive nos que falharam porque `continue` saltava este bloco: se as falhas caissem nos
+    multiplos de dez, a granularidade da retomada degradava calada, e no pior caso uma execucao de
+    horas ficava sem nenhum checkpoint no meio do laco.
+    """
+    if posicao % PROGRESSO_A_CADA:
+        return
+    arquivo.flush()
+    checkpoint()
+    typer.echo(_progresso(feitos, total, comeco, posicao))
+
+
+def _escreve_procedencia(destino: Path, fontes: Mapping[str, str]) -> Path:
+    """Procedencia do instante por clipe, que o agregado do `run.json` nao consegue devolver.
+
+    Sem este arquivo, `eval-instant` mede junto o contato detectado na trajetoria e o ponto medio
+    preenchido, e as duas coisas somem dentro de uma mediana so.
+    """
+    caminho = destino / OBSERVATIONS_FILE
+    parcial = caminho.with_suffix(".jsonl.parcial")
+    parcial.write_text(
+        "".join(
+            json.dumps({"clip_id": clip, "shot_source": fonte}) + "\n"
+            for clip, fonte in sorted(fontes.items())
+        ),
+        encoding="utf-8",
+    )
+    parcial.replace(caminho)
+    return caminho
+
+
+def _feature_digest(config: Path) -> str:
+    """Identifica as versoes das features que o TOML seleciona."""
+    pairs = sorted(
+        f"{e.spec.name}@{e.spec.version}" for e in load_extractors(read_feature_config(config))
+    )
+    return hashlib.sha256("\0".join(pairs).encode()).hexdigest()
+
+
+def _retomada(
+    destino: Path,
+    digest: str,
+    populacao: int,
+    selecao: str,
+    feature_digest: str,
+    *,
+    selected_clips: set[str],
+) -> tuple[Checkpoint, str]:
+    """Le o checkpoint, recusa configuracao ou populacao diferente, e corta o parcial no
+    ponto que o checkpoint responde por."""
+    if (destino / EVENTS_FILE).is_file():
+        typer.echo(f"  {destino} ja esta completa: {destino / EVENTS_FILE}")
+        raise typer.Exit(code=0)
+    try:
+        estado = read_checkpoint(destino)
+    except CheckpointError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    if estado.config_sha256 != digest:
+        typer.echo(
+            f"a execucao em {destino} usou config_sha256 {estado.config_sha256[:12]} e agora "
+            f"chegou {digest[:12]}: retomar misturaria duas configuracoes num events.jsonl so",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if estado.population != populacao:
+        typer.echo(
+            f"a execucao em {destino} tinha {estado.population} clipes e a selecao atual tem "
+            f"{populacao}: retomar mediria outra populacao",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if not estado.selection_sha256 or not estado.features_sha256:
+        typer.echo(
+            "checkpoint sem identidade de selecao ou features: inicie outra execucao; "
+            "o parcial original foi preservado",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if estado.selection_sha256 != selecao:
+        typer.echo(
+            f"a execucao em {destino} selecionou outros clipes, com a mesma contagem de "
+            f"{populacao}: retomar mediria outra populacao",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if estado.features_sha256 != feature_digest:
+        typer.echo(
+            f"a execucao em {destino} rodou features {estado.features_sha256[:12]} e agora chegou "
+            f"{feature_digest[:12]}: retomar misturaria duas versoes de feature "
+            "num events.jsonl so",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if not set(estado.done).issubset(selected_clips):
+        typer.echo("checkpoint contem clipes fora da selecao atual", err=True)
+        raise typer.Exit(code=1)
+    try:
+        truncate_to(
+            (destino / EVENTS_FILE).with_suffix(".jsonl.parcial"),
+            estado.events_written,
+            expected_clips=set(estado.fontes),
+        )
+    except CheckpointError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    return estado, "a"
+
+
+def _progresso(feitos: int, total: int, comeco: float, nesta_sessao: int) -> str:
+    """Progresso com estimativa, calculada so com o que esta sessao mediu.
+
+    Usar o tempo do trecho anterior estragaria a estimativa depois de uma retomada, porque a maquina
+    e a carga podem ter mudado entre as duas.
+    """
+    decorrido = perf_counter() - comeco
+    por_clipe = decorrido / nesta_sessao
+    restam = total - feitos
+    return (
+        f"  {feitos}/{total} clipes, {por_clipe:.1f} s por clipe, "
+        f"faltam cerca de {restam * por_clipe / 60:.0f} min"
+    )
 
 
 def resumo_dos_modulos(
@@ -431,6 +667,7 @@ def data_check(labels: Path | None = LABELS_OPTION, split: Path | None = SPLIT_O
 
 
 EVAL_TRUTH = typer.Option(None, help="Gabarito ja extraido, em JSON. Sem isto, le o catalogo.")
+EVAL_DOBRA = typer.Option("tudo", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
 
 
 @app.command("eval")
@@ -438,9 +675,16 @@ def evaluate_run(
     run_dir: Path,
     labels: Path | None = LABELS_OPTION,
     truth: Path | None = EVAL_TRUTH,
+    dobra: str = EVAL_DOBRA,
 ) -> None:
-    """Casa os eventos de uma execucao com o gabarito e conta."""
+    """Casa os eventos de uma execucao com o gabarito e conta.
+
+    `--dobra` existe porque as specs desta sprint calibram tudo nas dobras 0 a 2 e mantem 3 e 4
+    fechadas, e sem o filtro a unica forma de respeitar isso era recortar um `--truth` a mao. Um
+    numero medido na populacao inteira nao e o numero que o gate pede, e os dois se parecem.
+    """
     labels = _labels(labels)
+    dobras = dobras_de(dobra)
     eventos = run_dir / EVENTS_FILE
     if not eventos.is_file():
         typer.echo(f"{eventos} nao existe: passe o diretorio de uma execucao", err=True)
@@ -452,6 +696,8 @@ def evaluate_run(
     try:
         tabela = read_labels(labels)
         gabarito = _gabarito(truth, tabela)
+        if dobras != DOBRAS_DA_BOLA["tudo"]:
+            gabarito = _pela_dobra(gabarito, dobras, dobra)
     except (*ERROS_DE_USO, json.JSONDecodeError) as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
@@ -502,6 +748,18 @@ def _gabarito(truth: Path | None, tabela: Labels) -> dict[str, dict[str, str]]:
         for r in load_catalog()
         if r.big_enough and all(r.labels.get(o.column, "") not in o.missing for o in obrigatorios)
     }
+
+
+def _pela_dobra(
+    gabarito: dict[str, dict[str, str]], dobras: frozenset[int], nome: str
+) -> dict[str, dict[str, str]]:
+    """Restringe o gabarito por dobra, e recusa em vez de medir zero clipe."""
+    folds = {r.shot_id: r.fold for r in load_catalog() if r.big_enough}
+    recortado = {c: v for c, v in gabarito.items() if folds.get(c) in dobras}
+    if not recortado:
+        typer.echo(f"nenhum clipe do gabarito esta na dobra {nome}", err=True)
+        raise typer.Exit(code=1)
+    return recortado
 
 
 IGNORADOS = frozenset({".DS_Store", "Thumbs.db", "__pycache__", ".ipynb_checkpoints"})
@@ -832,10 +1090,7 @@ def eval_ball(
     except ERROS_DE_USO as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
-    dobras = DOBRAS_DA_BOLA.get(dobra)
-    if dobras is None:
-        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
-        raise typer.Exit(code=1)
+    dobras = dobras_de(dobra)
     alvos = sorted(c for c in gabarito if c in catalogo and catalogo[c].fold in dobras)
     if limit:
         alvos = alvos[:limit]
@@ -935,10 +1190,7 @@ def eval_ball_trajectory(
     from mlops.ball_trajectory import measure as measure_trajectory
 
     path = _config(config)
-    folds = DOBRAS_DA_BOLA.get(dobra)
-    if folds is None:
-        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
-        raise typer.Exit(code=1)
+    folds = dobras_de(dobra)
     try:
         annotations = read_ball_trajectory_labels(labels)
         catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
@@ -1077,10 +1329,7 @@ def eval_field(
     from mlops.field_quality import measure as measure_field
 
     path = _config(config)
-    folds = DOBRAS_DA_BOLA.get(dobra)
-    if folds is None:
-        typer.echo(f"dobra {dobra!r} nao existe: use {', '.join(DOBRAS_DA_BOLA)}", err=True)
-        raise typer.Exit(code=1)
+    folds = dobras_de(dobra)
     try:
         annotations = read_field_labels(labels)
         catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
@@ -1217,17 +1466,27 @@ def evaluate_instant(run: Path, dobra: str = INSTANT_DOBRA) -> None:
             raise typer.Exit(code=1)
 
     previsto: dict[str, int] = {}
+    clips: set[str] = set()
     for linha in eventos.read_text(encoding="utf-8").splitlines():
         if not linha.strip():
             continue
         evento = cast("dict[str, Any]", json.loads(linha))
         clip = str(evento["clip_id"])
+        if clip in clips:
+            typer.echo("events.jsonl: clipe duplicado impede conferir a procedencia", err=True)
+            raise typer.Exit(code=1)
+        clips.add(clip)
         fps = _fps_do_clipe(clip)
         if fps is None:
             continue
         previsto[clip] = round(float(evento["shot_timestamp_s"]) * fps)
 
-    relatorio = measure(previsto, gabarito, concordancia=agreement(anotacoes))
+    relatorio = measure(
+        previsto,
+        gabarito,
+        fontes=_procedencia(run, clips),
+        concordancia=agreement(anotacoes),
+    )
     if relatorio.n == 0:
         typer.echo("nenhum clipe anotado aparece nesta execucao", err=True)
         raise typer.Exit(code=1)
@@ -1237,6 +1496,44 @@ def evaluate_instant(run: Path, dobra: str = INSTANT_DOBRA) -> None:
         f"  dentro de {TOLERANCIA_ALVO} quadros: {relatorio.dentro_da_tolerancia:.3f} "
         f"(IC95 {baixo:.3f} a {alto:.3f}, n={relatorio.n})"
     )
+
+
+def _procedencia(run: Path, clips: set[str]) -> dict[str, str]:
+    """Le a procedencia por clipe da execucao, quando ela existe.
+
+    Execucao antiga nao tem o arquivo, e ai o relatorio continua dizendo `desconhecida` em vez de
+    inventar `ball-break`: a diferenca entre nao saber e saber que foi medido e o que este arquivo
+    resolve, e ela nao pode ser preenchida por otimismo.
+    """
+    caminho = run / OBSERVATIONS_FILE
+    if not caminho.is_file():
+        return {}
+    fontes: dict[str, str] = {}
+    for numero, linha in enumerate(caminho.read_text(encoding="utf-8").splitlines(), start=1):
+        if not linha.strip():
+            continue
+        try:
+            decoded: object = json.loads(linha)
+        except json.JSONDecodeError as erro:
+            typer.echo(f"{caminho.name}:{numero}: JSON invalido: {erro.msg}", err=True)
+            raise typer.Exit(code=1) from erro
+        if not isinstance(decoded, dict):
+            typer.echo(f"{caminho.name}:{numero}: registro de procedencia invalido", err=True)
+            raise typer.Exit(code=1)
+        documento = cast("dict[str, object]", decoded)
+        clip = documento.get("clip_id")
+        fonte = documento.get("shot_source")
+        if not isinstance(clip, str) or not isinstance(fonte, str) or not fonte:
+            typer.echo(f"{caminho.name}:{numero}: registro de procedencia invalido", err=True)
+            raise typer.Exit(code=1)
+        if clip in fontes:
+            typer.echo(f"{caminho.name}:{numero}: procedencia duplicada", err=True)
+            raise typer.Exit(code=1)
+        fontes[clip] = fonte
+    if set(fontes) != clips:
+        typer.echo("procedencia e eventos precisam conter os mesmos clipes", err=True)
+        raise typer.Exit(code=1)
+    return fontes
 
 
 def _fps_do_clipe(clip_id: str) -> float | None:

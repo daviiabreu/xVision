@@ -16,6 +16,7 @@ from collections.abc import Mapping
 
 from edge.modules.base import (
     FrameBatch,
+    ModuleError,
     ModuleInputs,
     ModuleNotLoaded,
     ModuleOutput,
@@ -23,9 +24,14 @@ from edge.modules.base import (
     PreprocessSpec,
     check_preprocess,
 )
-from edge.testing.pitch import ClipTruth, clip_truth
+from edge.testing.pitch import FPS, HEIGHT, WIDTH, ClipTruth, clip_truth
 
-STUB_VERSION = "0.1.0"
+STUB_VERSION = "0.1.1"
+
+
+class UnexpectedClip(ModuleError):
+    """O lote contradiz a geometria da fixture que o stub representa."""
+
 
 Record = Mapping[str, object]
 
@@ -53,6 +59,7 @@ class StubModule:
         if self._truth is None:
             raise ModuleNotLoaded(self.spec.name)
         check_preprocess(batch, self.spec.preprocess)
+        _reject_foreign_clip(self.spec.name, batch)
         return ModuleOutput(
             kind=self.spec.kind,
             frames=batch.indices,
@@ -69,3 +76,16 @@ class StubModule:
         if not 0 <= frame_index < truth.frame_count:
             return ()
         return self.records(truth, frame_index)
+
+
+def _reject_foreign_clip(name: str, batch: FrameBatch) -> None:
+    """Recusa outra geometria; lotes sinteticos de conformidade omitem os metadados."""
+    if batch.source_size is not None and batch.source_size != (WIDTH, HEIGHT):
+        raise UnexpectedClip(
+            f"{name} serve a fixture {WIDTH}x{HEIGHT}; "
+            f"o lote veio de {batch.source_size[0]}x{batch.source_size[1]}"
+        )
+    if batch.source_fps is not None and round(batch.source_fps, 3) != float(FPS):
+        raise UnexpectedClip(
+            f"{name} serve a fixture a {FPS} fps; o lote veio a {batch.source_fps:.3f} fps"
+        )

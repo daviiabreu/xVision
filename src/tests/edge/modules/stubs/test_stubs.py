@@ -2,22 +2,69 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from edge.cache.perception import (
+    PerceptionCache,
+    implementation_id,
+    perception_key,
+    run_module,
+)
 from edge.modules.base import MODULE_KINDS, ModuleOutput, PerceptionModule
 from edge.modules.conformance import ModuleConformance, make_batch
 from edge.modules.stubs import STUBS
+from edge.modules.stubs.base import UnexpectedClip
 from edge.modules.stubs.perception import REPROJECTION_ERROR_PX
 from edge.testing.pitch import (
+    FPS,
+    HEIGHT,
     SHOOTER_TRACK_ID,
     SHOT_FRAME_INDEX,
+    WIDTH,
     clip_truth,
     homography_matrix,
     player_box,
 )
 
 POR_ESPECIE = {stub().spec.kind: stub for stub in STUBS}
+
+
+@pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+@pytest.mark.parametrize("size,fps", [((1920, 1080), float(FPS)), ((WIDTH, HEIGHT), 59.94)])
+def test_stub_rejects_foreign_clip_geometry(kind: str, size: tuple[int, int], fps: float) -> None:
+    stub = POR_ESPECIE[kind]()
+    stub.load()
+    batch = replace(make_batch(stub.spec.preprocess), source_size=size, source_fps=fps)
+
+    with pytest.raises(UnexpectedClip):
+        stub.infer(batch, {})
+
+
+@pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+def test_old_cache_cannot_bypass_stub_rejection(kind: str, tmp_path: Path) -> None:
+    stub = POR_ESPECIE[kind]()
+    stub.load()
+    fixture = replace(
+        make_batch(stub.spec.preprocess), source_size=(WIDTH, HEIGHT), source_fps=float(FPS)
+    )
+    batch = replace(fixture, source_size=(1920, 1080), source_fps=59.94)
+    cache = PerceptionCache(tmp_path)
+    key = perception_key(
+        "outro-clipe",
+        replace(stub.spec, version="0.1.0"),
+        batch.indices,
+        {},
+        implementation_id(stub),
+    )
+    cache.put(key, stub.infer(fixture, {}))
+    assert cache.get(key) is not None
+
+    with pytest.raises(UnexpectedClip):
+        run_module(stub, batch, {}, cache=cache, clip_id="outro-clipe")
 
 
 def test_there_is_exactly_one_stub_for_each_of_the_seven_kinds() -> None:

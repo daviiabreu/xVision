@@ -231,7 +231,7 @@ def test_timings_recorded_for_every_stage() -> None:
 def test_versions_record_name_version_and_the_stub_prefix() -> None:
     resultado = roda({"players": _stub("players"), "ball": ModuloEspia("ball")})
 
-    assert resultado.pipeline.versions["players"] == "stub-players@0.1.0"
+    assert resultado.pipeline.versions["players"] == "stub-players@0.1.1"
     assert resultado.pipeline.versions["ball"] == "espia-ball@0.1.0"
 
 

@@ -92,10 +92,14 @@ product:e2e:
     COMPOSE_PROJECT_NAME: xvision
     XVISION_AUTH_SECRET: segredo-de-ci-com-tamanho-suficiente-para-passar
   needs:
-    - frontend:lint
-    - frontend:format
-    - frontend:types
-    - frontend:test
+    - job: frontend:lint
+      optional: true
+    - job: frontend:format
+      optional: true
+    - job: frontend:types
+      optional: true
+    - job: frontend:test
+      optional: true
     - python:test
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
