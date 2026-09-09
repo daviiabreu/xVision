@@ -1,4 +1,4 @@
 {
   "title": "Produto",
-  "pages": ["index", "frontend", "backend", "execucao-e-validacao"]
+  "pages": ["index", "como-rodar", "frontend", "backend", "execucao-e-validacao"]
 }

@@ -140,6 +140,15 @@ independente, com seu próprio `package.json`.
 
 ## Execução do Projeto
 
+### Produto completo
+
+O [manual de operação da Sprint 3](https://g02-a0b03e.pages.git.inteli.edu.br/docs/sprint-3/produto/como-rodar/)
+mostra como partir do clone, subir frontend e serviço HTTP, enviar um vídeo sintético, conferir o
+resultado e reiniciar preservando o histórico. A
+[validação reproduzível](https://g02-a0b03e.pages.git.inteli.edu.br/docs/sprint-3/produto/execucao-e-validacao/)
+inclui comandos de teste e evidência versionada. Modelos reais e vídeo com bola e visão superior
+exigem os pesos e o runtime descritos no manual.
+
 ### Documentação
 
 A documentação completa do projeto é publicada no GitLab Pages:

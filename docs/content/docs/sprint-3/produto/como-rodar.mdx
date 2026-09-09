@@ -1,0 +1,243 @@
+---
+title: Como rodar a partir do clone
+description: Instalação, serviço HTTP, frontend, primeiro envio e diagnóstico do produto em um ambiente novo
+---
+
+Este manual permite executar o [produto](/docs/sprint-3/produto) desde um clone novo até o
+resultado no navegador. Os comandos partem da raiz do repositório, salvo quando houver um `cd`.
+O [registro de validação](/docs/sprint-3/produto/execucao-e-validacao#execução-verificada-do-manual)
+identifica a revisão do código, o ambiente e os resultados obtidos ao repetir o procedimento.
+
+O primeiro fluxo usa vídeo sintético e `pipeline.toml`: seis módulos respondem a partir da fixture
+e `BallBreakShot` aplica uma regra sobre essa percepção. Ele verifica frontend, HTTP, fila,
+processamento e persistência. Não mede detecção em partidas nem produz o vídeo com bola e visão
+superior sem os pesos e as dependências descritos em [Modelos e render](#modelos-e-render).
+
+## Pré-requisitos
+
+| Recurso | Uso |
+| --- | --- |
+| Acesso ao GitLab do grupo e Git instalado | Obter o código e registrar a revisão usada |
+| Docker Engine iniciado e Docker Compose com `up --wait` | Construir e executar API, frontend e volume; Docker Desktop atende ao fluxo no macOS |
+| Python 3 no host, comando `python3` | Gerar o segredo local e ler o estado do teste de persistência |
+| Navegador e porta 3000 livre | Usar a interface e o proxy HTTP |
+| Internet na primeira construção | Baixar imagens e dependências travadas nos arquivos de lock |
+
+O caminho com Compose instala Python e Node nas imagens. Não exige GPU, `uv`, Node ou pesos de
+modelo no host. A alternativa com processos locais está em [Desenvolvimento sem Docker](#desenvolvimento-sem-docker).
+
+```bash
+git clone --branch develop https://git.inteli.edu.br/graduacao/2026-2a/t12/g02.git
+cd g02
+git rev-parse HEAD
+docker version
+docker compose version
+```
+
+`docker version` precisa mostrar cliente e servidor. Se o servidor não responder, inicie o Docker
+antes de continuar. Guarde o SHA impresso: `develop` avança, e a comparação entre duas execuções
+precisa identificar qual código cada uma usou.
+
+## Preparar a configuração
+
+No clone novo, copie o exemplo e gere o segredo de assinatura sem imprimi-lo no terminal:
+
+```bash
+cp .env.example .env
+python3 - <<'PY'
+from pathlib import Path
+import secrets
+
+path = Path(".env")
+text = path.read_text()
+text = text.replace("XVISION_AUTH_SECRET=\n", "XVISION_AUTH_SECRET=" + secrets.token_urlsafe(48) + "\n")
+text = text.replace("XVISION_PIPELINE=\n", "XVISION_PIPELINE=pipeline.toml\n")
+text = text.replace("XVISION_FRONTEND_PORT=\n", "XVISION_FRONTEND_PORT=3000\n")
+path.write_text(text + "\nCOMPOSE_PROJECT_NAME=xvision-manual\n")
+path.chmod(0o600)
+PY
+mkdir -p var
+```
+
+Em um checkout já usado, preserve o `.env` existente e seu segredo. Não repita a cópia sobre ele.
+`COMPOSE_PROJECT_NAME=xvision-manual` dá nome próprio aos contêineres e ao volume deste manual.
+O arquivo fica fora do Git. SMTP pode permanecer vazio para cadastro, login e envio de vídeo;
+a recuperação por email requer [Mailpit ou SMTP](/docs/sprint-3/produto/execucao-e-validacao#email-local-com-mailpit).
+
+## Subir frontend e serviço HTTP
+
+```bash
+docker compose up --build --wait --wait-timeout 180
+docker compose ps -a
+curl -fsS http://localhost:3000/health
+curl -fsS -o /dev/null -w 'OpenAPI HTTP %{http_code}\n' http://localhost:3000/openapi.json
+docker compose exec -T api uv run --no-sync python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health').read().decode())"
+```
+
+O estado esperado é `api` e `frontend` saudáveis e `state-init` encerrado com código zero.
+`state-init` prepara o volume e termina, por isso não precisa ficar em execução. As respostas
+esperadas são `ok` no frontend, HTTP `200` no OpenAPI e `{"status":"ok"}` na API.
+O `/health` público verifica o Nginx; a consulta ao OpenAPI também atravessa o proxy até a API.
+
+| Endereço | O que abrir |
+| --- | --- |
+| [localhost:3000](http://localhost:3000) | Cadastro, login, envio e histórico |
+| [localhost:3000/docs](http://localhost:3000/docs) | Referência interativa do serviço HTTP |
+| [localhost:3000/openapi.json](http://localhost:3000/openapi.json) | Contrato OpenAPI |
+| [localhost:3000/bruno.zip](http://localhost:3000/bruno.zip) | Coleção Bruno para repetir as chamadas |
+
+No Compose, a API escuta em `api:8080` dentro da rede dos contêineres. Ela não publica a porta
+8080 no computador. O Nginx serve o frontend e encaminha `/v1/`, `/docs`, `/openapi.json` e
+`/bruno.zip` na mesma origem. O build do frontend usa `VITE_API_URL` vazio nesse arranjo.
+
+## Enviar o primeiro vídeo
+
+Gere a fixture com o próprio pacote instalado na API e copie-a para o host:
+
+```bash
+docker compose exec -T api uv run --no-sync xvision clip --out /var/xvision/out/manual.mp4
+docker compose cp api:/var/xvision/out/manual.mp4 ./var/manual.mp4
+```
+
+1. Abra a interface, selecione **Criar conta** e cadastre um email e uma senha de ao menos 12 caracteres.
+2. Em **Análises de finalização**, selecione `var/manual.mp4` e clique em **Iniciar análise**.
+3. Aguarde a conclusão e abra o resultado de `manual.mp4`.
+4. Confira as etapas do pipeline, as métricas da finalização e a imagem da etapa **Detecção da bola**.
+5. Recarregue a página e volte para análises. O resultado deve continuar no histórico da mesma conta.
+
+A fixture gerada tem 30 quadros, 10 fps, resolução 320 por 240 e duração de 3 segundos. Os módulos
+stub usam o gabarito sintético; uma etapa `ok` neste teste não comprova que um detector leu os
+pixels. No teste registrado, `body_part` ficou `unavailable`, `type_of_play` devolveu `individual`
+e `render_url` ficou nulo. Isso é o resultado esperado desse ambiente sem pesos, não uma medição
+de qualidade da classificação ou do render.
+
+## Reiniciar, guardar logs e encerrar
+
+```bash
+docker compose logs --no-color --tail 200 api frontend > var/manual-compose.log
+docker compose restart api
+docker compose up --wait --wait-timeout 180
+```
+
+Depois do reinício, entre com a mesma conta e abra o resultado anterior. O volume
+`xvision-manual_xvision-var` guarda banco, arquivos em trânsito e renders. A primeira subida copia
+o conteúdo de um `var/` legado sem sobrescrever o que já está no volume. Alterar arquivos no host
+depois não transforma essa cópia em uma montagem continuamente sincronizada.
+
+```bash
+docker compose down
+```
+
+Esse comando encerra os serviços preservando o volume. Uma nova subida recupera o histórico.
+Acrescentar `--volumes` apaga o volume deste projeto; use essa opção somente para descartar
+deliberadamente o ambiente de teste. Logs reais podem conter endereços temporários de upload:
+revise o conteúdo antes de compartilhá-lo.
+
+## Desenvolvimento sem Docker
+
+Este caminho usa dois terminais, Python 3.10 gerenciado pelo `uv` e Node 22 com npm. Instale Git,
+Python 3 para a preparação do `.env`, `uv` e Node antes dos comandos. Use o mesmo clone e `.env`
+preparados acima. Os arquivos de lock fixam as dependências Python e JavaScript.
+
+No terminal da API, partindo da raiz do clone:
+
+```bash
+set -a
+. ./.env
+set +a
+export XVISION_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+cd src
+uv sync --frozen --extra api
+uv run --frozen --extra api uvicorn api:create_app --factory --host 127.0.0.1 --port 8080
+```
+
+O carregamento do `.env` é explícito: o processo Python não lê esse arquivo automaticamente.
+No exemplo, `XVISION_CORS_ORIGINS` está vazio; exportar as origens depois da leitura evita que
+esse valor vazio bloqueie as chamadas do navegador na execução sem Compose.
+A API procura configurações relativas a `src/` e persiste o estado em `../var/`. O Compose usa
+outro banco, no volume, portanto as contas criadas em um ambiente não aparecem automaticamente no outro.
+
+No segundo terminal, também partindo da raiz do clone:
+
+```bash
+cd src/interface
+npm ci
+VITE_API_URL=http://localhost:8080 npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Abra [localhost:5173](http://localhost:5173), com a API em
+[localhost:8080/docs](http://localhost:8080/docs). `VITE_API_URL` aponta para a origem, sem `/v1` no
+final, pois os serviços do frontend já acrescentam esse prefixo. As origens exportadas admitem
+essa porta; se mudá-la, ajuste `XVISION_CORS_ORIGINS` e reinicie a API. Para gerar a fixture sem
+Docker, execute `uv run --frozen --extra api xvision clip --out ../var/manual.mp4` em `src/`.
+Encerre os dois processos com `Ctrl+C`.
+
+## Modelos e render
+
+Em `pipeline.models.toml`, `players`, `ball`, `field` e `pose` usam modelos com pesos;
+`tracking` e `shot` usam regras sem peso próprio; `identity` continua stub. São seis módulos
+com implementação não stub, mas não sete modelos treinados. Somente `body_part` e `type_of_play`
+estão declaradas como features nessa configuração. As limitações estão nas páginas de
+[campo](/docs/sprint-3/modelos/campo-e-homografia) e [bola](/docs/sprint-3/modelos/bola-e-trajetoria).
+
+Para preparar inferência local, pare a API e execute em `src/`:
+
+```bash
+uv sync --frozen --extra api --extra players --extra ball --extra topview
+uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/players/football-player-detection-1.0.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/ball/yolo-football-ball-detection-0.1.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/pose/yolov8n-pose-8.4.0.toml
+```
+
+`artifact get` confere os arquivos contra o manifesto e imprime o caminho do peso válido. Ele
+não baixa arquivos. Se faltar um peso, a mensagem informa o diretório esperado em `var/models`.
+Obtenha os arquivos por meio do responsável, no armazenamento autorizado do time, coloque-os nesse
+diretório e repita a conferência. Não use `artifact add` para aceitar outro binário como se fosse
+o mesmo peso. Clipes, anotações e pesos privados não vêm no clone.
+
+Somente depois de todas as conferências passarem, inicie a API com a configuração de modelos:
+
+```bash
+XVISION_PIPELINE=pipeline.models.toml uv run --frozen --extra api --extra players --extra ball --extra topview uvicorn api:create_app --factory --host 127.0.0.1 --port 8080
+```
+
+O frontend local continua apontando para a mesma API. Para gerar o vídeo pela CLI, no mesmo
+ambiente preparado, o comando é:
+
+```bash
+uv run --frozen --extra api --extra players --extra ball --extra topview xvision run --clip ../var/entrada.mp4 --config config/pipeline.models.toml --render
+```
+
+`entrada.mp4` representa um clipe autorizado colocado pelo operador. A CLI informa o diretório da
+execução, que reúne evento, relatório, procedência e `annotated.mp4` quando o render é produzido.
+O render usa os pesos de jogadores e campo de `[render.top_view]`; a bola vem da percepção da
+mesma execução. A homografia visual tem processamento próprio e não é a saída de `modules.field`.
+
+A imagem padrão do Compose instala apenas o extra `api`. Trocar `XVISION_PIPELINE` sozinho não
+instala o runtime de inferência nem disponibiliza os pesos no volume. O caminho de modelos acima
+descreve a preparação local; a reprodução em contêiner com modelos e na Jetson ainda exige
+empacotamento e validação próprios.
+
+**Próximo passo para o render reproduzível:** disponibilizar um pacote autorizado com os pesos
+exatos, manifestos e instruções de acesso, preparar a imagem de inferência e pedir a outra pessoa
+que execute um clipe autorizado em clone e volume vazios. O aceite exige validar os digests e
+produzir um MP4 com bola e visão superior, registrando comando, revisão, configuração e resultado
+agregado. Esse teste de independência ainda está pendente; a execução sem pesos não o substitui.
+
+## Diagnóstico
+
+| Sintoma | Conferência e ação |
+| --- | --- |
+| Docker não conecta | Inicie o daemon e confira cliente e servidor com `docker version` |
+| API não inicia por segredo vazio | Preencha `XVISION_AUTH_SECRET` no `.env` e repita a subida |
+| Porta 3000 ocupada | Altere `XVISION_FRONTEND_PORT` no `.env`, suba novamente e use a nova porta |
+| Frontend responde, API não | Confira `/openapi.json`, `docker compose ps -a` e `docker compose logs api` |
+| Falha de rede no Vite | Confira API em 8080, `VITE_API_URL` sem `/v1` e a origem em `XVISION_CORS_ORIGINS` |
+| `config/pipeline.toml` não encontrado | Na execução local, inicie a API a partir de `src/` |
+| Análise conclui sem vídeo processado | Confira `render_url`, pesos de `[render.top_view]` e extra `topview`; imagens por etapa não comprovam a geração do MP4 |
+| Recuperação de senha responde 503 | Configure [Mailpit ou SMTP](/docs/sprint-3/produto/execucao-e-validacao#email-local-com-mailpit) |
+
+O [procedimento de validação](/docs/sprint-3/produto/execucao-e-validacao#repetir-o-teste-de-navegador)
+repete o fluxo no Chromium e verifica a persistência após reinício. Ele complementa a operação
+manual com um resultado verificável em código.

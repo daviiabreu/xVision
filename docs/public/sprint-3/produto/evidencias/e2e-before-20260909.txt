@@ -1,0 +1,12 @@
+> interface@0.0.0 test:e2e
+> playwright test --grep-invert @after-restart
+
+
+Running 4 tests using 1 worker
+
+  ✓  1 [chromium] › e2e/product-flow.spec.ts:13:1 › oferece recuperacao de senha e documentacao publica da API (503ms)
+  ✓  2 [chromium] › e2e/product-flow.spec.ts:31:1 › adapta a navegacao entre desktop e celular (2.1s)
+  ✓  3 [chromium] › e2e/product-flow.spec.ts:77:1 › atualiza email e senha pelas configuracoes da conta (1.1s)
+  ✓  4 [chromium] › e2e/product-flow.spec.ts:118:1 › cria conta, envia um clipe e preserva o resultado completo (3.1s)
+
+  4 passed (8.2s)

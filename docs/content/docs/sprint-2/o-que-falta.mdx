@@ -21,11 +21,13 @@ com responsabilidades separadas.
 | --- | --- |
 | interface | quatro telas, envio do binário cru, consulta do andamento e exibição do resultado |
 | serviço | oito rotas sob `/v1`, autenticação por conta, fila com teto, posse do vídeo e recuperação de queda |
-| percepção | cinco dos sete módulos com implementação real, duas features medidas contra o gabarito do parceiro |
+| percepção | três módulos com pesos (`players`, `ball`, `pose`), duas regras sem peso próprio (`tracking`, `shot`) e dois stubs (`field`, `identity`); duas features medidas contra o gabarito do parceiro |
 
 ## Os módulos de percepção
 
-São sete espécies, e o que muda entre as duas configurações é quais delas usam modelo de verdade.
+São sete espécies. Na configuração de modelos da Sprint 2, cinco têm implementação não stub:
+três carregam pesos e duas são regras sem peso próprio, conforme a tabela. O estado atual e os
+comandos de operação estão no [manual da Sprint 3](/docs/sprint-3/produto/como-rodar).
 `config/pipeline.toml` roda em qualquer clone: seis espécies ficam em stub e a sétima, `shot`, é regra geométrica sem peso. A exceção dentro do mesmo arquivo é o `[render.top_view]`, que aponta dois manifestos e faz o vídeo anotado recusar com `RenderUnavailable` quando o peso não está em disco.
 `config/pipeline.models.toml` é a que exige os pesos em `var/models` e produz o número real.
 
@@ -113,6 +115,7 @@ o número. O que falta é rodar os dois e comparar.
 | Transporte da borda para a nuvem | O contrato existe em `src/contracts/shot_event.v1.json`, com `validate_shot_event` pronto para quem receber, mas hoje só a borda produz evento: o segundo lado é promessa do pacote, não código rodando. Falta o meio, e o teste é o mesmo evento sair de uma máquina e chegar íntegro na outra |
 | Mais de uma instância | Trocar SQLite por PostgreSQL e a fila em processo por uma externa; subir duas instâncias sobre o mesmo estado e conferir que nenhum vídeo é processado duas vezes |
 | Peso do campo publicado | O manifesto do campo declara `sha256`, o script de treino e o dataset, e não declara de onde baixar o `best.pt`. Dos sete manifestos é o único treinado aqui sem endereço, então quem clona não consegue rodar a homografia |
+| Reprodução do vídeo anotado fora do ambiente dos autores | Entregar os pesos exatos de jogadores e campo por canal autorizado, conferir os manifestos e pedir a outra pessoa que produza o MP4 em clone vazio, com comando e resultado agregado registrados. Sem esses pesos, a saída visual continua bloqueada |
 | Download automático do artefato | Dois manifestos declaram o campo `download` e `edge/artifacts.py` nunca o lê. Enquanto isso, pôr o peso no lugar é manual: o `xvision artifact get` recebe o caminho do manifesto, diz o diretório exato sob `var/models` e confere o sha256, mas não busca o arquivo |
 
 ## Riscos que continuam abertos

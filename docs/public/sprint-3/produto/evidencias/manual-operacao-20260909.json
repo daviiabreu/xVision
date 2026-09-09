@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "verified_at": "2026-09-09T17:48:27.365619+00:00",
+  "source_commit": "f692a72adba8140edfb5ad7bfe56f0237e119950",
+  "source_tree": "7977749bc024882e6edd49fb901933fafad7c9ea",
+  "checkout": "local Git clone, tracked files only; clean working tree",
+  "fresh_compose_volume": true,
+  "private_data_copied": false,
+  "model_weights_copied": false,
+  "host": {
+    "os": "macOS 26.6.2",
+    "architecture": "arm64"
+  },
+  "docker": {
+    "engine": "29.7.2",
+    "compose": "5.4.0",
+    "container_architecture": "aarch64"
+  },
+  "runtime": {
+    "python": "3.10.19",
+    "fastapi": "0.141.1",
+    "uvicorn": "0.52.4",
+    "opencv-python-headless": "5.0.0.93"
+  },
+  "configuration": "src/config/pipeline.toml",
+  "modules": {
+    "ball": "StubBall",
+    "field": "StubField",
+    "identity": "StubIdentity",
+    "players": "StubPlayers",
+    "pose": "StubPose",
+    "tracking": "StubTracking",
+    "shot": "BallBreakShot"
+  },
+  "source_files_sha256": {
+    "compose.yaml": "be5d73141851e78347fbe872eed7df115780326a366b87d2f6f0386b6ac3dd3e",
+    "Dockerfile": "3fe16eebf22e42ce9cb6bf44505407cc617962534f3c6610504fca40ee316e0f",
+    "src/interface/Dockerfile": "2f0b503f8bad241772f0ab9bea9718aaa4b0db4071c81e3ab4171955ef5a1880",
+    "src/interface/Dockerfile.e2e": "e6aa18139425c29462be82ff4a3dc5d197ea7d8a5b5ccc7b0eb39cfb2a83ccf6",
+    "src/uv.lock": "b738fb52544bef1d3eabf5c4e49a7511a6bc055bde65d1f5ae8f32622e56a14e",
+    "src/interface/package-lock.json": "cdb027bd9074dc635639a0452ffbad30aee6e6e5379c754e7e6db42480f60e54",
+    "src/config/pipeline.toml": "353c3719fb4c275aab44f336a3aa052e9cf471de0a28ceb0fe5abffed3c9a58c",
+    "src/interface/e2e/product-flow.spec.ts": "766b05f0b289f88569a1d23f8bd72d88d6256d8506aa9d8b4a7d5744195fe742"
+  },
+  "checks": {
+    "compose_up": "passed",
+    "api_health": "passed",
+    "frontend_health": "passed",
+    "openapi_http_status": 200,
+    "state_init_exit_code": 0,
+    "e2e_before_restart": {
+      "passed": 4,
+      "failed": 0,
+      "log": "e2e-before-20260909.txt"
+    },
+    "e2e_after_restart": {
+      "passed": 1,
+      "failed": 0,
+      "log": "e2e-after-20260909.txt"
+    }
+  },
+  "http_flow": {
+    "source_commit": "f692a72adba8140edfb5ad7bfe56f0237e119950",
+    "checks": [
+      {
+        "operation": "register",
+        "http_status": 201
+      },
+      {
+        "operation": "login",
+        "http_status": 200
+      },
+      {
+        "operation": "reserve_upload",
+        "http_status": 200
+      },
+      {
+        "operation": "upload_binary",
+        "http_status": 202
+      },
+      {
+        "operation": "poll_terminal_status",
+        "http_status": 200,
+        "video_status": "Finalizado",
+        "progresso": 100
+      },
+      {
+        "operation": "fetch_result",
+        "http_status": 200
+      },
+      {
+        "operation": "history_contains_result",
+        "http_status": 200,
+        "passed": true
+      }
+    ],
+    "fixture": {
+      "generator": "xvision clip --out /var/xvision/out/manual.mp4",
+      "bytes": 25618,
+      "sha256": "195b8d6752fdeff0fcfce12aef08498b28a1768fa706975485be6d139fce2b47"
+    },
+    "result": {
+      "video_status": "Finalizado",
+      "motivo": null,
+      "render_url": null,
+      "resultados": [
+        {
+          "nome_processo": "ball",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "field",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "identity",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "players",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "pose",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "tracking",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [],
+          "has_frame": true
+        },
+        {
+          "nome_processo": "shot",
+          "situacao": "ok",
+          "motivo": null,
+          "metricas": [
+            {
+              "nome": "body_part",
+              "unidade_de_medida": "classe",
+              "tipo": null,
+              "valor": null,
+              "status": "unavailable"
+            },
+            {
+              "nome": "type_of_play",
+              "unidade_de_medida": "classe",
+              "tipo": "text",
+              "valor": "individual",
+              "status": "ok"
+            }
+          ],
+          "has_frame": true
+        }
+      ]
+    }
+  },
+  "render_persistence_test": {
+    "input": "synthetic green MP4 from Dockerfile.e2e",
+    "inserted_by_test": true,
+    "generated_by_models": false,
+    "authenticated_playback_after_restart": "passed"
+  },
+  "limitations": [
+    "Synthetic integration test, not a model quality evaluation.",
+    "No real ball/top-view render was generated: model weights were absent.",
+    "The persistence test explicitly inserts a synthetic MP4.",
+    "Not Jetson, FP16, throughput, latency or independent operator validation.",
+    "This execution does not prove the historical run narrated on 2026-08-28."
+  ],
+  "native_mode": {
+    "api_port": 8080,
+    "frontend_port": 5173,
+    "registration": 201,
+    "login": 200,
+    "reserve": 200,
+    "upload": 202,
+    "terminal_status": "Finalizado",
+    "progress": 100,
+    "cors": {
+      "http_status": 200,
+      "allow_origin": "http://localhost:5173"
+    },
+    "node": "v26.8.1",
+    "uv": "uv 0.10.9 (f675560f3 2026-03-06)",
+    "python": "Python 3.10.20",
+    "browser_checks": {
+      "login": "passed",
+      "history": "passed",
+      "result_view": "passed",
+      "body_part": "unavailable",
+      "type_of_play": "individual"
+    }
+  },
+  "http_after_restart": {
+    "login_http_status": 200,
+    "result_http_status": 200,
+    "video_status": "Finalizado",
+    "render_url": null,
+    "same_video": true
+  }
+}

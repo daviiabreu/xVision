@@ -1,0 +1,9 @@
+> interface@0.0.0 test:e2e
+> playwright test --grep @after-restart
+
+
+Running 1 test using 1 worker
+
+  ✓  1 [chromium] › e2e/product-flow.spec.ts:154:1 › @after-restart recupera histórico, evidência e render persistidos (471ms)
+
+  1 passed (986ms)

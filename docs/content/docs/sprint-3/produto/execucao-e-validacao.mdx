@@ -1,6 +1,6 @@
 ---
 title: Execução e validação
-description: Ambiente local, persistência, envio de email e verificações da integração do produto
+description: Evidência versionada da operação, teste de navegador com reinício, persistência e configuração de email
 ---
 
 O [produto](/docs/sprint-3/produto) pode ser executado com Docker Compose. O ambiente reúne frontend,
@@ -9,19 +9,9 @@ sem entregá-los a destinatários reais.
 
 ## Preparação do ambiente
 
-Em um checkout que ainda não tenha `.env`, copie o exemplo. Se o arquivo já existir, preserve seus
-valores e acrescente apenas a configuração necessária.
-
-```bash
-cp .env.example .env
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-Coloque o valor gerado em `XVISION_AUTH_SECRET` no `.env` e inicie os serviços:
-
-```bash
-docker compose up --build --wait
-```
+O [manual de operação](/docs/sprint-3/produto/como-rodar) traz os pré-requisitos, o clone, a geração
+do segredo, os comandos de subida e o primeiro envio. Inclui a alternativa com API e Vite em
+terminais separados e a preparação dos modelos. Use esse procedimento antes dos testes abaixo.
 
 A interface fica em [localhost:3000](http://localhost:3000). `XVISION_FRONTEND_PORT` permite mudar a
 porta publicada. A API usa a rede interna do Compose e não publica uma segunda porta no host;
@@ -120,6 +110,107 @@ O teste de produto também verifica navegação em desktop e celular, foco no pa
 fechamento por `Esc` e restauração do foco. Para o teste após reinício, o CI coloca um MP4 sintético
 no diretório de renders antes de reiniciar a API. Esse caso comprova persistência e entrega
 autenticada do arquivo, sem medir a qualidade visual da bola ou da homografia.
+
+## Repetir o teste de navegador
+
+Use o ambiente do manual, com `COMPOSE_PROJECT_NAME=xvision-manual` no `.env`, serviços saudáveis
+e comandos executados na raiz do clone. O teste cria contas e vídeos sintéticos nesse banco.
+O Dockerfile de E2E instala o Chromium e gera um MP4 verde de 3 segundos, 320 por 240 a 10 fps;
+nenhum vídeo do parceiro é necessário.
+
+```bash
+docker build -f src/interface/Dockerfile.e2e -t xvision-manual-e2e src/interface
+docker run --name xvision-manual-before --network xvision-manual_default xvision-manual-e2e npm run test:e2e -- --grep-invert @after-restart
+docker cp xvision-manual-before:/work/e2e-state.json ./var/e2e-state.json
+docker cp xvision-manual-before:/fixtures/resultado.mp4 ./var/e2e-render.mp4
+```
+
+São quatro testes antes do reinício: acesso à documentação e recuperação, navegação responsiva,
+alterações da conta e envio com consulta do resultado. O arquivo `e2e-state.json` guarda a conta
+temporária e o identificador do vídeo para a segunda etapa. Ele fica em `var/`, fora do Git.
+
+A etapa seguinte insere o MP4 sintético no caminho do render para verificar a entrega autenticada
+e a persistência do arquivo. Essa inserção é parte do teste de armazenamento; não é a produção
+de um vídeo anotado por modelos.
+
+```bash
+E2E_VIDEO_ID=$(python3 -c 'import json; print(json.load(open("var/e2e-state.json"))["videoId"])')
+docker compose exec -T api mkdir -p /var/xvision/api/renders
+docker compose cp ./var/e2e-render.mp4 "api:/var/xvision/api/renders/$E2E_VIDEO_ID.mp4"
+docker compose restart api
+docker compose up --wait --wait-timeout 180
+docker run --name xvision-manual-after --network xvision-manual_default -v "$PWD/var/e2e-state.json:/work/e2e-state.json:ro" xvision-manual-e2e npm run test:e2e -- --grep @after-restart
+```
+
+O quinto teste entra na mesma conta, recupera o histórico, abre o vídeo servido pela API e confere
+a imagem de evidência persistida. Para guardar as saídas e liberar os nomes antes de repetir:
+
+```bash
+docker logs xvision-manual-before > var/e2e-before.log 2>&1
+docker logs xvision-manual-after > var/e2e-after.log 2>&1
+docker compose logs --no-color > var/compose.log 2>&1
+docker rm xvision-manual-before xvision-manual-after
+```
+
+O teste não altera a configuração dos módulos nem consulta o conjunto reservado. Sem os pesos,
+é esperado que o render produzido pela análise seja indisponível antes da inserção controlada.
+
+## Execução verificada do manual
+
+Em 09/09/2026, o procedimento foi executado em um clone limpo da revisão
+[`f692a72adba8`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/commit/f692a72adba8140edfb5ad7bfe56f0237e119950),
+com volume novo, sem dados do parceiro e sem pesos privados. O clone foi obtido do repositório
+Git local nessa revisão; as imagens e dependências foram resolvidas pelo Docker. Isso verifica
+os arquivos versionados sem importar `var/`, `.env` ou ambientes Python anteriores dos autores.
+
+A execução usou Docker Desktop sobre macOS arm64, Engine 29.7.2, Compose 5.4.0 e Chromium da imagem
+Playwright 1.62.1. O resultado está no
+[registro JSON da execução](/sprint-3/produto/evidencias/manual-operacao-20260909.json), com revisão,
+configuração, versões, digests dos arquivos de entrada da construção e respostas HTTP resumidas.
+As saídas do navegador foram preservadas em
+[log antes do reinício](/sprint-3/produto/evidencias/e2e-before-20260909.txt) e
+[log depois do reinício](/sprint-3/produto/evidencias/e2e-after-20260909.txt).
+
+| Verificação | Resultado observado |
+| --- | --- |
+| Subida a partir de clone e volume novos | `api` e `frontend` saudáveis; `state-init` encerrou com código zero |
+| Cadastro, login e contrato HTTP | Cadastro 201, login 200 e OpenAPI 200 |
+| Envio binário da fixture gerada por `xvision clip` | Reserva 200, envio 202 e conclusão `Finalizado` com progresso 100 |
+| Resultado por etapa | Sete etapas `ok` e imagens de evidência; render ausente por falta dos pesos |
+| Testes de navegador | Quatro aprovados antes do reinício e um aprovado depois |
+| Histórico após reinício | Mesmo resultado recuperado; leitura do MP4 inserido pelo teste aprovada |
+| API e Vite em processos locais | Instalação pelo lock, cadastro, login, envio e resultado aprovados; CORS conferido com origem explícita em 5173 |
+
+O caminho sem Docker também foi executado no clone, com Python 3.10.20 e Node 26.8.1 disponíveis
+na estação. As imagens de frontend e CI usam Node 22. O login e a leitura do resultado foram
+conferidos no navegador em 5173, consumindo a API em 8080.
+
+O exemplo abaixo é um recorte do resultado da fixture, obtido com seis stubs e a regra de instante.
+`type_of_play=individual` descreve esse gabarito sintético; não é uma classificação validada em
+partida. `body_part` indisponível e `render_url` nulo são mantidos como ausências explícitas.
+
+```json
+{
+  "video_status": "Finalizado",
+  "render_url": null,
+  "resultados": [
+    {
+      "nome_processo": "shot",
+      "metricas": [
+        { "nome": "body_part", "valor": null, "status": "unavailable" },
+        { "nome": "type_of_play", "valor": "individual", "status": "ok" }
+      ]
+    }
+  ]
+}
+```
+
+Esse registro é da Sprint 3. Ele não comprova retrospectivamente a execução narrada em 28/08,
+nem a qualidade dos modelos, o render real ou a execução na Jetson. A reprodução independente
+dos pesos e do MP4 anotado permanece como
+[próximo passo explícito](/docs/sprint-3/produto/como-rodar#modelos-e-render).
+
+## Gates de código
 
 No frontend, os checks usados pelo projeto são:
 
