@@ -68,7 +68,7 @@ def test_the_metrics_are_not_empty_in_this_scenario(cliente: TestClient, tmp_pat
     corpo = _resultado(cliente, tmp_path)
 
     metricas = [m for r in corpo["resultados"] for m in r["metricas"]]
-    assert len(metricas) == 9, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    assert len(metricas) == 10, f"o cenario nao produziu metrica: {corpo['resultados']}"
     nomes = {m["nome"] for m in metricas}
     assert {"distancia_falsa", "sem_leitura", "marked", "assist", "crowded"} <= nomes
 
@@ -163,6 +163,7 @@ def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: 
 
     assert tipos == {
         "body_part": None,
+        "goalkeeper_position": "boolean",
         "looked_before": None,
         "type_of_play": "text",
         "marked": None,

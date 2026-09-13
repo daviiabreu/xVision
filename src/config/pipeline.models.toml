@@ -111,6 +111,9 @@ needs = ["players", "tracking", "identity"]
 [features.body_part]
 impl = "edge.features.body_part:BodyPart"
 
+[features.goalkeeper_position]
+impl = "edge.features.goalkeeper_position:GoalkeeperPosition"
+
 [features.looked_before]
 impl = "edge.features.looked_before:LookedBefore"
 
