@@ -1,0 +1,69 @@
+# Release 0.3.0
+
+Entrega embarcada do Edge xG. A Sprint 3 troca o gabarito sintético por inferência sobre vídeo
+real, adapta os modelos para a Jetson Orin Nano e mede o efeito dessa adaptação. As sete espécies
+de percepção declaradas em `config/pipeline.models.toml` passam a apontar todas para inferência
+real, e o conjunto de features do parceiro sai de duas para sete.
+
+A entrega continua parcial, e o princípio que organiza a sprint aparece em cada página da
+documentação: resultado negativo é resultado. Três medições desta sprint foram desfavoráveis e
+estão publicadas como tais.
+
+## What's New
+
+- Adaptação dos modelos de jogadores, bola e pontos do campo para TensorRT FP16 na Jetson Orin
+  Nano, com a conversão feita no próprio dispositivo: o tempo por modelo cai de 48 a 50 segundos
+  para 29 a 30 no clipe de referência, e a comparação de qualidade sai ao lado do número de tempo.
+- Alavancas de desempenho declaradas por espécie no TOML e todas opt-in: meia precisão, lote único
+  dos ladrilhos da bola, letterbox no device e plano TensorRT, mais a paralelização do decode e
+  das duas inferências da visão superior. Quem não declara nada executa a mesma chamada de antes.
+- Homografia de campo integrada ao pipeline, com 29 keypoints e ajuste robusto, disponível em
+  69,4% dos quadros de desenvolvimento.
+- Detector de bola treinado e rastreio integrados, com o ranking de candidatos implementado,
+  medido e desligado por decisão registrada.
+- `identity` deixa de ser stub: `TeamIdentity` agrupa as trajetórias em duas equipes pela cor da
+  camisa, ignorando árbitro e goleiro no agrupamento, e o time chega à `Perception` montada.
+- Rastreamento de jogadores sem detecção duplicada entre papéis e com papel estável por
+  trajetória, o que é a condição para distinguir o goleiro dos demais.
+- Cinco features novas do conjunto do parceiro: `looked_before`, `goalkeeper_position`, `marked`,
+  `assist` e `crowded`, somando sete features implementadas de doze rótulos declarados.
+- `type_of_play` reescrito em unidades reais, com o toque medido por episódio de posse e a
+  evidência da jogada em segundos e alturas de jogador.
+- Procedência da bola no instante da finalização: o registro passa a declarar se a posição usada
+  foi medida, interpolada, mista ou ausente, em vez de apresentar as quatro com a mesma cara.
+- Retomada de execução longa por checkpoint validado, que permite reprocessar o catálogo sem
+  recomeçar do zero e sem perder a procedência do que já saiu.
+- Validação independente do instante e ferramenta de concordância entre anotações, que mede o teto
+  do próprio alvo antes de cobrar acurácia do modelo.
+- Produto fechado de ponta a ponta: envio de clipe, acompanhamento do processamento, resultado por
+  etapa, vídeo anotado, recuperação de senha e guia de operação manual.
+- Documentação da Sprint 3 com página por modelo, método, resultado observado, limite declarado e
+  continuidade prevista, além do estado por módulo e por feature na visão geral.
+
+## Fixes
+
+- O detector de jogadores deixa de emitir a mesma pessoa duas vezes em papéis diferentes, o que
+  fazia dois recortes disputarem o mesmo jogador na pose.
+- O papel do jogador passa a ser fixado por trajetória, e não aceito quadro a quadro, o que
+  trocava goleiro por jogador de um quadro para o outro.
+- A pose passa a preferir o `shooter_track_id` declarado pelo `shot` quando ele existe, caindo no
+  jogador mais perto da bola somente quando não existe.
+- O `ball_support` do instante passa a ser resolvido pelas amostras que cercam o quadro escolhido,
+  que estava errando o dicionário em três de cada quatro contatos com passo quatro.
+- A visão superior preserva o enquadramento original, mantém os marcadores da bola visíveis entre
+  quadros amostrados e recusa limites de campo não finitos.
+- O ranking de candidatos da bola foi desligado na configuração depois de medido: ele dobra o
+  acerto de posição e mesmo assim perde macro-F1 nas duas features medidas, perde cobertura, piora
+  o instante e cobra cerca de 2,5 vezes o tempo do módulo de bola.
+
+## Limitações conhecidas
+
+- `marking` continua stub, e `marked` e `assist` dependem dele.
+- Os limiares de `looked_before` e `goalkeeper_position` ainda não foram calibrados em dobra
+  separada, e as duas rodaram sobre oito clipes de uma partida só, o que verifica integração e
+  disponibilidade e não sustenta conclusão de qualidade.
+- O instante da finalização continua acima da tolerância: erro mediano de 46 a 60 quadros nas 24
+  amostras com anotação manual, contra uma tolerância de 30.
+- Das 30 anotações de campo do piloto, 27 são proposta do próprio modelo e carregam
+  `requires-human-review`, então qualquer métrica de acurácia de campo continua circular.
+- Vídeos, rótulos derivados do parceiro e pesos restritos permanecem fora do repositório.
