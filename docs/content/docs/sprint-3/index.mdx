@@ -4,7 +4,7 @@ description: Adaptação do pipeline, execução embarcada e integração do pro
 ---
 
 Nesta sprint, o grupo adapta o pipeline para a plataforma embarcada escolhida e conclui as
-integrações necessárias para demonstrar o processamento de um clipe do início ao fim. A entrega
+integrações necessárias para demonstrar o processamento de um clipe do início ao fim. O trabalho
 combina execução no dispositivo, build Linux customizada, métricas de recursos e uma aplicação
 capaz de enviar, acompanhar e revisar cada análise.
 
@@ -31,7 +31,8 @@ varredura que fecha uma hipótese barata economiza a caríssima que vinha depois
 clipe mp4 -> decode unico -> framesets coarse, dense e window
   -> modulos de percepcao: players, ball, field, shot, tracking, pose, identity
   -> Perception montada, com bola, jogadores, track_id e campo no mesmo quadro
-  -> features: body_part, type_of_play
+  -> features: body_part, type_of_play, looked_before, goalkeeper_position, marked,
+     assist, crowded
   -> ShotEvent com valor, status, motivo e evidencia agregada
   -> avaliador: metrica ao lado da maioria e da linha de base de metadado
 ```
@@ -51,43 +52,62 @@ o TOML escolhe.
 
 ## Estado por módulo de percepção
 
-São sete módulos declarados em `config/pipeline.models.toml`. Seis apontam para inferência real e um
-continua stub.
+As sete espécies de percepção declaradas em `config/pipeline.models.toml` apontam todas para
+inferência real. O arquivo declara ainda um oitavo módulo, `marking`, que continua stub e existe
+para as features de marcação terem de quem depender enquanto a implementação não chega.
 
 | Módulo | Implementação | Página |
 | --- | --- | --- |
 | `field` | 29 keypoints e homografia robusta | [campo e homografia](/docs/sprint-3/modelos/campo-e-homografia) |
 | `ball` | detector treinado e rastreio, com o ranking de candidatos medido e desligado | [bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria) |
 | `shot` | quebra da trajetória da bola | [instante da finalização](/docs/sprint-3/modelos/instante-da-finalizacao) |
-| `players` | detecção e caixas por quadro | sem página própria nesta sprint |
-| `tracking` | associação gulosa por IoU, ancorada no instante | sem página própria nesta sprint |
-| `pose` | keypoints de corpo, consumidos por `body_part` | sem página própria nesta sprint |
-| `identity` | ainda `StubIdentity`, e o stub serve a fixture sintética | não entregue |
+| `players` | detecção e caixas por quadro, sem duplicata entre papéis | [rastreamento de jogadores](/docs/sprint-3/modelos/rastreamento-de-jogadores) |
+| `tracking` | associação gulosa por IoU, com papel estável por trajetória | [rastreamento de jogadores](/docs/sprint-3/modelos/rastreamento-de-jogadores) |
+| `pose` | keypoints de corpo, consumidos por `body_part` e `looked_before` | sem página própria nesta sprint |
+| `identity` | `TeamIdentity`, que agrupa as trajetórias em duas equipes pela cor da camisa | [identificação por equipe](/docs/sprint-3/modelos/identificacao-por-equipe) |
+| `marking` | `StubMarking`, dependência declarada de `marked` e `assist` | não entregue |
 
-Vale abrir a última linha, porque ela é mais séria do que "não entregue" sugere. O stub carrega o
-gabarito da fixture sintética canônica, que tem 30 quadros e seis jogadores, e só verifica se o
-índice do quadro cabe nesse intervalo. Sobre um clipe real, o conjunto `dense` amostra os quadros 0,
-4, 8 e seguintes, então oito quadros de cada clipe recebem os seis registros de identidade da
-fixture. O montador junta identidade a jogador por identificador de trilha, e o rastreador numera
-trilhas a partir de 1, então jogadores reais recebem nesses quadros a camisa de um jogador que não
-existe.
-
-Nenhum número publicado está errado por causa disso, porque nenhuma feature implementada lê camisa.
-Mas isso é sorte e não desenho, e o relatório da execução não ajuda: `identity` sai com estado `ok`
-e zero falhas, igual aos seis módulos que fazem inferência de verdade. A correção está desenhada e
-esperando a execução em curso terminar, porque mexer no config agora invalidaria a retomada dela.
+A troca de `identity` fecha um defeito que esta página registrava na sprint passada: o stub
+carregava o gabarito da fixture sintética e, sobre clipe real, entregava a camisa de um jogador que
+não existe aos quadros do conjunto `dense`. Nenhum número publicado dependia daquilo, porque
+nenhuma feature lia camisa, mas era sorte e não desenho. `marking` está hoje na mesma posição em
+que `identity` estava, e esta página diz isso pelo mesmo motivo.
 
 ## Estado por feature
 
-O conjunto do parceiro declara onze rótulos em `config/labels.toml` e sete métricas. Duas features
-estão implementadas, e é importante que a conta apareça: duas de onze.
+O conjunto do parceiro declara doze rótulos em `config/labels.toml` e oito métricas. Sete features
+estão implementadas e declaradas em `config/pipeline.toml`, e a conta precisa aparecer: sete de
+doze. Das sete, duas têm medição contra linha de base nesta página, e as cinco restantes ainda não
+foram medidas em população que sustente conclusão.
 
 | Feature | Estado | Página |
 | --- | --- | --- |
-| `body_part` | implementada, macro-F1 0,315 contra 0,229 da maioria em 97,0% de cobertura | sem página própria nesta sprint |
-| `type_of_play` | implementada, macro-F1 0,334 contra 0,270 da maioria, e abaixo da maioria em acurácia | [tipo da jogada](/docs/sprint-3/modelos/tipo-da-jogada) |
+| `body_part` | medida, macro-F1 0,315 contra 0,229 da maioria em 97,0% de cobertura | sem página própria nesta sprint |
+| `type_of_play` | medida, macro-F1 0,334 contra 0,270 da maioria, e abaixo da maioria em acurácia | [tipo da jogada](/docs/sprint-3/modelos/tipo-da-jogada) |
+| `looked_before` | implementada, limiar ainda não calibrado em dobra separada | [orientação antes do chute](/docs/sprint-3/modelos/orientacao-antes-do-chute) |
+| `goalkeeper_position` | implementada, limiar ainda não calibrado em dobra separada | [posicionamento do goleiro](/docs/sprint-3/modelos/posicionamento-do-goleiro) |
+| `marked` | implementada sobre `marking`, que ainda é stub | sem página própria nesta sprint |
+| `assist` | implementada sobre `marking`, que ainda é stub | sem página própria nesta sprint |
+| `crowded` | implementada, sem medição publicada | sem página própria nesta sprint |
 | `shot_distance_m` | não implementada, depende da homografia estar confiável | ver campo e homografia |
-| as outras oito | não implementadas | ver o que falta |
+| as outras quatro | não implementadas | ver o que falta |
+
+## O que os jogadores ganharam nesta sprint
+
+O processamento de jogadores avançou em quatro frentes: o detector deixou de emitir a mesma pessoa
+duas vezes em papéis diferentes, o rastreador passou a fixar o papel por trajetória, `identity`
+passou a separar os dois uniformes, e duas variáveis contextuais da finalização entraram como
+feature. Cada frente tem página própria, com método, resultado observado, limite e continuidade
+prevista: [rastreamento de jogadores](/docs/sprint-3/modelos/rastreamento-de-jogadores),
+[identificação por equipe](/docs/sprint-3/modelos/identificacao-por-equipe),
+[orientação antes do chute](/docs/sprint-3/modelos/orientacao-antes-do-chute) e
+[posicionamento do goleiro](/docs/sprint-3/modelos/posicionamento-do-goleiro).
+
+As quatro rodaram sobre oito clipes da mesma partida. Essa população verifica integração e
+disponibilidade, e não sustenta conclusão de qualidade: uma partida só não separa o efeito do
+modelo do efeito do uniforme, da câmera e da iluminação daquele jogo. A continuidade declarada é
+restaurar o checkpoint oficial do campo, ampliar a diversidade de partidas e calibrar os limiares
+numa divisão separada de avaliação.
 
 ## O que foi medido, e o que os números dizem
 

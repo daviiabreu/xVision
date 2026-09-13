@@ -1,0 +1,102 @@
+---
+title: Identificação dos jogadores por equipe
+description: Classificação temporal dos jogadores de linha a partir das cores dos uniformes
+---
+
+## Objetivo
+
+O detector informa se uma pessoa é jogador, goleiro ou árbitro, mas não distingue automaticamente
+os dois times. Essa separação é necessária para interpretar companheiros e adversários e também
+para manter uma representação visual consistente ao longo do clipe.
+
+A identificação por equipe utiliza a cor predominante da camisa e acumula evidências por
+`track_id`. O resultado associa cada jogador de linha a `team_a` ou `team_b`, identificadores
+técnicos que representam os dois grupos visuais e não equivalem, por si só, ao nome das equipes ou
+à condição de mandante e visitante.
+
+## Integração ao pipeline
+
+A classificação de uniformes havia sido avaliada anteriormente como um processamento separado do
+tracking. Nesta sprint, ela passou a compor a etapa central de identidade, recebendo as mesmas
+detecções e trajetórias utilizadas pelas demais métricas.
+
+```text
+quadro original + caixas de jogadores + track_id
+  -> seleção de observações da trajetória
+  -> recorte da região da camisa
+  -> representação da cor no espaço Lab
+  -> cor mediana por trajetória
+  -> agrupamento em dois times
+  -> equipe associada novamente ao track_id
+```
+
+A equipe é projetada sobre cada observação pelo identificador da trajetória. Esse processo evita
+classificações independentes em quadros consecutivos e reduz mudanças causadas por sombra,
+compressão ou oclusão parcial.
+
+## Extração da cor do uniforme
+
+Para cada trajetória são selecionadas observações com caixas maiores e maior confiança, condições
+que tendem a fornecer mais pixels úteis do torso. A região central superior da caixa é convertida
+do espaço BGR para Lab, separando luminosidade dos canais de cor.
+
+Um agrupamento local diferencia a camisa do fundo presente no recorte. A mediana das amostras
+válidas representa a cor da trajetória, diminuindo a influência de um quadro isolado com reflexo,
+sombra ou movimento. Em seguida, as cores das trajetórias são separadas em dois centroides, que
+originam `team_a` e `team_b`.
+
+Somente trajetórias cujo papel estabilizado é `player` participam dessa etapa. Árbitros e goleiros
+mantêm sua função, mas não recebem uma das duas equipes, pois seus uniformes podem formar um
+terceiro grupo visual e deslocar os centroides dos jogadores de linha.
+
+## Resultado observado
+
+A integração foi executada sobre os mesmos oito clipes usados na avaliação do tracking. Foram
+analisadas 11.927 observações de participantes:
+
+| Resultado | Observações | Proporção |
+| --- | ---: | ---: |
+| `team_a` | 5.459 | 45,8% |
+| `team_b` | 5.640 | 47,3% |
+| sem equipe | 828 | 6,9% |
+
+Nenhuma observação classificada como árbitro ou goleiro recebeu `team_a` ou `team_b`. Esse
+resultado verifica que a classificação passou a percorrer o pipeline completo e que o filtro de
+papéis funciona como esperado.
+
+Os números não representam acurácia de equipe, pois ainda não existe uma anotação humana por
+trajetória que indique a qual time cada `track_id` pertence. A distribuição equilibrada entre os
+dois grupos também não prova correção, ela apenas mostra que o agrupamento encontrou duas cores
+predominantes.
+
+## Relação entre equipe, papel e identidade
+
+As três informações possuem significados diferentes:
+
+| Informação | Exemplo | Origem |
+| --- | --- | --- |
+| papel | jogador, goleiro ou árbitro | detector e estabilização temporal |
+| equipe | `team_a` ou `team_b` | agrupamento das cores das camisas |
+| identidade temporal | `track_id` 17 | associação entre quadros |
+
+O `track_id` não representa o número da camisa nem a identidade civil do atleta. A classificação
+por equipe também não reconhece automaticamente México ou África do Sul, pois os nomes dos grupos
+são ordenados de forma determinística pela cor. Uma fonte externa ou uma anotação de referência é
+necessária para associar esses grupos aos nomes oficiais.
+
+## Limitações e próximos passos
+
+Jogadores pequenos podem não fornecer pixels suficientes da camisa, enquanto sombras e uniformes
+com cores próximas podem aproximar grupos que deveriam permanecer separados. Uma fragmentação do
+tracking também faz com que o mesmo atleta gere mais de uma representação de cor.
+
+A próxima avaliação deverá anotar a equipe correta por trajetória e medir cobertura, acurácia e
+macro F1 depois de alinhar os nomes arbitrários dos dois grupos ao gabarito. A amostra também deverá
+incluir outras partidas para verificar uniformes, iluminação e estádios diferentes.
+
+Caso os erros se concentrem em jogadores distantes, deverá ser comparado um limite mínimo de área
+da caixa. Se ocorrerem sob variação de luz, a normalização deverá ser avaliada sobre os mesmos
+recortes, sem alterar o pipeline apenas por melhora visual.
+
+O processo detalhado de seleção das amostras e agrupamento das cores está descrito também em
+[Identificação por equipe na Sprint 2](/docs/sprint-2/processamento/identificacao-por-equipe).

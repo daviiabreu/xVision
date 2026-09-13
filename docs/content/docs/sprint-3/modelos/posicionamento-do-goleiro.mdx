@@ -1,0 +1,110 @@
+---
+title: Posicionamento do goleiro
+description: Avaliação geométrica do alinhamento do goleiro em relação ao finalizador e ao gol
+---
+
+## Objetivo
+
+A variável `goalkeeper_position` indica se o goleiro está alinhado com a direção provável da
+finalização. A avaliação não depende apenas da caixa observada na imagem, pois perspectiva e
+movimento de câmera alteram distâncias aparentes. Para comparar finalizador, goleiro e gol, suas
+posições são convertidas para o plano do campo por uma homografia.
+
+O resultado é booleano, acompanhado pelo desvio lateral em metros e por um escore contínuo. Quando
+não há evidência geométrica suficiente, a feature publica `unavailable` em vez de presumir uma
+posição inadequada.
+
+## Referências geométricas
+
+O cálculo utiliza quatro informações:
+
+| Informação | Origem |
+| --- | --- |
+| instante da finalização | módulo de detecção do chute ou anotação temporal |
+| posição do finalizador | centro inferior da caixa projetado no campo |
+| posição do goleiro | detecção com papel de goleiro projetada no campo |
+| centro do gol | dimensões do campo canônico de 105 por 68 metros |
+
+O sistema prioriza o `shooter_track_id` informado pelo instante do chute. Quando esse identificador
+não está disponível, admite um único participante com pose ou, como último recurso, o jogador mais
+próximo de uma observação real da bola. A escolha do gol considera qual das duas metas está mais
+próxima do finalizador.
+
+Entre os goleiros com coordenadas válidas, é selecionado aquele que está mais próximo da meta sob
+análise. Essa regra evita usar um goleiro distante quando ambos aparecem no mesmo enquadramento.
+
+## Cálculo do posicionamento
+
+A linha entre o finalizador e o centro do gol representa a direção central da finalização. O desvio
+lateral é a menor distância, no plano do campo, entre a posição do goleiro e essa linha.
+
+```text
+finalizador ---------------- centro do gol
+                    |
+                    | desvio lateral
+                    |
+                 goleiro
+```
+
+O escore diminui linearmente até a metade da largura do gol, equivalente a 3,66 metros:
+
+```text
+position_score = max(0, 1 - desvio_lateral_m / 3,66)
+```
+
+O limiar inicial é 0,5, portanto desvios de até 1,83 metro resultam em `true`. Além do valor
+booleano, o evento registra escore, limiar, desvio lateral, distância do goleiro ao gol, frame
+utilizado e identificadores das duas trajetórias.
+
+<Callout type="info" title="Escopo da interpretação">
+
+A medida representa alinhamento lateral com a linha entre finalizador e gol. Ela não avalia tempo
+de reação, postura corporal, profundidade ideal, visão obstruída ou probabilidade de defesa. Esses
+fatores podem ser incorporados no futuro, mas não devem ser atribuídos ao escore atual.
+
+</Callout>
+
+## Resultado observado
+
+Os rótulos disponíveis classificam sete dos oito clipes como goleiro posicionado e um como não
+posicionado. Com o checkpoint público de keypoints do campo, três clipes produziram todas as
+evidências geométricas necessárias, resultando em cobertura de 37,5%.
+
+Entre os três casos disponíveis, dois foram classificados corretamente e um foi falso negativo, o
+que corresponde a acurácia de 0,667 e macro F1 de 0,4. Nenhum exemplo negativo ficou disponível,
+portanto essa execução ainda não mede a capacidade de reconhecer goleiros fora de posição. O melhor
+limiar observado foi 0,384, resultado insuficiente para substituir o valor inicial de 0,5.
+
+| Medida | Resultado |
+| --- | ---: |
+| clipes rotulados | 8 |
+| clipes com previsão | 3 |
+| cobertura | 37,5% |
+| verdadeiros positivos | 2 |
+| falsos negativos | 1 |
+| acurácia nos disponíveis | 0,667 |
+| macro F1 nos disponíveis | 0,4 |
+
+Essa avaliação demonstra que a regra geométrica funciona quando as dependências estão disponíveis,
+mas também evidencia que a principal limitação atual está na obtenção das coordenadas de campo.
+
+## Dependência do modelo de campo
+
+A homografia utilizada nessa avaliação foi produzida por um checkpoint público compatível com os
+29 keypoints do campo. Ele permite verificar o fluxo completo, porém não substitui o modelo treinado
+e versionado pelo grupo.
+
+O checkpoint oficial deverá ser instalado no local definido pelo manifesto e validado por SHA-256
+antes da nova execução. Como a interface de keypoints já está integrada, essa substituição não
+exige reescrever a métrica, ela exige provisionar o artefato correto e repetir a medição de
+cobertura e qualidade.
+
+## Limitações e próximos passos
+
+A amostra atual concentra sete respostas positivas e somente uma negativa, além de pertencer a uma
+única partida. A próxima avaliação deverá incluir mais situações de goleiro deslocado, saídas do
+gol, finalizações diagonais e diferentes enquadramentos.
+
+Depois de restaurar o checkpoint oficial, o limiar deverá ser calibrado em uma divisão de ajuste e
+avaliado em clipes separados. A regra também poderá incorporar profundidade e ângulo de cobertura,
+desde que cada nova variável tenha definição mensurável e seja comparada com anotações humanas.

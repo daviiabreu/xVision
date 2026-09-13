@@ -1,0 +1,98 @@
+---
+title: Orientação antes do chute
+description: Estimativa temporal da orientação do finalizador em relação ao gol
+---
+
+## Objetivo
+
+A variável `looked_before` representa se o finalizador se orientou em direção ao gol antes do
+contato com a bola. Diferentemente de uma detecção realizada em um único quadro, essa interpretação
+depende de uma sequência curta anterior ao chute, pois o jogador pode voltar a atenção para a bola
+no momento do contato depois de observar o espaço à sua frente.
+
+A implementação combina tracking, instante da finalização, estimativa de pose e homografia. O
+resultado público é booleano, enquanto o ângulo e o escore contínuo permanecem registrados como
+evidências da decisão.
+
+<Callout type="info" title="Interpretação da medida">
+
+A métrica estima orientação da cabeça e do tronco, não a direção exata do olhar. Vídeos de
+transmissão não oferecem resolução suficiente para estimar o movimento dos olhos de forma
+confiável, por isso o resultado deve ser interpretado como evidência de que o jogador estava
+orientado para o gol.
+
+</Callout>
+
+## Janela temporal
+
+O instante do chute funciona como âncora da análise. São considerados os quadros entre 0,5 segundo
+e 0,1 segundo antes do contato, intervalo que preserva o contexto anterior e evita depender apenas
+da postura assumida durante a execução do movimento.
+
+```text
+t - 0,5 s                       t - 0,1 s       contato
+    |-------------------------------|-------------|
+          quadros usados pela métrica
+```
+
+A decisão exige pelo menos três quadros válidos. Quando a janela não contém pose ou homografia
+suficiente, o resultado é `unavailable`, pois ausência de evidência não equivale a afirmar que o
+jogador não olhou antes.
+
+## Pose do finalizador
+
+Executar pose sobre o quadro inteiro apresentou baixa cobertura para jogadores distantes, cujas
+caixas ocupam uma região pequena do vídeo. Para preservar detalhes, o pipeline resolve primeiro o
+`track_id` do finalizador e processa somente o seu recorte.
+
+O recorte recebe uma margem de 25% ao redor da caixa para evitar a perda de cabeça e pés nas bordas,
+depois é ampliado para a entrada de 256 pixels do estimador. Os recortes da janela são processados
+em lotes, reduzindo o custo em relação a uma inferência separada para cada jogador do quadro.
+
+Quando o instante da finalização já informa `shooter_track_id`, esse identificador tem prioridade.
+Na ausência dele, o sistema procura o participante mais próximo da bola, desde que a observação da
+bola seja detectada e não apenas interpolada.
+
+## Cálculo da orientação
+
+Cada quadro válido precisa conter nariz, olhos e ombros com confiança mínima de 0,5. O ponto médio
+dos ombros representa a base do tronco, enquanto nariz e olhos formam a referência frontal da
+cabeça. Esse vetor é comparado com a direção do gol mais próximo, projetado para a imagem por uma
+homografia válida.
+
+O ângulo mediano da janela reduz a influência de um quadro isolado. Em seguida, o valor é convertido
+para o intervalo entre zero e um:
+
+```text
+orientation_score = (cos(ângulo_mediano) + 1) / 2
+```
+
+Um escore próximo de um indica alinhamento com o gol, enquanto valores próximos de zero representam
+orientação oposta. O limiar inicial de 0,5 corresponde a aceitar ângulos de até 90 graus, decisão
+semântica conservadora que deverá ser recalibrada com uma amostra maior.
+
+O evento preserva o `track_id`, os quadros válidos, o ângulo mediano, o escore e o limiar. Esse
+registro permite reproduzir a decisão sem reduzir toda a observação ao valor booleano.
+
+## Resultado observado
+
+Na avaliação preliminar de oito clipes, somente um apresentou todas as evidências necessárias. Esse
+caso foi classificado corretamente como positivo, resultando em cobertura de 12,5%. O melhor limiar
+observado nessa amostra foi 0,601, mas um único caso disponível não permite adotar esse valor como
+calibração geral.
+
+A baixa cobertura está associada principalmente à ausência conjunta de pose confiável e homografia,
+não à conversão do escore em `true` ou `false`. O comportamento de indisponibilidade impede que o
+sistema transforme uma falha de percepção em uma resposta negativa aparentemente válida.
+
+## Limitações e próximos passos
+
+O recorte ampliado melhora a entrada do estimador, mas não recupera detalhes que não foram
+registrados no vídeo original. Borrão, oclusão e poucos pixels do rosto ainda podem ocultar olhos e
+nariz. Técnicas de super-resolução só deverão ser consideradas em uma comparação controlada, pois
+podem criar detalhes visuais que não pertencem ao quadro capturado.
+
+A próxima etapa deverá repetir a avaliação com o peso oficial de campo e incluir clipes de outras
+partidas, equilibrando exemplos positivos e negativos. Também será necessário revisar manualmente
+a orientação em vários quadros antes do chute, medir a concordância entre anotadores e calibrar o
+limiar em uma divisão separada daquela usada para reportar o resultado final.

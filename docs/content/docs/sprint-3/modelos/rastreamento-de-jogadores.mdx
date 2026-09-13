@@ -1,0 +1,110 @@
+---
+title: Rastreamento e consistência dos jogadores
+description: Associação temporal, remoção de duplicatas e estabilização dos papéis dos participantes
+---
+
+## Objetivo
+
+A análise de uma finalização depende de reconhecer o mesmo participante ao longo do tempo, uma
+caixa delimitadora isolada informa onde alguém aparece em um quadro, mas não permite acompanhar
+seu movimento, acumular evidências sobre o uniforme ou associar a pose correta ao finalizador.
+
+O rastreamento desenvolvido nesta sprint atribui um `track_id` às detecções, reduz conflitos entre
+papéis e mantém uma função estável para cada trajetória. Essa etapa conecta a detecção de jogadores
+às métricas que dependem de contexto temporal, como orientação antes do chute e posicionamento do
+goleiro.
+
+## Tratamento das detecções
+
+O detector reconhece jogador de linha, goleiro e árbitro em cada quadro. Em regiões com oclusão ou
+uniformes semelhantes, a mesma pessoa pode receber duas caixas de classes diferentes, por isso as
+detecções são comparadas antes do rastreamento e caixas sobrepostas que representam o mesmo
+participante são consolidadas.
+
+Quando há conflito, a escolha considera a confiança do detector e a função mais específica. Esse
+tratamento impede que duas trajetórias sejam criadas para a mesma pessoa e preserva uma única
+observação por participante.
+
+```text
+detecções do quadro
+  -> comparação das caixas entre classes
+  -> remoção de duplicatas
+  -> associação com trajetórias existentes
+  -> estabilização do papel por track_id
+```
+
+## Associação temporal
+
+A implementação principal utiliza uma associação gulosa e determinística. Para cada trajetória
+ativa, a posição seguinte é estimada a partir das duas últimas caixas, depois as novas detecções são
+comparadas por sobreposição e proximidade entre centros. As distâncias são normalizadas pela
+diagonal média das caixas, o que mantém o critério comparável entre jogadores próximos e distantes
+da câmera.
+
+Trajetórias sem associação permanecem disponíveis por até quinze quadros, intervalo que cobre
+oclusões curtas sem prolongar indefinidamente uma identidade perdida. O estado é criado e encerrado
+dentro de cada clipe, garantindo que uma execução não herde jogadores da anterior.
+
+O papel final de cada `track_id` é determinado pela soma das confianças observadas ao longo da
+janela. Dessa forma, uma classificação isolada como árbitro ou goleiro não altera toda a trajetória
+quando a maior parte das evidências aponta para jogador de linha.
+
+## Comparação com ByteTrack
+
+O ByteTrack também foi adaptado para consumir exatamente as caixas produzidas pelo detector
+central, sem executar uma segunda detecção. Ele associa observações de alta e baixa confiança e
+mantém trajetórias por uma janela maior, características que podem favorecer cenas com oclusão.
+
+Na amostra de oito clipes, as duas alternativas apresentaram os seguintes resultados operacionais:
+
+| Configuração | Observações | IDs distintos | Observações sem ID | Cobertura de tracking |
+| --- | ---: | ---: | ---: | ---: |
+| associação gulosa anterior | 12.293 | 695 | 0 | 100% |
+| associação gulosa refinada | 11.927 | 639 | 0 | 100% |
+| ByteTrack com detecções refinadas | 11.927 | 373 | 1.265 | 89,4% |
+
+A redução de 366 observações entre as duas execuções gulosas corresponde à remoção de detecções
+duplicadas entre papéis. A quantidade menor de IDs no ByteTrack pode indicar trajetórias mais
+longas, mas não comprova maior qualidade, pois associações incorretas também reduzem o número de
+identidades. Da mesma forma, os 639 IDs da versão refinada não representam 639 jogadores reais,
+eles incluem fragmentações geradas por cortes de câmera, oclusões e perda temporária da detecção.
+
+<Callout type="success" title="Decisão adotada">
+
+A associação gulosa refinada permanece como configuração principal por produzir identificadores
+para todas as observações e preservar o comportamento determinístico do pipeline. O ByteTrack fica
+disponível como alternativa experimental até que a comparação visual seja concluída.
+
+</Callout>
+
+## Avaliação da estabilidade
+
+A avaliação exige acompanhar cada jogador durante o clipe e registrar quatro tipos de falha:
+
+| Falha | Critério de contagem |
+| --- | --- |
+| troca de ID | o mesmo jogador permanece visível, mas passa a receber outro identificador |
+| fragmentação | uma trajetória desaparece e o jogador retorna posteriormente com outro ID |
+| duplicação | a mesma pessoa recebe dois identificadores no mesmo quadro |
+| mudança de papel | o mesmo ID alterna incorretamente entre jogador, goleiro e árbitro |
+
+A contagem é acumulada por clipe. Se um jogador troca do ID 4 para o ID 9 e depois do ID 9 para o
+ID 12, são registradas duas trocas. Quando o jogador desaparece por uma oclusão ou corte e retorna
+com outro ID, registra-se uma fragmentação em vez de uma troca contínua. Uma duplicação persistente
+durante cinco quadros representa uma ocorrência de duplicação, pois a origem do erro é o mesmo par
+de trajetórias simultâneas.
+
+O total de IDs distintos e a cobertura automática auxiliam a triagem, porém a comparação visual
+continua necessária para distinguir uma trajetória estável de uma associação entre pessoas
+diferentes.
+
+## Limitações e próximos passos
+
+Os oito clipes utilizados pertencem à mesma partida, portanto ainda não cobrem variações amplas de
+uniforme, estádio, movimento de câmera e densidade de jogadores. A próxima avaliação deverá incluir
+outras partidas e comparar as implementações pela mesma anotação manual.
+
+Caso o ByteTrack reduza trocas e fragmentações sem aumentar associações incorretas, ele poderá
+substituir a associação gulosa. Se as falhas se concentrarem em oclusões longas ou cruzamentos, a
+etapa seguinte deverá incorporar informação de aparência, em vez de apenas ampliar o tempo de vida
+das trajetórias.
