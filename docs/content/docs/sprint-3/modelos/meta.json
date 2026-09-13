@@ -1,4 +1,9 @@
 {
-	"title": "Modelos",
-	"pages": ["campo-e-homografia", "bola-e-trajetoria", "retomada-e-procedencia"]
+  "title": "Modelos",
+  "pages": [
+    "campo-e-homografia",
+    "bola-e-trajetoria",
+    "retomada-e-procedencia",
+    "quantizacao"
+  ]
 }

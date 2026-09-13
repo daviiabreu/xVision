@@ -1,0 +1,179 @@
+---
+title: Quantização e execução na Jetson
+description: Otimização dos modelos com TensorRT FP16, ganhos de desempenho na Jetson e validação de qualidade
+---
+
+A quantização adapta os modelos de jogadores (Players), bola (Ball) e pontos do campo (Line)
+para execução na Jetson Orin Nano. A conversão de PyTorch FP32 para TensorRT FP16 foi realizada
+no próprio dispositivo, preservando os pesos treinados e gerando engines para inferência na GPU.
+
+Nos testes individuais, o tempo de processamento caiu de 48–50 para 29–30 segundos por modelo,
+redução de 39,6% a 40%. Players e Line mantiveram praticamente toda a qualidade medida; Ball apresentou
+uma perda pequena em valor absoluto, sobre um desempenho já limitado no modelo original.
+
+## Estratégia de conversão
+
+A escolha considera os compromissos entre desempenho e qualidade discutidos na
+[pesquisa sobre quantização e otimização](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao).
+
+Primeiro, os três modelos foram executados em seu formato original, PyTorch FP32 (`.pt`), para
+estabelecer uma referência de desempenho. No vídeo de 6 segundos, com 360 frames, foram obtidos
+os seguintes tempos na Jetson:
+
+| Modelo | Tempo de processamento — FP32 |
+| --- | --- |
+| Ball — bola | 50 s |
+| Line — pontos do campo | 48 s |
+| Track — jogadores (Players) | 50 s |
+
+Consideramos esse resultado inicial muito bom em relação ao que esperávamos para a execução
+na Jetson, ainda com os modelos em FP32. Essa referência permitiu avaliar o ganho adicional
+obtido com a otimização.
+
+Depois, foi feita a conversão para FP16 com TensorRT diretamente na Jetson, gerando engines
+otimizados para o hardware de destino.
+
+A escolha de FP16 permitiu reduzir a precisão numérica sem retreinar os modelos nem preparar um
+conjunto de calibração, necessário no fluxo INT8. A exportação foi automatizada no
+script `quantizacao.py`,
+com batch 1 e tamanho de entrada fixo por modelo:
+
+| Modelo | Nome nos scripts | Tamanho de entrada |
+| --- | --- | --- |
+| Players — jogadores | `player` | 960 px |
+| Line — pontos do campo | `keypoints` | 960 px |
+| Ball — bola | `ball` | 1280 px |
+
+O `.engine` foi destinado à inferência na Jetson. Para a avaliação externa de qualidade, foi
+adotado o `.fp16.onnx`, executado com ONNX Runtime em uma NVIDIA RTX A4000. Essa divisão permitiu
+contornar a limitação de memória encontrada na Jetson durante a validação com os datasets.
+
+## Resultados de desempenho
+
+O teste utilizou um vídeo de **6 segundos a 60 fps, totalizando 360 frames**. Na comparação dos
+modelos individuais, o tempo caiu de 48–50 para 29–30 segundos:
+
+| Modelo | Antes — FP32 | Depois — TensorRT FP16 | Tempo médio por frame | Redução do tempo |
+| --- | --- | --- | --- | --- |
+| Players | 50 s | 30 s | 138,89 → 83,33 ms | 40% |
+| Line | 48 s | 29 s | 133,33 → 80,56 ms | 39,6% |
+| Ball | 50 s | 30 s | 138,89 → 83,33 ms | 40% |
+
+O processamento de Players e Ball passou de 7,2 para 12 frames por segundo, uma aceleração de
+aproximadamente 1,67×. Em Line, passou de 7,5 para aproximadamente 12,41 frames por segundo, uma aceleração de 1,66×.
+O ganho combina a redução de precisão com as otimizações do TensorRT.
+
+Antes da otimização, o pipeline completo levou 103 segundos para processar o clipe de 6 segundos.
+Os cerca de 12 frames por segundo dos modelos individuais ainda ficam abaixo dos 60 fps da entrada.
+A medição do pipeline completo em FP16 permanece pendente; os tempos individuais não
+representam o tempo de resposta da solução integrada.
+
+## Validação de qualidade
+
+A validação comparou os modelos originais (Raw) com suas versões FP16 nos datasets de origem.
+Também foi feita uma avaliação visual do vídeo na Jetson, na qual as detecções se mantiveram
+consistentes com as versões originais.
+
+![Comparação das métricas Raw e FP16 de Players, Line e Ball](/sprint3/quantizacao/comparativo-fp16.jpeg)
+
+**Players e Line mantiveram praticamente toda a qualidade.** Todas as quedas ficaram abaixo de
+0,2% em termos relativos. Em Players, o mAP50 permaneceu em 0,9920 e a maior queda relativa foi
+de 0,16% no mAP50-95. Em Line, os mAPs das caixas permaneceram iguais; nos pontos do campo,
+as variações também foram pequenas. As leves altas são compatíveis com diferenças numéricas
+e de pós-processamento, sem evidência de ganho real de qualidade.
+
+**Ball foi o modelo mais sensível, mas a perda absoluta foi pequena.** O mAP50 caiu de 0,4674
+para 0,4649, uma redução relativa de 0,53%. O mAP75 caiu de 0,0806 para 0,0770: aproximadamente
+4,47% em termos relativos, mas apenas 0,0036 na escala da métrica, ou 0,36 ponto percentual.
+O percentual maior precisa ser interpretado considerando o desempenho já baixo do modelo original
+nesse indicador.
+
+Para Ball, os resultados indicam que a prioridade de evolução está no modelo e nos dados de
+treinamento. Ampliar exemplos de bolas pequenas, ocluídas e com desfoque de movimento, além de
+experimentar augmentations específicos, é um caminho a investigar antes de reverter a conversão.
+
+### Métricas detalhadas
+
+Cada célula apresenta **Raw → FP16**, na escala de 0 a 1. Para caixas, o mAP usa IoU; para os
+pontos do campo, usa OKS, que avalia a correspondência dos keypoints. O F1 é a média por classe.
+As porcentagens da imagem são variações relativas, não pontos percentuais.
+
+| Métrica | Players — caixas | Line — caixas |
+| --- | --- | --- |
+| Precision | 0.9880 → 0.9880 | 0.9804 → 0.9806 |
+| Recall | 0.9769 → 0.9762 | 0.9816 → 0.9819 |
+| F1 médio por classe | 0.9824 → 0.9821 | 0.9810 → 0.9813 |
+| mAP50 | 0.9920 → 0.9920 | 0.9900 → 0.9900 |
+| mAP75 | 0.8774 → 0.8768 | 0.9759 → 0.9759 |
+| mAP50-90 | 0.8195 → 0.8184 | 0.9686 → 0.9686 |
+| mAP50-95 | 0.7391 → 0.7379 | 0.9539 → 0.9539 |
+
+| Métrica | Line — pontos do campo (pose) | Ball — caixas |
+| --- | --- | --- |
+| Precision | 0.7947 → 0.7947 | 0.6293 → 0.6224 |
+| Recall | 0.7565 → 0.7567 | 0.4921 → 0.4888 |
+| F1 médio por classe | 0.7752 → 0.7752 | 0.5523 → 0.5476 |
+| mAP50 | 0.6674 → 0.6676 | 0.4674 → 0.4649 |
+| mAP75 | 0.5605 → 0.5613 | 0.0806 → 0.0770 |
+| mAP50-90 | 0.5673 → 0.5671 | 0.1866 → 0.1830 |
+| mAP50-95 | 0.5351 → 0.5346 | 0.1679 → 0.1647 |
+
+## Como executar
+
+Para quantizar novamente, os arquivos `player.pt`, `ball.pt` e `keypoints.pt` devem estar em
+`src/models/quantizacao/`. A execução é feita na Jetson, em um ambiente com PyTorch/CUDA,
+TensorRT compatível com o JetPack e Ultralytics com suporte a `quantize=16`.
+
+```bash
+cd src/models/quantizacao
+
+# Exportar os três modelos
+python3 -u quantizacao.py
+
+# Ou exportar somente um modelo
+python3 -u quantizacao.py --modelo ball
+```
+
+Os artefatos ficam nas subpastas `player/`, `ball/` e `keypoints/`. O engine depende do hardware
+e da versão do TensorRT; para outro ambiente de destino, a exportação deve ser refeita.
+A geração do `.fp16.onnx` depende do exportador instalado e deve ser conferida antes da
+avaliação externa.
+
+O avaliador da Jetson (`avaliar.py`)
+executa o engine sobre um vídeo, exclui três inferências de aquecimento e salva o vídeo anotado
+e o relatório de velocidade em `resultados/`:
+
+```bash
+python3 -u avaliar.py video --modelo player --video /caminho/video.mp4
+python3 -u avaliar.py video --modelo ball --video /caminho/video.mp4
+python3 -u avaliar.py video --modelo keypoints --video /caminho/video.mp4
+```
+
+Para repetir a avaliação na A4000, os arquivos `.fp16.onnx` devem manter a mesma organização por
+modelo, com o YAML e os dados em `dataset/<modelo>/`. O ambiente precisa de ONNX Runtime com
+suporte a CUDA. O avaliador FP16 (`avaliar_fp16.py`)
+salva as métricas em `resultados/<modelo>_fp16_validar/metricas.json`:
+
+```bash
+python3 -u avaliar_fp16.py validar --modelo player
+python3 -u avaliar_fp16.py validar --modelo ball
+python3 -u avaliar_fp16.py validar --modelo keypoints
+```
+
+A comparação com o modelo original deve manter o mesmo split de validação, resolução e parâmetros
+de avaliação.
+
+## Integração e limites
+
+Os resultados sustentam manter FP16 nos três modelos. A redução do tempo de inferência foi
+obtida sem retreinamento, enquanto a detecção da bola permanece como prioridade de evolução
+pela qualidade já limitada antes da conversão. O funcionamento dessa etapa e sua avaliação
+estão descritos em [Bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria).
+
+Os scripts avaliam um modelo por vez. A integração ao [fluxo do produto](/docs/sprint-3/produto)
+ainda exige validar o engine junto à
+[detecção e tracking de jogadores](/docs/sprint-2/processamento/deteccao-e-rastreamento-de-jogadores) e à
+[homografia do campo](/docs/sprint-3/modelos/campo-e-homografia), conferindo os formatos de
+entrada esperados por cada módulo. A avaliação ONNX na A4000 mede a qualidade nesse backend;
+a aceitação em produção depende também da qualidade e do tempo de resposta do pipeline
+completo na Jetson.
