@@ -56,21 +56,27 @@ DETECTADA = "detected"
 INTERPOLADA = "interpolated"
 DESCONHECIDA = "unknown"
 AUSENTE = "absent"
-AJUSTES: Mapping[str, str] = {
-    "estimar_quando_nao_medir": "_estimar",
-    "exigir_jogador_perto": "_exigir_jogador",
-    "exigir_bola_medida": "_exigir_medida",
-}
-"""O vocabulario que `configure` aceita, mapeado no atributo interno.
+MISTA = "mixed"
+"""Vocabulario de `ball_support`, o mesmo que o registro da bola usa para `source`, mais tres.
+
+`mixed` existe porque o instante nao cai numa amostra. `find_contact` refina a quebra pela
+intersecao das duas retas ajustadas e devolve um quadro entre amostras: no conjunto `dense`, de
+passo quatro, tres de cada quatro valores refinados nao coincidem com amostra. Sem `mixed`, a
+resolucao pela amostra mais proxima teria de escolher um dos dois lados e esconder o outro.
+
+`absent` e o quadro escolhido sem posicao alguma por perto, que acontece no caminho `midpoint`: o
+ponto medio do trecho nao precisa ter bola. `unknown` e posicao sem procedencia declarada.
+"""
+AJUSTES = frozenset({"estimar_quando_nao_medir", "exigir_jogador_perto", "exigir_bola_medida"})
+"""O vocabulario que `configure` aceita.
 
 Nome errado levanta em vez de ser ignorado, pelo mesmo motivo do resto do projeto: quem escreveu
 `exigir_bola_detectada` no TOML leria o arquivo, veria a execucao terminar sem reclamar e concluiria
 que a politica mudou.
-"""
-"""Vocabulario de `ball_support`, o mesmo que o registro da bola usa para `source`.
 
-`absent` e o quadro escolhido sem posicao nenhuma, que acontece no caminho `midpoint`: o ponto medio
-do trecho nao precisa ter bola. `unknown` e posicao sem procedencia declarada.
+A atribuicao e por ramo explicito e nao por `setattr`: com `setattr`, renomear um atributo interno
+criaria um atributo novo com o nome antigo, `infer` leria o renomeado, e a opcao do TOML viraria
+exatamente o silencio que este conjunto existe para impedir. O pyright nao ve atraves de `setattr`.
 """
 FALLBACK_CONFIDENCE = 0.05
 
@@ -117,15 +123,19 @@ class BallBreakShot:
         Sem isto qualquer comparacao entre politicas exigia trocar o codigo, e um numero medido com
         codigo diferente do que roda nao vale como comparacao.
         """
-        for nome in options:
+        for nome, valor in options.items():
             if nome not in AJUSTES:
                 raise ValueError(
                     f"shot.{nome} nao existe: os ajustes sao {', '.join(sorted(AJUSTES))}"
                 )
-        for nome, valor in options.items():
             if not isinstance(valor, bool):
                 raise ValueError(f"shot.{nome} espera booleano, recebeu {valor!r}")
-            setattr(self, AJUSTES[nome], valor)
+        if "estimar_quando_nao_medir" in options:
+            self._estimar = bool(options["estimar_quando_nao_medir"])
+        if "exigir_jogador_perto" in options:
+            self._exigir_jogador = bool(options["exigir_jogador_perto"])
+        if "exigir_bola_medida" in options:
+            self._exigir_medida = bool(options["exigir_bola_medida"])
 
     def load(self) -> None:
         self._pronto = True
@@ -288,10 +298,29 @@ def _suporte(quadro: int, procedencia: Mapping[int, str]) -> dict[str, object]:
     """
     contagem = Counter(procedencia.values())
     return {
-        "ball_support": procedencia.get(quadro, AUSENTE),
+        "ball_support": _apoio(quadro, procedencia),
         "ball_detected_frames": contagem.get(DETECTADA, 0),
         "ball_interpolated_frames": contagem.get(INTERPOLADA, 0),
     }
+
+
+def _apoio(quadro: int, procedencia: Mapping[int, str]) -> str:
+    """A procedencia no quadro escolhido, resolvida pelas amostras que o cercam quando ele cai fora.
+
+    Ler `procedencia[quadro]` direto era um defeito: `find_contact` refina a quebra pela intersecao
+    das retas e devolve quadro entre amostras, entao o `get` errava o dicionario no caso normal e
+    o registro saia `ball-break` com apoio `absent`. Medido com passo quatro, isso acontecia em
+    tres de cada quatro contatos, e os testes nao pegavam porque usavam passo doze com o vertice em
+    cima da amostra.
+    """
+    if quadro in procedencia:
+        return procedencia[quadro]
+    anteriores = [indice for indice in procedencia if indice <= quadro]
+    posteriores = [indice for indice in procedencia if indice >= quadro]
+    if not anteriores or not posteriores:
+        return AUSENTE
+    fontes = {procedencia[max(anteriores)], procedencia[min(posteriores)]}
+    return fontes.pop() if len(fontes) == 1 else MISTA
 
 
 def _saida(

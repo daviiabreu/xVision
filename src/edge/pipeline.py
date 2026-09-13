@@ -60,6 +60,7 @@ class ClipResult:
     event: ShotEvent
     stages: tuple[StageRun, ...]
     shot_source: str | None
+    ball_support: str | None
     perception: Perception
 
 
@@ -111,23 +112,26 @@ def process_clip(
     return ClipResult(
         event=evento,
         stages=execucao.stages,
-        shot_source=_source(execucao),
+        shot_source=_source(execucao, "source"),
+        ball_support=_source(execucao, "ball_support"),
         perception=execucao.perception,
     )
 
 
-def _source(execucao: RunResult) -> str | None:
-    """De onde o instante veio, para a execucao separar clipe medido de clipe estimado.
+def _source(execucao: RunResult, campo: str) -> str | None:
+    """Um campo textual do registro de instante, para a execucao poder separar clipe de clipe.
 
-    Sem isto, cem clipes que cairam no ponto medio e cem que mediram a trajetoria chegam ao
-    relatorio com a mesma cara, e a cobertura do card parece o dobro do que e.
+    Sem `source`, cem clipes que cairam no ponto medio e cem que mediram a trajetoria chegam ao
+    relatorio com a mesma cara, e a cobertura do card parece o dobro do que e. Sem `ball_support`, a
+    mesma coisa acontece um nivel abaixo: um instante decidido sobre posicao interpolada chega igual
+    a um decidido sobre posicao medida, e nenhum agregado separa os dois.
     """
     saida = execucao.outputs.get(SHOT)
     if saida is None:
         return None
     for registros in saida.records:
         for registro in registros:
-            valor = registro.get("source")
+            valor = registro.get(campo)
             if isinstance(valor, str):
                 return valor
     return None

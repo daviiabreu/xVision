@@ -343,6 +343,7 @@ def test_all_sem_gabarito_continua_valendo_o_catalogo_inteiro(
             self.event = Evento(clip)
             self.stages: tuple[object, ...] = ()
             self.shot_source = "ball-break"
+            self.ball_support = "detected"
 
     vistos: list[str] = []
 

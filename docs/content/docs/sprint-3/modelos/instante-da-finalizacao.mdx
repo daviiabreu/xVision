@@ -1,0 +1,207 @@
+---
+title: Instante da finalização
+description: Quebra da trajetória da bola como instante do contato, procedência declarada e o efeito medido do ranking
+---
+
+Esta entrega decide em que quadro o chute aconteceu. Ela se encaixa no
+[pipeline da Sprint 3](/docs/sprint-3) depois de [bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria)
+e antes das features que dependem do instante. Ela não identifica o finalizador, não classifica a
+jogada e não calcula xG.
+
+Estado em 07/09/2026: implementação parcial em branch. O que esta rodada entrega é a procedência da
+bola chegando ao detector de instante e ao avaliador, mais o número que faltava para discutir o
+ranking de candidatos com evidência. A qualidade do instante continua abaixo do aceitável e a MR não
+está pronta para merge.
+
+## Onde se encaixa no fluxo
+
+```text
+BallDetection por frame, em pixels, com source detected ou interpolated
+  -> filtro de quadros com jogador perto (opcional, players)
+  -> find_contact: maior quebra da trajetoria
+  -> ShotEvent com frame_index, source e ball_support
+  -> features que consomem o instante
+```
+
+O módulo depende apenas de `ball`. `players` entra como restrição opcional, e `tracking` não entra:
+`tracking` roda no frameset `window`, que é ancorado no próprio `shot`, então uma dependência ali
+fecharia ciclo no grafo e a execução seria recusada antes de começar.
+
+## Componentes e responsabilidades
+
+| Componente                   | Responsabilidade                                                  | O que não faz                                   |
+| ---------------------------- | ----------------------------------------------------------------- | ----------------------------------------------- |
+| `find_contact`               | achar a maior quebra da trajetória e refiná-la entre amostras     | não sabe o que é jogador nem o que é gol        |
+| `BallBreakShot`              | ler a bola, aplicar a restrição de jogador e declarar procedência | não identifica o finalizador                    |
+| `procedencias`               | dizer, por quadro, se a posição da bola foi medida ou interpolada | não decide nada com isso                        |
+| `instant-observations.jsonl` | levar a procedência por clipe até o avaliador                     | não entra em documentação nem em página pública |
+| `xvision eval-instant`       | medir erro em quadros contra o gabarito manual, por procedência   | não mede qualidade da bola                      |
+
+## Fluxo de dados
+
+O módulo recebe um lote de 32 por 32 em escala de cinza que ele não lê: a decisão é geométrica e
+vem do contexto, não do pixel. De cada registro de bola ele usa a caixa e o campo `source`.
+
+Cada instante entregue ao runner preserva:
+
+```text
+frame_index: quadro escolhido, refinado entre amostras
+source: ball-break quando houve quebra, midpoint quando nao houve
+confidence: proeminencia da quebra, ou o piso fixo do midpoint
+ball_support: detected, interpolated, mixed, unknown ou absent
+ball_detected_frames e ball_interpolated_frames: contagem no trecho
+```
+
+`ball_support` é a procedência da posição da bola no quadro escolhido, resolvida pelas duas amostras
+que o cercam, porque o instante não cai numa amostra: `find_contact` refina a quebra pela interseção
+das duas retas ajustadas e devolve um quadro entre amostras. `mixed` é quando as duas amostras que
+cercam discordam. `absent` é o caminho `midpoint` sem bola por perto. `unknown` é registro de bola
+sem procedência declarada: um detector que não declara não pode ser lido como se tivesse declarado
+medida.
+
+A primeira versão desta rodada lia a procedência direto pelo quadro refinado e errava o dicionário no
+caso normal: com o passo do conjunto `dense`, três de cada quatro contatos saíam `ball-break` com
+apoio `absent`, ou seja um contato decidido sobre posição medida ficava indistinguível de um quadro
+sem bola. A revisão independente reproduziu isso, e os testes não pegavam porque usavam passo doze
+com o vértice em cima da amostra.
+
+## Decisões
+
+**A procedência da bola passa a chegar ao detector de instante.** Até esta rodada, `observacoes`
+lia só a caixa e jogava fora o campo `source`, então uma posição inventada pelo rastreador valia
+exatamente o mesmo que uma medida. A alternativa descartada era continuar tratando as duas iguais,
+e o motivo de descartar está medido: a interpolação do rastreador é linear entre as duas detecções
+que fecham a lacuna, e o instante é onde a trajetória vira. Uma reta traçada por cima da virada não
+tem virada nenhuma, e quando a detecção de um dos lados da lacuna está errada o ponto interpolado
+sai fora da reta e cria uma quebra que não é chute.
+
+**A procedência não decide nada ainda.** Ela é declarada e contada, e a previsão continua idêntica.
+A alternativa descartada era ligar a política junto: sem o número da política medido contra a
+configuração que roda hoje, ligar seria trocar um comportamento não medido por outro.
+
+**A procedência por clipe sai em arquivo separado, não no evento.** `ShotEvent` está em 1.0 e tem
+consumidor de API, frontend e persistência. A alternativa descartada era versionar o schema público
+para resolver um problema de avaliação, o que custaria a quatro consumidores por causa de um.
+
+**`BallBreakShot` passa a aceitar configuração.** A alternativa descartada era editar `src` para
+cada comparação de política, e um número medido com código diferente do que roda não vale como
+comparação.
+
+## Artefatos e resultados reproduzidos
+
+### O efeito do ranking de candidatos no instante
+
+A emenda 15 promoveu o ranking da bola e deixou uma pendência explícita: medir o efeito em `shot`.
+As duas execuções abaixo são nas mesmas 24 amostras de desenvolvimento, na mesma árvore, com o mesmo
+campo real, e diferem só na opção `ranking` do módulo de bola.
+
+| Instante, 24 clipes de desenvolvimento | ranking desligado | um candidato | dois candidatos |
+| --- | ---: | ---: | ---: |
+| erro mediano | 46,0 quadros | 60,0 quadros | 57,0 quadros |
+| p95 | 182 quadros | 202 quadros | 202 quadros |
+| dentro de 30 quadros | 7 | 9 | 9 |
+| dentro de 90 quadros | 17 | 15 | 16 |
+| procedência do instante | 23 `ball-break`, 1 `midpoint` | 24 `ball-break` | 24 `ball-break` |
+| apoio da bola no contato | não medido | não medido | 22 `detected`, 1 `interpolated` |
+
+O ranking melhora a posição da bola e piora o instante, e entregar dois candidatos, que recuperou a
+métrica de contato, recupera só um pouco do instante: a mediana volta de 60 para 57 quadros e
+continua onze acima do braço desligado. A linha da procedência explica o resto: com o ranking o
+módulo nunca mais se absteve. Ele ficou mais confiante e menos certo.
+
+Pelo gate de desenvolvimento da spec 03, aplicado contra o braço desligado, os dois candidatos
+acrescentam dois acertos dentro de 30, que era a condição 1, mas reduzem os acertos dentro de 90 e
+pioram a mediana, que eram as condições 2 e 4. O ranking, em qualquer das duas formas, não passa no
+gate do instante. Isso não decide sozinho o padrão da bola, porque `type_of_play` também consome a
+trajetória e ainda não foi medido com o ranking; a execução dos 363 clipes de desenvolvimento que
+produz esse número está em andamento.
+
+Isso é coerente com o mecanismo. Medido no piloto anotado da bola, as posições interpoladas foram de
+15 para 88 em 328 quadros quando o ranking entrou, porque o ranking entrega um candidato único e o
+gate de salto do rastreador às vezes o recusa sem deixar segundo lugar. Mais interpolação significa
+mais quebra artificial disponível, e o detector escolhe a maior quebra que encontra.
+
+Os dois números de dentro de 30 e dentro de 90 andando em direções opostas dizem a mesma coisa que o
+piloto da bola já dizia: o corpo da distribuição melhora e a cauda piora.
+
+### Custo medido no pipeline
+
+O ranking da bola custa mais do que a medida isolada sugeria, e o número que estava na página de
+bola precisa ser lido junto deste. Comparando o tempo do próprio módulo `ball` nas duas execuções,
+sem cache de detecção em nenhuma das duas porque a chave difere entre elas:
+
+| Tempo médio do módulo `ball` por clipe | ranking desligado | ranking ligado |
+| -------------------------------------- | ----------------: | -------------: |
+| nesta máquina                          |             9,7 s |         24,7 s |
+
+São 15 segundos por clipe acrescentados, ou seja o módulo que já dominava o pipeline passa a custar
+cerca de 2,5 vezes mais. A medida isolada de 53,1 ms por quadro do resíduo de movimento continua
+correta, e a leitura de que ela seria pequena diante do detector estava errada: o detector aproveita
+o cache de percepção e a estimativa de movimento não, então na execução real a proporção se inverte.
+
+A variante só de aparência do ranking não paga esse custo, porque não estima homografia entre
+quadros, e ela faz 165 acertos contra os 186 da variante com câmera e os 93 da linha de base. O
+desempate da emenda 15 escolheu a variante com câmera por 6,6 pontos percentuais de `pck_diameter`,
+supondo custo pequeno. Com o custo medido, essa escolha precisa ser revista junto do orçamento da
+Jetson, e não antes dele.
+
+### A política que usa a procedência não teve efeito
+
+`exigir_bola_medida` restringe o cálculo da quebra às posições detectadas. Medida nos mesmos 24
+clipes, com o critério da emenda 17 fixado antes de rodar, ela deu exatamente o mesmo resultado que
+o braço com ela desligada: mediana 60,0 quadros, p95 208, 9 acertos dentro de 30, 16 dentro de 90,
+24 `ball-break` e zero `midpoint`. Ela falha a condição de acrescentar dois acertos dentro de 30, e
+não é ligada.
+
+O motivo é que nestes clipes a quebra escolhida não se apoia em posição interpolada: descartar as
+interpoladas não muda o conjunto de amostras que produz a quebra. O defeito que a política evita, um
+pico interpolado fora da reta virando quebra medida, é real e tem teste sintético, mas não aparece
+nesta população. A opção fica no código, desligada, com o resultado registrado.
+
+Duas execuções da mesma configuração deram p95 202 e 208 e 15 e 16 dentro de 90: um clipe mudou de
+instante entre elas. `estimate_motion` foi verificado determinístico em quadro real, então a fonte
+mais provável é o cache de percepção somado ao não determinismo do detector de jogadores em MPS,
+que alimenta a restrição de jogador perto. Isso dá o tamanho do ruído entre execuções: uma diferença
+de um clipe em 24 não distingue duas políticas.
+
+## Trade-offs
+
+O detector é geométrico, cabe em duas funções puras, roda sem GPU e sem peso, e a confiança que ele
+emite é a proeminência da própria quebra. A desvantagem principal é que ele acredita na trajetória
+que recebe: qualquer artefato da bola que pareça uma virada é um candidato a instante, e o módulo
+não tem como distinguir uma virada real de uma inventada sem a procedência que esta rodada acabou de
+lhe dar.
+
+Declarar a procedência sem usá-la deixa o consumidor informado e o número igual. A desvantagem
+principal é que informação declarada e não usada não melhora métrica nenhuma: ela só evita que o
+próximo experimento seja feito às cegas.
+
+## Riscos e incertezas
+
+A concordância entre anotadores do gabarito de instante é desconhecida: nenhum dos 38 clipes tem
+segunda anotação, então parte do erro medido pode ser do gabarito e não do algoritmo. Sem essa
+barra de erro, atribuir uma melhoria de poucos quadros ao algoritmo é otimismo.
+
+A restrição de jogador perto usa a saída de `players`, e a qualidade dela ainda não foi medida neste
+domínio. Um jogador não detectado remove do conjunto de candidatos justamente o quadro do contato.
+
+O gabarito tem 38 clipes, dos quais 24 são de desenvolvimento. Um intervalo de Wilson sobre 24
+amostras é largo: a taxa de 9 acertos em 24 vai de 0,212 a 0,573 com 95%.
+
+## Ainda não implementado
+
+| Pendência                      | Próximo experimento                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| política que usa a procedência | `exigir_bola_medida` está implementado e desligado; medir contra o gate da emenda 17 e decidir             |
+| concordância entre anotadores  | segunda anotação cega de 8 dos 24 clipes de desenvolvimento, antes de atribuir qualquer ganho ao algoritmo |
+| taxonomia dos erros restantes  | classificar pelo menos 80% dos erros de desenvolvimento antes de escolher refinamento                      |
+| `ShotContext` até as features  | levar `source`, `confidence` e `ball_support` sem mudar `ShotEvent` 1.0                                    |
+| desempate por direção do gol   | só depois de campo e homografia congelados, e só para empate de proeminência                               |
+| alternativa treinada           | T-DEED apenas se a regra refinada falhar o gate de desenvolvimento                                         |
+| pacote reservado               | uma única execução depois do congelamento, sem recalibrar nos mesmos 14 clipes                             |
+
+## Referências
+
+1. Xarles et al. [T-DEED, Temporal-Discriminability Enhancer Encoder-Decoder](https://openaccess.thecvf.com/content/CVPR2024W/CVsports/papers/Xarles_T-DEED_Temporal-Discriminability_Enhancer_Encoder-Decoder_for_Precise_Event_Spotting_in_Sports_CVPRW_2024_paper.pdf).
+2. SoccerNet. [Action Spotting](https://www.soccer-net.org/tasks/action-spotting).
+3. Wilson, E. B. [Probable inference, the law of succession, and statistical inference](https://www.jstor.org/stable/2276774).

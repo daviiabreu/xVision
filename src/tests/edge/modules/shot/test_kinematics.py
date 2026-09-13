@@ -395,3 +395,73 @@ class TestExigirBolaMedida:
 
 def _indices_de(pontos: list[tuple[int, float, float, str | None]]) -> tuple[int, ...]:
     return tuple(p[0] for p in pontos)
+
+
+PASSO_DENSE = 4
+"""O passo do conjunto `dense` a 15 fps sobre clipe de 59,94 fps, que e o que roda em producao.
+
+Os testes acima usam `PASSO = 12` com a quebra em cima da amostra, e foi por isso que o defeito de
+`ball_support` passou: `find_contact` refina a quebra pela intersecao das retas e devolve quadro
+entre amostras, e com passo doze e vertice alinhado o refino era um `round` sem efeito.
+"""
+
+
+def _trajetoria_dense(
+    vertice: float, fontes: dict[int, str] | None = None
+) -> list[tuple[int, float, float, str | None]]:
+    """Quebra em `vertice`, que nao precisa cair em cima de amostra."""
+    declaradas = fontes or {}
+    pontos: list[tuple[int, float, float, str | None]] = []
+    for i in range(10):
+        indice = i * PASSO_DENSE
+        y = (
+            500.0 - 3.0 * indice
+            if indice <= vertice
+            else 500.0 - 3.0 * vertice + 2.0 * (indice - vertice)
+        )
+        pontos.append((indice, 100.0 + 3.0 * indice, y, declaradas.get(indice, "detected")))
+    return pontos
+
+
+class TestApoioEntreAmostras:
+    """O quadro escolhido cai entre amostras, e o apoio tem de dizer o que havia em volta.
+
+    O defeito replantado saia como `source: ball-break` com `ball_support: absent`, ou seja um
+    contato decidido inteiramente sobre posicao medida ficava indistinguivel de um quadro sem bola
+    nenhuma. Ele acontecia em tres de cada quatro contatos no passo de producao.
+    """
+
+    def _registro(self, pontos: list[tuple[int, float, float, str | None]]) -> dict[str, object]:
+        modulo = BallBreakShot()
+        modulo.load()
+        indices = tuple(p[0] for p in pontos)
+        return _registros(modulo.infer(_lote(indices), {"ball": _bola_com_fonte(pontos)}))[0]
+
+    def test_quebra_entre_amostras_medidas_declara_detected(self) -> None:
+        for vertice in (15.0, 17.0, 19.0):
+            registro = self._registro(_trajetoria_dense(vertice))
+
+            assert registro["source"] == MEDIDO, vertice
+            assert registro["frame_index"] not in tuple(range(0, 40, PASSO_DENSE)), vertice
+            assert registro["ball_support"] == "detected", vertice
+
+    def test_amostras_que_cercam_discordam_declara_mixed(self) -> None:
+        registro = self._registro(_trajetoria_dense(17.0, {16: "interpolated"}))
+
+        assert registro["source"] == MEDIDO
+        assert registro["ball_support"] == "mixed"
+        assert registro["ball_interpolated_frames"] == 1
+
+    def test_as_duas_que_cercam_interpoladas_declara_interpolated(self) -> None:
+        registro = self._registro(_trajetoria_dense(17.0, {16: "interpolated", 20: "interpolated"}))
+
+        assert registro["ball_support"] == "interpolated"
+
+    def test_quadro_fora_do_alcance_das_amostras_declara_absent(self) -> None:
+        """Sem bola nenhuma o ponto medio nao tem o que declarar, e `absent` e a resposta."""
+        modulo = BallBreakShot()
+        modulo.load()
+
+        saida = modulo.infer(_lote(tuple(range(0, 120, PASSO))), {})
+
+        assert _registros(saida)[0]["ball_support"] == "absent"

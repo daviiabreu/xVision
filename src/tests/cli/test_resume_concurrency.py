@@ -37,6 +37,7 @@ def test_resume_refuses_an_active_run_without_truncating_its_events(
             event=SimpleNamespace(to_dict=lambda: {"clip_id": record.shot_id}),
             stages=(),
             shot_source="ball-break",
+            ball_support="detected",
         )
 
     monkeypatch.setattr(cli, "_processa_registro", process)

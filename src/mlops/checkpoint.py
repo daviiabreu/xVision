@@ -61,6 +61,14 @@ class Checkpoint:
     resumed: int = 0
     origens: dict[str, int] = field(default_factory=dict[str, int])
     fontes: dict[str, str] = field(default_factory=dict[str, str])
+    apoios: dict[str, str] = field(default_factory=dict[str, str])
+    """Apoio da bola no quadro do instante, por clipe, ao lado da procedencia do instante.
+
+    Os dois separam coisas diferentes: `fontes` diz se o instante foi medido na trajetoria ou
+    preenchido no ponto medio, e `apoios` diz se a posicao da bola naquele quadro era medida,
+    interpolada ou mista. Um instante `ball-break` sobre bola `interpolated` e o caso que a
+    procedencia sozinha nao separava.
+    """
     """Procedencia do instante por clipe, que os agregados de `origens` nao conseguem devolver.
 
     Sem ela, `eval-instant` chamava `measure` sem `fontes` e as 38 medidas saiam como
@@ -95,6 +103,7 @@ class Checkpoint:
             "resumed": self.resumed,
             "origens": self.origens,
             "fontes": self.fontes,
+            "apoios": self.apoios,
             "tempos": self.tempos,
             "identidade": self.identidade,
             "falhas": self.falhas,
@@ -149,6 +158,7 @@ def read_checkpoint(destino: Path) -> Checkpoint:
         resumed=documento.get("resumed", 0),
         origens=documento.get("origens", {}),
         fontes=documento.get("fontes", {}),
+        apoios={str(k): str(v) for k, v in dict(documento.get("apoios", {})).items()},
         tempos=documento.get("tempos", {}),
         identidade=documento.get("identidade", {}),
         falhas=documento.get("falhas", {}),

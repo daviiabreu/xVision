@@ -56,6 +56,7 @@ class _Resultado:
     event: _Evento
     stages: tuple[_Etapa, ...]
     shot_source: str | None
+    ball_support: str | None = "detected"
 
 
 def _prepara(
@@ -309,7 +310,10 @@ def test_a_procedencia_por_clipe_sai_ao_lado_dos_eventos(
         for x in (_run_id(saida) / OBSERVATIONS_FILE).read_text().splitlines()
         if x.strip()
     ]
-    assert linhas == [{"clip_id": str(i), "shot_source": "ball-break"} for i in range(3)]
+    assert linhas == [
+        {"clip_id": str(i), "shot_source": "ball-break", "ball_support": "detected"}
+        for i in range(3)
+    ]
 
 
 def test_a_procedencia_sobrevive_a_retomada(

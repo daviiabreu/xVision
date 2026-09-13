@@ -341,6 +341,7 @@ def _run_selected_catalog(
     }
     origens: dict[str, int] = dict(estado.origens)
     fontes: dict[str, str] = dict(estado.fontes)
+    apoios: dict[str, str] = dict(estado.apoios)
     feitos = set(estado.done)
     ok, falhou = estado.ok, estado.failed
     pendentes = [r for r in escolhidos if r.shot_id not in feitos]
@@ -353,6 +354,7 @@ def _run_selected_catalog(
         estado.ok, estado.failed = ok, falhou
         estado.origens = dict(origens)
         estado.fontes = dict(fontes)
+        estado.apoios = dict(apoios)
         estado.tempos = {k: list(v) for k, v in tempos.items()}
         estado.identidade = {k: [v[0], v[1]] for k, v in identidade.items()}
         estado.falhas = {k: [v[0], v[1]] for k, v in falhas.items()}
@@ -374,6 +376,7 @@ def _run_selected_catalog(
             fonte = resultado.shot_source or "sem-origem"
             origens[fonte] = origens.get(fonte, 0) + 1
             fontes[registro.shot_id] = fonte
+            apoios[registro.shot_id] = resultado.ball_support or "sem-apoio"
             for etapa in resultado.stages:
                 tempos.setdefault(etapa.kind, []).append(etapa.duration_ms)
                 identidade[etapa.kind] = (etapa.name, etapa.version)
@@ -383,7 +386,7 @@ def _run_selected_catalog(
             _marco(arquivo, checkpoint, posicao, len(feitos), len(escolhidos), comeco)
         arquivo.flush()
         checkpoint()
-    _escreve_procedencia(destino, fontes)
+    _escreve_procedencia(destino, fontes, apoios)
     modulos = resumo_dos_modulos(tempos, identidade, falhas)
     sha, sujo = git_state()
     host, python, plataforma = environment()
@@ -438,7 +441,9 @@ def _marco(
     typer.echo(_progresso(feitos, total, comeco, posicao))
 
 
-def _escreve_procedencia(destino: Path, fontes: Mapping[str, str]) -> Path:
+def _escreve_procedencia(
+    destino: Path, fontes: Mapping[str, str], apoios: Mapping[str, str]
+) -> Path:
     """Procedencia do instante por clipe, que o agregado do `run.json` nao consegue devolver.
 
     Sem este arquivo, `eval-instant` mede junto o contato detectado na trajetoria e o ponto medio
@@ -448,7 +453,14 @@ def _escreve_procedencia(destino: Path, fontes: Mapping[str, str]) -> Path:
     parcial = caminho.with_suffix(".jsonl.parcial")
     parcial.write_text(
         "".join(
-            json.dumps({"clip_id": clip, "shot_source": fonte}) + "\n"
+            json.dumps(
+                {
+                    "clip_id": clip,
+                    "shot_source": fonte,
+                    "ball_support": apoios.get(clip, "sem-apoio"),
+                }
+            )
+            + "\n"
             for clip, fonte in sorted(fontes.items())
         ),
         encoding="utf-8",
