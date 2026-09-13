@@ -1,0 +1,15 @@
+schema_version = "1.0"
+kind = "field"
+name = "soccana-keypoint-public"
+version = "1.0.0"
+entrypoint = "best.pt"
+
+[[files]]
+path = "best.pt"
+sha256 = "0f6c6038430871b8c0ad6cfbeb33bd6747647cd787ab711510c70d991995c1db"
+bytes = 85695291
+
+[source]
+repository = "https://huggingface.co/Adit-jain/Soccana_Keypoint_detection_v1"
+dataset = "Soccana_Keypoint_detection_v1"
+purpose = "fallback local de validacao; nao substitui o peso do grupo"

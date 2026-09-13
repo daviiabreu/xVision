@@ -118,3 +118,52 @@ def test_ignora_deteccao_sem_track_sem_invalidar_as_outras() -> None:
     assert saida.kind == "identity"
     assert saida.frames == (0,)
     assert saida.records == (({"track_id": 2},),)
+
+
+CAIXA_DO_ARBITRO = CAIXAS[0]
+"""O árbitro entra sobre a mesma caixa do primeiro jogador, e portanto com a mesma cor.
+
+É o caso que separa as duas implementações: sem o filtro de papel, a trajetória do árbitro entra no
+agrupamento e sai com a equipe do jogador de quem ela copiou a cor. Com o filtro, ela não recebe
+equipe nenhuma e as duas dos jogadores continuam distintas.
+"""
+
+
+def _inputs_com_arbitro(index: int) -> dict[str, ModuleOutput]:
+    papeis = ("player", "player", "referee")
+    caixas = (*CAIXAS, CAIXA_DO_ARBITRO)
+    return {
+        "players": ModuleOutput(
+            kind="players",
+            frames=(index,),
+            records=(
+                tuple(
+                    {"box": caixa, "confidence": 0.9, "role": papel}
+                    for caixa, papel in zip(caixas, papeis, strict=True)
+                ),
+            ),
+        ),
+        "tracking": ModuleOutput(
+            kind="tracking",
+            frames=(index,),
+            records=(
+                tuple(
+                    {"detection_index": posicao, "track_id": posicao + 1, "role": papel}
+                    for posicao, papel in enumerate(papeis)
+                ),
+            ),
+        ),
+    }
+
+
+def test_arbitro_nao_entra_no_agrupamento_nem_recebe_equipe() -> None:
+    """A cor do árbitro é dele: deixá-la no agrupamento puxaria um dos grupos para o lado errado."""
+    modulo = TeamIdentity(minimum=2)
+    modulo.load()
+
+    for indice in (0, 1):
+        saida = modulo.infer(_batch(indice), _inputs_com_arbitro(indice))
+
+    por_track = {cast(int, registro["track_id"]): registro for registro in saida.records[0]}
+    assert {por_track[1]["team"], por_track[2]["team"]} == {"team_a", "team_b"}
+    assert "team" not in por_track[3]

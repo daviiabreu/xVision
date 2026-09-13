@@ -48,9 +48,9 @@ def test_run_exige_o_peso(chamadas: list[dict[str, Any]]) -> None:
     assert not chamadas, "o comando chegou a rodar sem o peso declarado"
 
 
-def test_os_tres_comandos_estao_no_xvision() -> None:
+def test_os_quatro_comandos_estao_no_xvision() -> None:
     """Eles vinham de um executavel proprio, e o ponto da mudanca e existirem aqui dentro."""
     ajuda = runner.invoke(app, ["players", "--help"]).output
 
-    for comando in ("run", "batch", "identify"):
+    for comando in ("run", "batch", "identify", "debug"):
         assert comando in ajuda, f"`xvision players {comando}` sumiu"

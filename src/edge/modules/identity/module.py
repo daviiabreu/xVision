@@ -26,6 +26,7 @@ from edge.participants.identity import (
     LabColor,
     TrackObservation,
     extract_shirt_color,
+    stabilize_role,
     teams_from_color_samples,
 )
 
@@ -83,9 +84,16 @@ class TeamIdentity:
                     self._samples.setdefault(track_id, []).append((observation, color))
             vistos.append(do_quadro)
 
+        # Só trajetória de jogador entra no agrupamento: árbitro e goleiro vestem cor própria e
+        # puxariam um dos dois grupos para a cor errada, contaminando o time de quem está em campo.
+        jogadores = {
+            track_id: amostras
+            for track_id, amostras in self._samples.items()
+            if stabilize_role(observation for observation, _ in amostras)[0] == "player"
+        }
         # Reclassifica o clipe inteiro a cada lote: a equipe de uma trajetória antiga pode mudar
         # quando amostras novas deslocam os dois grupos, e o registro emitido agora é o que vale.
-        teams, _ = teams_from_color_samples(self._samples, limit=self._limit, minimum=self._minimum)
+        teams, _ = teams_from_color_samples(jogadores, limit=self._limit, minimum=self._minimum)
         records = tuple(
             tuple(_identity_record(track_id, teams.get(track_id)) for track_id in do_quadro)
             for do_quadro in vistos

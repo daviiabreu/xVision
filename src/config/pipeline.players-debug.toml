@@ -1,0 +1,18 @@
+# Pipeline minimo para inspecionar o tracking central sem depender de bola, campo, pose ou chute.
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[modules.players]
+impl = "edge.modules.players:YoloPlayers"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
+frames = "dense"
+
+[modules.tracking]
+impl = "edge.modules.tracking:GreedyTracking"
+frames = "dense"
+
+[modules.identity]
+impl = "edge.modules.identity:TeamIdentity"
+frames = "dense"

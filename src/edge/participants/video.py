@@ -11,6 +11,7 @@ from typing import Protocol, TypedDict, cast
 
 import cv2
 
+from contracts import Perception
 from edge.participants.detector import Frame
 from edge.participants.types import (
     FramePerception,
@@ -24,6 +25,11 @@ COLORS: Mapping[str, tuple[int, int, int]] = {
     "player": (235, 235, 235),
     "goalkeeper": (0, 215, 255),
     "referee": (255, 0, 180),
+}
+ROLE_LABELS: Mapping[str, str] = {
+    "player": "J",
+    "goalkeeper": "G",
+    "referee": "A",
 }
 TEAM_COLORS: Mapping[str, tuple[int, int, int]] = {
     "team_a": (50, 50, 235),
@@ -115,15 +121,17 @@ def annotate_frame(
     detections: tuple[PlayerDetection, ...],
     trajectories: Trajectories | None = None,
     teams: Mapping[int, str] | None = None,
+    *,
+    show_role: bool = False,
 ) -> Frame:
     annotated = frame.copy()
     height, width = annotated.shape[:2]
     for detection in detections:
         box = detection.box
         track_id = detection.track_id
-        team = teams.get(track_id) if teams is not None and track_id is not None else None
+        team = teams.get(track_id) if teams is not None and track_id is not None else detection.team
         color = (
-            TEAM_COLORS[team]
+            TEAM_COLORS.get(team, COLORS.get(detection.role or "", UNKNOWN_COLOR))
             if team is not None
             else COLORS.get(detection.role or "", UNKNOWN_COLOR)
         )
@@ -152,9 +160,78 @@ def annotate_frame(
             2,
             cv2.LINE_AA,
         )
-        identifier = "?" if detection.track_id is None else str(detection.track_id)
+        identifier = "?" if detection.track_id is None else f"#{detection.track_id}"
+        if show_role and detection.role:
+            identifier = f"{identifier} {ROLE_LABELS.get(detection.role, '?')}"
         _draw_badge(annotated, center, identifier, axes[1])
     return annotated
+
+
+def render_perception(
+    input_path: Path,
+    output_dir: Path,
+    perception: Perception,
+    *,
+    show_trails: bool = False,
+) -> Path:
+    """Desenha somente os jogadores que o pipeline central ja produziu.
+
+    O render legado recebe um tracker e executa o modelo outra vez. Este caminho recebe a
+    `Perception` pronta, portanto o video e evidencia do modulo que realmente rodou no grafo.
+    Quadros entre duas amostras exibem a ultima percepcao por no maximo 0,1 s.
+    """
+    if not input_path.is_file():
+        raise FileNotFoundError(f"video nao encontrado: {input_path}")
+    capture = cv2.VideoCapture(str(input_path))
+    if not capture.isOpened():
+        raise ValueError(f"nao foi possivel abrir: {input_path}")
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS))
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    expected = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    if fps <= 0 or width <= 0 or height <= 0 or expected <= 0:
+        capture.release()
+        raise ValueError(f"metadados de video invalidos: {input_path}")
+
+    samples = {frame.frame_index: frame for frame in perception.frames}
+    if len(samples) != len(perception.frames):
+        capture.release()
+        raise ValueError("percepcao com quadros duplicados")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = output_dir / "annotated.mp4"
+    temporary = output_dir / "annotated.tmp.mp4"
+    writer = cv2.VideoWriter(str(temporary), cv2.VideoWriter.fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        capture.release()
+        raise ValueError(f"nao foi possivel criar o video temporario: {temporary}")
+
+    trajectories: Trajectories | None = {} if show_trails else None
+    latest: FramePerception | None = None
+    count = 0
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            sampled = samples.get(count)
+            if sampled is not None:
+                latest = sampled
+            visible: tuple[PlayerDetection, ...] = ()
+            if latest is not None and (count - latest.frame_index) / fps <= 0.1:
+                visible = latest.players
+            writer.write(annotate_frame(cast(Frame, frame), visible, trajectories, show_role=True))
+            count += 1
+    finally:
+        capture.release()
+        writer.release()
+
+    if count != expected:
+        temporary.unlink(missing_ok=True)
+        raise ValueError(f"decode incompleto: {count} de {expected} quadros")
+    temporary.replace(target)
+    return target
 
 
 def process_video(

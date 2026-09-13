@@ -71,3 +71,21 @@ def test_optional_trail_uses_the_player_ground_point() -> None:
 
     assert list(trajectories[4]) == [(20, 60), (30, 60)]
     assert np.any(annotated != frame)
+
+
+def test_annotation_uses_team_stored_in_central_perception() -> None:
+    frame = np.zeros((80, 100, 3), dtype=np.uint8)
+    detection = PlayerDetection(
+        Box(10, 20, 30, 60),
+        0.9,
+        track_id=4,
+        team="team_a",
+        role="player",
+    )
+
+    annotated = annotate_frame(frame, (detection,))
+
+    red_team_pixels = (
+        (annotated[:, :, 2] > 150) & (annotated[:, :, 1] < 100) & (annotated[:, :, 0] < 100)
+    )
+    assert np.any(red_team_pixels)

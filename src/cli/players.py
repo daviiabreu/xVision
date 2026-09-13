@@ -11,14 +11,21 @@ Moram num modulo proprio, e nao em `cli/__init__.py`, porque aquele arquivo ja p
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
 
+from edge.cache.perception import PerceptionCache
+from edge.frames.provider import FrameProvider, VideoSource, probe
+from edge.graph.framesets import read_framesets
+from edge.graph.runner import run_pipeline
+from edge.modules.registry import load_modules, read_config
 from edge.participants.batch import process_batch
 from edge.participants.identification import process_identification
 from edge.participants.tracking import PlayerTracker
-from edge.participants.video import process_video
+from edge.participants.types import frame_to_dict
+from edge.participants.video import process_video, render_perception
 
 players_app = typer.Typer(help="Deteccao, tracking e identificacao de jogadores num clipe.")
 
@@ -30,6 +37,11 @@ RASTROS = typer.Option(False, "--rastros", help="Desenha a trajetoria de cada jo
 SOBRESCREVER = typer.Option(False, "--sobrescrever", help="Refaz clipe que ja tem saida.")
 AMOSTRAS = typer.Option(5, help="Quadros amostrados por trajetoria para decidir a equipe.")
 AMOSTRAS_MINIMAS = typer.Option(2, help="Abaixo disso a trajetoria fica sem equipe.")
+CONFIGURACAO_CENTRAL = typer.Option(
+    Path("config/pipeline.players-debug.toml"),
+    "--config",
+    help="Pipeline central reduzido a players e tracking.",
+)
 
 
 def _tracker(peso: Path, device: str, confianca: float, imagem: int) -> PlayerTracker:
@@ -81,6 +93,70 @@ def players_batch(
     )
     if resumo["failed"]:
         raise typer.Exit(code=1)
+
+
+@players_app.command("debug")
+def players_debug(
+    entrada: Path,
+    saida: Path,
+    config: Path = CONFIGURACAO_CENTRAL,
+    rastros: bool = RASTROS,
+) -> None:
+    """Roda players e tracking centrais e desenha exatamente a percepcao produzida."""
+    if not config.is_file():
+        typer.echo(f"{config} nao existe", err=True)
+        raise typer.Exit(code=1)
+    clip_id = entrada.stem.rsplit("_", 1)[-1]
+    clip = probe(entrada, clip_id=clip_id)
+    provider = FrameProvider(VideoSource(entrada))
+    try:
+        resultado = run_pipeline(
+            clip=clip,
+            modules=load_modules(read_config(config)),
+            framesets=read_framesets(config),
+            provider=provider,
+            cache=PerceptionCache(),
+        )
+    finally:
+        provider.close()
+
+    falhas = [etapa for etapa in resultado.stages if etapa.status != "ok"]
+    if falhas:
+        for etapa in falhas:
+            typer.echo(f"{etapa.kind}: {etapa.reason}", err=True)
+        raise typer.Exit(code=1)
+
+    video = render_perception(entrada, saida, resultado.perception, show_trails=rastros)
+    documento = {
+        "schema_version": "central-player-tracking.v1",
+        "clip": {
+            "id": clip.clip_id,
+            "fps": clip.fps,
+            "width": clip.width,
+            "height": clip.height,
+            "frame_count": clip.frame_count,
+        },
+        "pipeline": resultado.pipeline.to_dict(),
+        "stages": [
+            {
+                "kind": etapa.kind,
+                "name": etapa.name,
+                "version": etapa.version,
+                "frames": etapa.frames,
+                "status": etapa.status,
+                "reason": etapa.reason,
+                "duration_ms": etapa.duration_ms,
+            }
+            for etapa in resultado.stages
+        ],
+        "frames": [frame_to_dict(frame) for frame in resultado.perception.frames],
+    }
+    destino = saida / "detections.json"
+    temporario = saida / "detections.json.tmp"
+    temporario.write_text(json.dumps(documento, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporario.replace(destino)
+    typer.echo(str(video))
+    typer.echo(str(destino))
 
 
 @players_app.command("identify")

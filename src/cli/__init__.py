@@ -723,8 +723,7 @@ def evaluate_run(
         raise typer.Exit(code=1) from erro
     for evento in carregadas:
         predicoes[evento["clip_id"]] = {
-            f["name"]: (f["value"] if f["status"] != "unavailable" else None, f["reason"])
-            for f in evento["features"]
+            f["name"]: (_valor_para_avaliacao(f, tabela), f["reason"]) for f in evento["features"]
         }
     try:
         relatorio = evaluate(predicoes, gabarito, tabela)
@@ -744,6 +743,29 @@ def evaluate_run(
     destino = run_dir / "report.json"
     destino.write_text(json.dumps(relatorio.to_dict(), indent=1) + "\n", encoding="utf-8")
     typer.echo(f"  {destino}")
+
+
+def _valor_para_avaliacao(feature: Mapping[str, object], tabela: Labels) -> object:
+    """Usa o escore guardado na evidencia para permitir calibrar features booleanas.
+
+    O evento continua publicando `value` como booleano. Durante a avaliacao, quando o extractor
+    tambem guardou `evidence.score`, o numero preserva a curva de limiar e produz `best_threshold`
+    sem alterar a decisao publicada no video ou no JSON.
+    """
+    if feature.get("status") == "unavailable":
+        return None
+    nome = feature.get("name")
+    rotulo = tabela.label_for(str(nome))
+    evidencia_bruta = feature.get("evidence")
+    evidencia = (
+        cast("Mapping[str, object]", evidencia_bruta)
+        if isinstance(evidencia_bruta, Mapping)
+        else None
+    )
+    escore = evidencia.get("score") if evidencia is not None else None
+    if rotulo is not None and rotulo.type == "bool" and isinstance(escore, (float, int)):
+        return float(escore)
+    return feature.get("value")
 
 
 def _gabarito(truth: Path | None, tabela: Labels) -> dict[str, dict[str, str]]:
