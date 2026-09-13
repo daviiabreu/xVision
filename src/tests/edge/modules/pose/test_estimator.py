@@ -64,8 +64,11 @@ def _tracking(indices: tuple[int, ...], ids: list[int]) -> ModuleOutput:
     )
 
 
-def _shot(frame_index: int = CONTATO) -> ModuleOutput:
-    return ModuleOutput(kind="shot", frames=(0,), records=(({"frame_index": frame_index},),))
+def _shot(frame_index: int = CONTATO, shooter_track_id: int | None = None) -> ModuleOutput:
+    registro: dict[str, object] = {"frame_index": frame_index}
+    if shooter_track_id is not None:
+        registro["shooter_track_id"] = shooter_track_id
+    return ModuleOutput(kind="shot", frames=(0,), records=((registro,),))
 
 
 def _ball(centro: tuple[float, float], quadro: int = CONTATO) -> ModuleOutput:
@@ -118,6 +121,18 @@ def test_a_bola_do_outro_lado_muda_quem_e_o_finalizador() -> None:
     saida = modulo.infer(_lote((CONTATO,)), _ctx(_ball((130.0, 500.0))))
 
     assert saida.records[0][0]["track_id"] == OUTRO
+
+
+def test_prefere_o_finalizador_declarado_pelo_shot() -> None:
+    modulo = YoloPose(_EstimadorFalso())
+    modulo.load()
+
+    saida = modulo.infer(
+        _lote((CONTATO,)),
+        _ctx(_ball((130.0, 500.0)), shot=_shot(shooter_track_id=ATIRADOR)),
+    )
+
+    assert saida.records[0][0]["track_id"] == ATIRADOR
 
 
 def test_recorta_so_o_finalizador_e_nao_os_vinte_e_dois() -> None:

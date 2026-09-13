@@ -338,10 +338,16 @@ def _frame(
     por_quadro: Mapping[str, Mapping[int, tuple[Mapping[str, object], ...]]],
 ) -> FramePerception:
     campo = _field(por_quadro.get("field", {}).get(indice, ()))
+    registros_de_tracking = por_quadro.get("tracking", {}).get(indice, ())
     trajetorias = {
         int(cast("Any", r["detection_index"])): int(cast("Any", r["track_id"]))
-        for r in por_quadro.get("tracking", {}).get(indice, ())
+        for r in registros_de_tracking
         if "detection_index" in r
+    }
+    papeis = {
+        int(cast("Any", r["detection_index"])): str(r["role"])
+        for r in registros_de_tracking
+        if "detection_index" in r and isinstance(r.get("role"), str)
     }
     camisas = {
         int(cast("Any", r["track_id"])): int(cast("Any", r["jersey_number"]))
@@ -361,7 +367,15 @@ def _frame(
         if "keypoints" in r
     }
     jogadores = tuple(
-        _player(registro, trajetorias.get(posicao), camisas, times, poses, campo)
+        _player(
+            registro,
+            trajetorias.get(posicao),
+            papeis.get(posicao),
+            camisas,
+            times,
+            poses,
+            campo,
+        )
         for posicao, registro in enumerate(por_quadro.get("players", {}).get(indice, ()))
     )
     return FramePerception(
@@ -376,6 +390,7 @@ def _frame(
 def _player(
     registro: Mapping[str, object],
     track_id: int | None,
+    papel_estavel: str | None,
     camisas: Mapping[int, int],
     times: Mapping[int, str],
     poses: Mapping[int, tuple[Keypoint, ...]],
@@ -388,7 +403,7 @@ def _player(
         confidence=float(cast("Any", registro["confidence"])),
         track_id=track_id,
         team=cast("Any", time if time is not None else registro.get("team")),
-        role=cast("Any", registro.get("role")),
+        role=papel_estavel or cast("Any", registro.get("role")),
         jersey_number=camisas.get(track_id) if track_id is not None else None,
         pitch_xy=_player_pitch(box, field),
         keypoints=poses.get(track_id, ()) if track_id is not None else (),

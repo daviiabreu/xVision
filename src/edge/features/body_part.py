@@ -37,11 +37,9 @@ que 38 clipes nao separam 0,438 de 0,462. Passar da constante depende do que ain
 a cabecada, que hoje entra inteira na conta de erro, e a pose no conjunto `window`, que hoje nao
 existe porque `players` so roda no `dense` e a velocidade fica amostrada a 15 fps.
 
-Quem e o finalizador continua decidido aqui, e nao herdado da especie `pose`. O modulo de pose
-deste repositorio mede so o finalizador, mas isso e escolha dele e nao promessa do contrato:
-`records.py` deixa a especie devolver quantos corpos quiser, e uma feature que dependesse daquela
-escolha mediria o marcador no dia em que alguem trocasse o modulo. Com um corpo so a bola nao e
-consultada; com mais de um, ela e o unico criterio que separa finalizador de marcador.
+Quem e o finalizador continua conferido aqui, e nao herdado da especie `pose`. Quando o evento
+declara `shooter_track_id`, a feature procura esse corpo; sem ele, com um corpo so a bola nao e
+consultada e, com mais de um, a proximidade da bola separa finalizador de marcador.
 
 Nao mede angulo, nao decide se o chute foi bom e nao inventa quando a pose nao sustenta: confianca
 de keypoint abaixo do piso sai `unavailable` com motivo, porque tornozelo ocluso e ausencia e nao
@@ -158,7 +156,7 @@ class BodyPart:
             return unavailable(self.spec, "nenhum jogador tem keypoint na janela do contato")
         referencia = min(com_pose, key=lambda quadro: abs(quadro.frame_index - shot.frame_index))
 
-        finalizador = _finalizador(referencia, perception, shot.frame_index)
+        finalizador = _finalizador(referencia, perception, shot)
         if finalizador is None:
             return unavailable(
                 self.spec,
@@ -198,15 +196,14 @@ def _quadros_com_pose(perception: Perception) -> tuple[FramePerception, ...]:
 
 
 def _finalizador(
-    referencia: FramePerception, perception: Perception, contato: int
+    referencia: FramePerception, perception: Perception, shot: ShotOutput
 ) -> PlayerDetection | None:
     """Entre os corpos com keypoint do quadro de referencia, o do finalizador.
 
-    Com um corpo so a resposta e ele, e exigir bola ali custava cobertura sem comprar nada: 7 dos
-    38 clipes anotados nao tem amostra de bola a menos de 12 quadros do contato, e todos os 7 tem
-    exatamente um corpo com keypoint. Com mais de um corpo a bola volta a ser obrigatoria, porque
-    escolher o mais central poria a medida no marcador sem que nada rio abaixo distinguisse isso
-    de um acerto.
+    Quando o evento declara `shooter_track_id`, ele ganha porque ja resolveu a associacao. Com um
+    corpo so a resposta e ele, e exigir bola ali custava cobertura sem comprar nada: 7 dos 38
+    clipes anotados nao tem amostra de bola a menos de 12 quadros do contato, e todos os 7 tem
+    exatamente um corpo com keypoint. Com mais de um corpo a bola volta a ser obrigatoria.
 
     E por isso que `requires` declara so `pose`. Declarar `ball` tambem barraria a feature inteira
     em `_run_one` antes de `extract` rodar, e o codigo aqui nunca teria chance de aplicar a regra do
@@ -214,9 +211,15 @@ def _finalizador(
     propria funcao sabe abrir.
     """
     corpos = [jogador for jogador in referencia.players if jogador.keypoints]
+    if shot.shooter_track_id is not None:
+        declarado = next(
+            (jogador for jogador in corpos if jogador.track_id == shot.shooter_track_id), None
+        )
+        if declarado is not None:
+            return declarado
     if len(corpos) == 1:
         return corpos[0]
-    bola = _bola_perto_de(perception, contato)
+    bola = _bola_perto_de(perception, shot.frame_index)
     if bola is None:
         return None
     return min(corpos, key=lambda jogador: _distancia(_centro_da_caixa(jogador), bola))

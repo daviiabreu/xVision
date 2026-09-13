@@ -17,11 +17,11 @@ Recortar todo mundo custaria uma inferencia por jogador por quadro, algo como 19
 as duas features que precisam de pose falam do finalizador, o modulo recorta so ele: cerca de 121
 recortes por clipe, em lotes, medidos em 14,8 ms cada contra 39,6 ms um a um.
 
-Quem e o finalizador sai da geometria e nao de um campo do contrato: e o jogador cuja caixa esta
-mais perto da bola no instante que a especie `shot` apontou. O `shooter_track_id` do registro de
-`shot` nao serve porque ele nao existe: o modulo de instante decide sobre a trajetoria da bola e
-nao sobre caixas de jogador, e por isso nunca preenche o campo. O ciclo no grafo que existia quando
-`tracking` rodava na janela ancorada no `shot` foi removido pela uniformizacao dos conjuntos.
+Quando `shot` traz `shooter_track_id`, ele e a fonte preferida. Na producao atual esse campo vem
+ausente, porque o modulo de instante decide sobre a trajetoria da bola e nao sobre caixas de
+jogador, e o ciclo no grafo que existia quando `tracking` rodava na janela ancorada no `shot` foi
+removido pela uniformizacao dos conjuntos. Sem o campo, o fallback e quem responde: o jogador
+cuja caixa esta mais perto da bola no instante apontado.
 
 Nao detecta jogador, nao rastreia e nao mede angulo. Quem transforma keypoint em "olhou antes" ou
 em "pe direito" e a feature, sobre a `Perception` ja montada.
@@ -216,7 +216,7 @@ def _atirador(
     shot: ModuleOutput | None,
     ball: ModuleOutput | None,
 ) -> int | None:
-    """O `track_id` de quem estava mais perto da bola no instante do contato.
+    """O `track_id` declarado pelo contato, ou o mais perto da bola como fallback.
 
     Duas ausencias legitimas devolvem `None` em vez de um palpite: sem instante nao ha em torno de
     que quadro procurar, e sem bola nao ha de quem medir a distancia. Chutar o jogador mais central
@@ -225,6 +225,9 @@ def _atirador(
     contato = _instante(shot)
     if contato is None:
         return None
+    declarado = _atirador_declarado(shot)
+    if declarado is not None and any(declarado in ids.values() for ids in trajetorias.values()):
+        return declarado
     bola = _bola_perto_de(ball, contato)
     if bola is None:
         return None
@@ -241,6 +244,17 @@ def _atirador(
         return None
     _, posicao = min(distancias)
     return trajetorias.get(quadro, {}).get(posicao)
+
+
+def _atirador_declarado(shot: ModuleOutput | None) -> int | None:
+    if shot is None:
+        return None
+    for registros in shot.records:
+        for registro in registros:
+            valor = registro.get("shooter_track_id")
+            if isinstance(valor, int) and not isinstance(valor, bool):
+                return valor
+    return None
 
 
 def _instante(shot: ModuleOutput | None) -> int | None:

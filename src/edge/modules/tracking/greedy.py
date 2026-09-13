@@ -58,6 +58,8 @@ A 59,94 fps isso e um quarto de segundo, tempo de um jogador passar atras de out
 chance de reancorar no jogador errado passa a ser maior que o ganho de manter o numero.
 """
 
+PAPEIS = ("player", "goalkeeper", "referee")
+
 
 @dataclass
 class _Trajetoria:
@@ -65,6 +67,14 @@ class _Trajetoria:
     box: Box
     anterior: Box | None
     ultimo_quadro: int
+
+
+@dataclass(frozen=True)
+class _Deteccao:
+    detection_index: int
+    box: Box
+    confidence: float
+    role: str | None
 
 
 class GreedyTracking:
@@ -101,19 +111,34 @@ class GreedyTracking:
         vivas: list[_Trajetoria] = []
         proximo = 1
         registros: list[tuple[Mapping[str, object], ...]] = []
+        papeis: dict[int, dict[str, float]] = {}
         for indice in batch.indices:
-            caixas = _caixas(jogadores.get(indice, ()))
-            do_quadro, vivas, proximo = self._associar(caixas, vivas, proximo, indice)
+            deteccoes = _deteccoes(jogadores.get(indice, ()))
+            do_quadro, vivas, proximo, observacoes = self._associar(
+                deteccoes, vivas, proximo, indice
+            )
             registros.append(do_quadro)
-        return ModuleOutput(kind=self.spec.kind, frames=batch.indices, records=tuple(registros))
+            for track_id, papel, confianca in observacoes:
+                por_papel = papeis.setdefault(track_id, {})
+                por_papel[papel] = por_papel.get(papel, 0.0) + confianca
+        return ModuleOutput(
+            kind=self.spec.kind,
+            frames=batch.indices,
+            records=_com_papeis_estaveis(registros, papeis),
+        )
 
     def _associar(
         self,
-        caixas: Sequence[Box],
+        deteccoes: Sequence[_Deteccao],
         vivas: list[_Trajetoria],
         proximo: int,
         indice: int,
-    ) -> tuple[tuple[Mapping[str, object], ...], list[_Trajetoria], int]:
+    ) -> tuple[
+        tuple[Mapping[str, object], ...],
+        list[_Trajetoria],
+        int,
+        tuple[tuple[int, str, float], ...],
+    ]:
         """Guloso pela melhor sobreposicao, e cada trajetoria casa com uma deteccao so.
 
         Guloso e nao otimo global porque o custo de uma atribuicao hungara nao se paga com 22
@@ -122,9 +147,9 @@ class GreedyTracking:
         """
         candidatos = sorted(
             (
-                (afinidade(_previsto(t), caixa), posicao, ordem)
+                (afinidade(_previsto(t), deteccao.box), posicao, ordem)
                 for ordem, t in enumerate(vivas)
-                for posicao, caixa in enumerate(caixas)
+                for posicao, deteccao in enumerate(deteccoes)
             ),
             key=lambda par: (-par[0], par[1], par[2]),
         )
@@ -138,21 +163,31 @@ class GreedyTracking:
 
         registros: list[Mapping[str, object]] = []
         sobreviventes: list[_Trajetoria] = []
-        for posicao, caixa in enumerate(caixas):
+        observacoes: list[tuple[int, str, float]] = []
+        for posicao, deteccao in enumerate(deteccoes):
             ordem = usadas.get(posicao)
             if ordem is None:
-                trajetoria = _Trajetoria(proximo, caixa, None, indice)
+                trajetoria = _Trajetoria(proximo, deteccao.box, None, indice)
                 proximo += 1
             else:
                 antiga = vivas[ordem]
-                trajetoria = _Trajetoria(antiga.track_id, caixa, antiga.box, indice)
+                trajetoria = _Trajetoria(antiga.track_id, deteccao.box, antiga.box, indice)
             sobreviventes.append(trajetoria)
-            registros.append({"detection_index": posicao, "track_id": trajetoria.track_id})
+            registros.append(
+                {
+                    "detection_index": deteccao.detection_index,
+                    "track_id": trajetoria.track_id,
+                }
+            )
+            if deteccao.role in PAPEIS:
+                observacoes.append(
+                    (trajetoria.track_id, cast("str", deteccao.role), deteccao.confidence)
+                )
 
         for ordem, trajetoria in enumerate(vivas):
             if ordem not in casadas and indice - trajetoria.ultimo_quadro <= self._max_gap:
                 sobreviventes.append(trajetoria)
-        return tuple(registros), sobreviventes, proximo
+        return tuple(registros), sobreviventes, proximo, tuple(observacoes)
 
 
 def _previsto(trajetoria: _Trajetoria) -> Box:
@@ -175,8 +210,47 @@ def _por_quadro(saida: ModuleOutput | None) -> dict[int, tuple[Mapping[str, obje
     return dict(zip(saida.frames, saida.records, strict=True))
 
 
-def _caixas(registros: Sequence[Mapping[str, object]]) -> tuple[Box, ...]:
-    return tuple(Box(*cast("Any", r["box"])) for r in registros if "box" in r)
+def _deteccoes(registros: Sequence[Mapping[str, object]]) -> tuple[_Deteccao, ...]:
+    return tuple(
+        _Deteccao(
+            detection_index=posicao,
+            box=Box(*cast("Any", registro["box"])),
+            confidence=float(cast("Any", registro.get("confidence", 0.0))),
+            role=_papel(registro),
+        )
+        for posicao, registro in enumerate(registros)
+        if "box" in registro
+    )
+
+
+def _papel(registro: Mapping[str, object]) -> str | None:
+    valor = registro.get("role")
+    return valor if isinstance(valor, str) else None
+
+
+def _com_papeis_estaveis(
+    registros: Sequence[Sequence[Mapping[str, object]]],
+    pontuacoes: Mapping[int, Mapping[str, float]],
+) -> tuple[tuple[Mapping[str, object], ...], ...]:
+    estaveis = {
+        track_id: max(PAPEIS, key=lambda papel: (por_papel.get(papel, 0.0), -PAPEIS.index(papel)))
+        for track_id, por_papel in pontuacoes.items()
+        if sum(por_papel.values()) > 0
+    }
+    return tuple(
+        tuple(
+            {
+                **registro,
+                **(
+                    {"role": estaveis[int(cast("Any", registro["track_id"]))]}
+                    if int(cast("Any", registro["track_id"])) in estaveis
+                    else {}
+                ),
+            }
+            for registro in quadro
+        )
+        for quadro in registros
+    )
 
 
 def afinidade(a: Box, b: Box) -> float:

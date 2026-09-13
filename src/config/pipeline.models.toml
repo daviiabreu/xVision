@@ -111,6 +111,9 @@ needs = ["players", "tracking", "identity"]
 [features.body_part]
 impl = "edge.features.body_part:BodyPart"
 
+[features.looked_before]
+impl = "edge.features.looked_before:LookedBefore"
+
 [features.type_of_play]
 impl = "edge.features.type_of_play:TypeOfPlay"
 

@@ -19,7 +19,7 @@ Nao rastreia, nao identifica e nao decide quem chutou. Uma caixa por pessoa, por
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, cast
 
@@ -52,6 +52,8 @@ Ela fica de fora porque a metrica de qualidade da bola mede a distancia ate a ca
 proxima, e contar a propria bola como gente daria distancia zero em todo quadro."""
 
 MIN_CONFIDENCE = 0.25
+DUPLICATE_IOU = 0.7
+DUPLICATE_SMALLER_OVERLAP = 0.55
 
 
 class PlayersConfigError(ModuleError): ...
@@ -209,12 +211,61 @@ class YoloPlayers:
                 registro["role"] = papel
             registros.append(registro)
         registros.sort(key=_por_confianca)
-        return tuple(registros)
+        return _deduplicar(registros)
 
 
 def _por_confianca(registro: Mapping[str, object]) -> tuple[float, float, float]:
     caixa = cast("tuple[float, float, float, float]", registro["box"])
     return (-float(cast("Any", registro["confidence"])), caixa[0], caixa[1])
+
+
+def _deduplicar(
+    registros: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    """Remove duas classes para a mesma pessoa sem juntar jogadores aglomerados.
+
+    O peso pode devolver caixas quase iguais como `player` e `referee`. A maior confianca vence.
+    Para duas caixas `player`, que podem ser pessoas diferentes numa disputa, so a sobreposicao
+    forte permite remover uma delas.
+    """
+    mantidos: list[Mapping[str, object]] = []
+    for registro in registros:
+        caixa = Box(*cast("Any", registro["box"]))
+        papel = registro.get("role")
+        duplicado = False
+        for outro in mantidos:
+            outra_caixa = Box(*cast("Any", outro["box"]))
+            outro_papel = outro.get("role")
+            if _iou(caixa, outra_caixa) >= DUPLICATE_IOU or (
+                (papel != outro_papel or papel != "player")
+                and _sobreposicao_da_menor(caixa, outra_caixa) >= DUPLICATE_SMALLER_OVERLAP
+            ):
+                duplicado = True
+                break
+        if not duplicado:
+            mantidos.append(registro)
+    return tuple(mantidos)
+
+
+def _intersecao(a: Box, b: Box) -> float:
+    largura = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))
+    altura = max(0.0, min(a.y2, b.y2) - max(a.y1, b.y1))
+    return largura * altura
+
+
+def _area(caixa: Box) -> float:
+    return max(0.0, caixa.x2 - caixa.x1) * max(0.0, caixa.y2 - caixa.y1)
+
+
+def _iou(a: Box, b: Box) -> float:
+    intersecao = _intersecao(a, b)
+    uniao = _area(a) + _area(b) - intersecao
+    return intersecao / uniao if uniao > 0 else 0.0
+
+
+def _sobreposicao_da_menor(a: Box, b: Box) -> float:
+    menor = min(_area(a), _area(b))
+    return _intersecao(a, b) / menor if menor > 0 else 0.0
 
 
 def _as_tuple(box: Box) -> tuple[float, float, float, float]:

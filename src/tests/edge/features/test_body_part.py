@@ -18,9 +18,9 @@ PASSO = 4
 
 
 class _Shot:
-    def __init__(self, frame_index: int = CONTATO) -> None:
+    def __init__(self, frame_index: int = CONTATO, shooter_track_id: int | None = None) -> None:
         self.frame_index = frame_index
-        self.shooter_track_id = None
+        self.shooter_track_id = shooter_track_id
 
 
 def _keypoints(
@@ -288,6 +288,32 @@ def test_entre_dois_corpos_mede_o_que_esta_mais_perto_da_bola() -> None:
     quadros.append(_quadro(CONTATO, bola=(122.0, 216.0)))
 
     valor = BodyPart().extract(_perception(*quadros), _Shot())
+
+    assert valor.status == "ok"
+    assert valor.value == PERNA_DIREITA
+
+
+def test_prefere_o_finalizador_declarado_pelo_shot() -> None:
+    quadros: list[FramePerception] = []
+    for passo, indice in enumerate(range(CONTATO - PASSO, CONTATO + 2 * PASSO, PASSO)):
+        finalizador = _jogador(
+            _keypoints(esquerdo=(100.0, 215.0), direito=(120.0 + 9.0 * passo, 215.0)),
+            track_id=1,
+        )
+        marcador = PlayerDetection(
+            box=Box(600.0, 90.0, 640.0, 220.0),
+            confidence=0.9,
+            track_id=2,
+            keypoints=_keypoints(
+                esquerdo=(610.0 - 9.0 * passo, 215.0),
+                direito=(630.0, 215.0),
+                cabeca=(620.0, 95.0),
+            ),
+        )
+        quadros.append(_quadro(indice, jogadores=(marcador, finalizador)))
+    quadros.append(_quadro(CONTATO, bola=(620.0, 216.0)))
+
+    valor = BodyPart().extract(_perception(*quadros), _Shot(shooter_track_id=1))
 
     assert valor.status == "ok"
     assert valor.value == PERNA_DIREITA

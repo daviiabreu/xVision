@@ -38,6 +38,27 @@ def _players(por_quadro: dict[int, list[tuple[float, float]]], lado: float = 40.
     )
 
 
+def _players_com_papeis(
+    por_quadro: dict[int, list[tuple[float, float, str, float]]], lado: float = 40.0
+) -> ModuleOutput:
+    quadros = tuple(sorted(por_quadro))
+    return ModuleOutput(
+        kind="players",
+        frames=quadros,
+        records=tuple(
+            tuple(
+                {
+                    "box": (x, y, x + lado, y + lado),
+                    "confidence": confidence,
+                    "role": role,
+                }
+                for x, y, role, confidence in por_quadro[quadro]
+            )
+            for quadro in quadros
+        ),
+    )
+
+
 def _ids(saida: ModuleOutput) -> list[list[int]]:
     return [[int(r["track_id"]) for r in registros] for registros in saida.records]  # type: ignore[arg-type]
 
@@ -141,6 +162,36 @@ def test_o_detection_index_aponta_para_a_posicao_na_lista_de_players() -> None:
     saida = modulo.infer(_lote((0,)), {"players": _players(caminho)})
 
     assert [r["detection_index"] for r in saida.records[0]] == [0, 1, 2]
+
+
+def test_o_papel_do_track_e_estabilizado_por_toda_a_janela() -> None:
+    modulo = GreedyTracking()
+    modulo.load()
+    entrada = _players_com_papeis(
+        {
+            0: [(100.0, 200.0, "player", 0.55)],
+            1: [(105.0, 200.0, "referee", 0.90)],
+            2: [(110.0, 200.0, "referee", 0.85)],
+        }
+    )
+
+    saida = modulo.infer(_lote((0, 1, 2)), {"players": entrada})
+
+    assert _ids(saida) == [[1], [1], [1]]
+    assert [[r["role"] for r in quadro] for quadro in saida.records] == [
+        ["referee"],
+        ["referee"],
+        ["referee"],
+    ]
+
+
+def test_papel_ausente_em_players_continua_ausente_no_tracking() -> None:
+    modulo = GreedyTracking()
+    modulo.load()
+
+    saida = modulo.infer(_lote((0,)), {"players": _players({0: [(100.0, 200.0)]})})
+
+    assert "role" not in saida.records[0][0]
 
 
 def test_o_registro_cumpre_o_que_a_especie_promete() -> None:

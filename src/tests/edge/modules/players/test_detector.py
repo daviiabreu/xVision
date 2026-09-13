@@ -115,6 +115,44 @@ def test_a_ordem_e_estavel_e_por_confianca() -> None:
     assert [r["confidence"] for r in registros] == [0.9, 0.7, 0.5]
 
 
+def test_duas_classes_sobre_a_mesma_pessoa_mantem_a_maior_confianca() -> None:
+    modulo = YoloPlayers(
+        _BackendFalso(
+            (
+                (Box(100.0, 100.0, 140.0, 220.0), 0.92, 3),
+                (Box(101.0, 102.0, 141.0, 222.0), 0.70, 2),
+                (Box(400.0, 100.0, 440.0, 220.0), 0.88, 2),
+            )
+        ),
+        config=PlayersConfig(classes=FUTEBOL),
+    )
+    modulo.load()
+
+    registros = modulo.infer(_lote(fonte=None), {}).records[0]
+
+    assert [(r["role"], r["confidence"]) for r in registros] == [
+        ("referee", 0.92),
+        ("player", 0.88),
+    ]
+
+
+def test_jogadores_aglomerados_nao_sao_removidos_por_deslocamento_parcial() -> None:
+    modulo = YoloPlayers(
+        _BackendFalso(
+            (
+                (Box(10.0, 10.0, 30.0, 50.0), 0.90, 2),
+                (Box(11.0, 25.0, 31.0, 70.0), 0.85, 2),
+            )
+        ),
+        config=PlayersConfig(classes=FUTEBOL),
+    )
+    modulo.load()
+
+    registros = modulo.infer(_lote(fonte=None), {}).records[0]
+
+    assert len(registros) == 2
+
+
 def test_empate_de_confianca_desempata_pela_caixa() -> None:
     """Sem desempate, duas caixas de confianca igual poderiam trocar de posicao entre execucoes."""
     modulo = YoloPlayers(

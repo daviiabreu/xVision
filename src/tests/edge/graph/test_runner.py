@@ -299,6 +299,26 @@ def test_the_perception_carries_what_the_stubs_saw_at_the_shot_frame() -> None:
     }
 
 
+def test_assembler_prefere_o_papel_estabilizado_pelo_tracking() -> None:
+    outputs = {
+        "players": ModuleOutput(
+            "players",
+            (5,),
+            ((({"box": (100.0, 100.0, 140.0, 220.0), "confidence": 0.8, "role": "player"}),),),
+        ),
+        "tracking": ModuleOutput(
+            "tracking",
+            (5,),
+            ((({"detection_index": 0, "track_id": 7, "role": "referee"}),),),
+        ),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert perception.frames[0].players[0].track_id == 7
+    assert perception.frames[0].players[0].role == "referee"
+
+
 def test_marking_stub_runs_after_identity_and_keeps_auxiliary_output() -> None:
     marking = _stub("marking")
     marking.spec = replace(marking.spec, needs=("players", "tracking", "identity"))

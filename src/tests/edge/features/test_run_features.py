@@ -259,6 +259,7 @@ def test_the_production_configuration_loads_every_feature_it_declares() -> None:
         "assist",
         "body_part",
         "crowded",
+        "looked_before",
         "marked",
         "type_of_play",
     }
