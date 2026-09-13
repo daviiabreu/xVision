@@ -15,7 +15,7 @@ import pytest
 
 from contracts import Clip, FeatureValue, Perception
 from contracts.validation import validate_shot_event
-from edge.features.base import FeatureExtractor, FeatureSpec, ShotOutput
+from edge.features.base import FeatureExtractor, FeatureSpec, ShotOutput, shot_provenance
 from edge.frames.provider import FrameProvider, VideoSource
 from edge.graph.framesets import read_framesets
 from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, PerceptionModule
@@ -348,6 +348,58 @@ def test_the_track_of_whoever_shot_survives_until_the_features(clipe: Clip) -> N
         provider.close()
 
     assert vistos == [77], "o identificador de quem chutou nao chegou a feature"
+
+
+def test_the_provenance_of_the_instant_survives_until_the_features(clipe: Clip) -> None:
+    """Sem isto, o gate de ponto medio nunca dispara e ninguem ve.
+
+    Uma feature que le a trajetoria antes do contato precisa saber se a janela esta ancorada em
+    contato medido ou em ponto medio estimado, porque a segunda nao tem um antes. O `ClipResult` ja
+    carregava a procedencia, mas ela parava ali: `run_features` passa so `perception` e `shot`.
+    """
+    vistos: list[tuple[str | None, float | None, str | None]] = []
+
+    class Espia:
+        spec = FeatureSpec(name="espia", version="0.1.0", requires=())
+
+        def extract(self, perception: Perception, shot: ShotOutput) -> FeatureValue:
+            p = shot_provenance(shot)
+            vistos.append((p.source, p.confidence, p.ball_support))
+            return FeatureValue(
+                name=self.spec.name,
+                version=self.spec.version,
+                status="ok",
+                value=1.0,
+                confidence=None,
+                reason=None,
+                evidence={},
+            )
+
+    modulos = dict(load_modules(read_config(CONFIG)))
+    modulos["shot"] = _ShotComContato(  # pyright: ignore[reportArgumentType]
+        modulos["shot"],
+        {
+            "frame_index": SHOT_FRAME_INDEX,
+            "source": "midpoint",
+            "confidence": 0.05,
+            "ball_support": "absent",
+        },
+    )
+    provider = FrameProvider(VideoSource(clipe.path))
+    try:
+        process_clip(
+            clip=clipe,
+            modules=modulos,
+            framesets=read_framesets(CONFIG),
+            provider=provider,
+            extractors=(Espia(),),
+        )
+    finally:
+        provider.close()
+
+    assert vistos == [("midpoint", 0.05, "absent")], (
+        "a procedencia do instante nao chegou a feature"
+    )
 
 
 def test_the_run_can_tell_a_measured_instant_from_an_estimated_one(clipe: Clip) -> None:

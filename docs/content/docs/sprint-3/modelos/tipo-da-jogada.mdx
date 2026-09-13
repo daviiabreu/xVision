@@ -1,0 +1,254 @@
+---
+title: Tipo da jogada
+description: Como a jogada chegou ao chute, o teto imposto pela origem do rótulo e a troca de unidades de pixel para segundos e alturas de jogador
+---
+
+Esta entrega classifica como a jogada chegou ao chute: bola parada, jogada aberta ou lance
+individual. Ela se encaixa no [pipeline da Sprint 3](/docs/sprint-3) depois de
+[bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria) e de
+[instante da finalização](/docs/sprint-3/modelos/instante-da-finalizacao), e consome as duas. Ela
+não mede assistência, não distingue falta de escanteio e não decide quem chutou.
+
+Estado em 07/09/2026: implementação parcial em branch. O que esta rodada entrega é a evidência em
+unidades físicas ao lado da regra atual, a recusa de instante estimado e o par de execuções que
+permite comparar. A regra de decisão não mudou, e isso é o critério desta fatia, não uma pendência.
+
+## O teto está no rótulo, e ele precisa vir primeiro
+
+Antes de qualquer número: o alvo desta feature é comprimido na origem. O enum do parceiro junta dois
+eixos que a Opta mantém ortogonais, padrão de jogo pelos qualificadores 22 a 26 e assistido contra
+individual pelos qualificadores 29 e 215. Medido na tabela cheia, `individual` implica
+`assist = false` em 717 de 722 casos preenchidos, o que confirma o colapso.
+
+A consequência é dura e vale declarar: nenhuma regra sobre a trajetória da bola separa "individual"
+de "jogada aberta sem assistência", porque a diferença está na intenção de quem anotou e não no
+vídeo. O ramo individual sai declaradamente parcial.
+
+A barra também não é a maioria. A coluna `origin_of_move` do parceiro, com o melhor mapa possível,
+já acerta 485 de 609 sem tocar em vídeo, e `config/labels.toml` declara esse 0,796 como
+`baseline_metadata`. Comparar só contra a maioria de 0,657 publicaria como ganho o que ninguém
+comprou. As duas barras aparecem no relatório e a de metadado nunca participa da seleção.
+
+## Onde se encaixa no fluxo
+
+```text
+BallDetection por frame, com source detected ou interpolated
+  + ShotEvent com frame_index, source, confidence e ball_support
+  + PlayerDetection com track_id (evidencia opcional)
+  -> gate de procedencia: instante midpoint sai unavailable
+  -> regra sobre a trajetoria anterior ao contato
+  -> PlayEvidence em segundos e alturas de jogador, ao lado
+  -> FeatureValue com classe, motivo e evidencia agregada
+```
+
+`requires` fica só em `ball` de propósito. Amarrar `players` e `tracking` faria o grafo barrar a
+feature antes de `extract` e derrubaria cobertura para refinar justamente o ramo que a origem do
+rótulo já não deixa separar. Jogador e track entram como evidência opcional: quando faltam, os
+campos em alturas de jogador saem ausentes e a regra decide como antes.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele não faz |
+| --- | --- | --- |
+| `edge/features/type_of_play.py` | recusar instante estimado e decidir a classe | não mede tempo nem escala |
+| `edge/features/play_evidence.py` | medir a jogada em segundos e alturas de jogador | não decide classe e não recusa clipe |
+| `edge/features/touch.py` | episódios de posse, finalizador no contato e toque anterior | não infere nada novo, só aritmética sobre percepção pronta |
+| `edge/features/base.py` | ler a procedência do instante sem exigi-la do protocolo | não converte tipo errado em valor plausível |
+
+## Fluxo de dados
+
+A regra que decide hoje olha somente a trajetória da bola nos 90 quadros anteriores ao contato, e
+tem três ramos: bola quase imóvel por um trecho longo é bola parada; bola perto de imóvel logo
+antes, sem ter vindo de longe, é lance individual; bola chegando com velocidade de outro lugar é
+jogada aberta.
+
+A evidência publicada acompanha a decisão. As quatro chaves da regra continuam idênticas ao que
+eram, e num clipe de bola parada elas saem assim: `quadros_lidos` 5, `quadros_imoveis` 48,
+`velocidade_de_chegada_px_por_quadro` 0,0 e `leitura` "bola imovel por 48 quadros antes do contato".
+
+Ao lado delas, e não no lugar, saem catorze chaves com unidade física ou vocabulário declarado:
+
+| Chave | Unidade | O que ela diz |
+| --- | --- | --- |
+| `imobilidade_s` | segundos | trecho imóvel imediatamente antes do contato, só entre posições medidas |
+| `caminho_alturas` | alturas de jogador | quanto a bola percorreu na janela |
+| `velocidade_de_chegada_alturas_por_s` | alturas por segundo | maior velocidade dos dois últimos trechos |
+| `fracao_observada` | fração de 0 a 1 | quanto da janela um detector realmente viu a bola |
+| `quadros_na_janela` | contagem | quantos quadros couberam em 1,5 s antes do contato |
+| `bola_detectada` | contagem | quantos desses tinham posição medida, não interpolada |
+| `escala_alturas_px` | pixel | altura mediana de caixa de jogador que normalizou o resto |
+| `toque_anterior` | vocabulário | `associated` ou `unavailable` |
+| `toque_anterior_do_finalizador` | booleano ou ausente | se o toque anterior foi de quem chutou |
+| `idade_do_toque_anterior_s` | segundos | quanto antes do contato aconteceu esse toque |
+| `episodios_de_posse` | contagem | quantos episódios a janela produziu |
+| `corte_de_camera` | booleano | se nenhum `track_id` sobreviveu entre dois quadros vizinhos |
+| `procedencia_do_instante` | vocabulário | `ball-break` ou `unknown`, nunca `midpoint`, que o gate recusa antes |
+| `apoio_da_bola` | vocabulário | `detected`, `interpolated`, `mixed` ou `none` |
+
+Duas regras valem para toda a tabela. Campo ausente é recusa e não zero, porque zero se lê como bola
+parada e sem deslocamento, e um clipe sem detecção sairia idêntico a um clipe com a bola quieta no
+chão. E nenhum `track_id`, coordenada ou identificador entra: a evidência sai no `ShotEvent`, e
+conteúdo restrito do parceiro não atravessa essa fronteira. O que o consumidor precisa saber sobre o
+toque anterior é se ele existiu e se foi do finalizador, não de quem foi.
+
+## Decisões
+
+**A evidência passa a ter unidade física, e a decisão não muda junto.** Os limiares atuais são
+1,5 px por quadro e 6,0 px por quadro, e 90 quadros de janela. Nenhum dos três é propriedade do
+futebol: são propriedades da câmera daquela partida naquele enquadramento. Medido nos 38 clipes com
+instante anotado à mão, o finalizador tem altura mediana de 93,4 px na imagem, com mínimo de 23,5 px
+e máximo de 131,1 px. Esse fator de 5,6 entre o clipe mais próximo e o mais distante do mesmo acervo
+é exatamente o erro que a unidade em pixel introduz. A alternativa descartada era trocar unidade e
+limiar na mesma rodada, o que tornaria impossível separar o efeito de um do efeito do outro.
+
+**A escala espacial é a altura mediana das caixas de jogador da janela.** Ela é a única grandeza da
+cena cujo valor real é conhecido sem homografia, porque um jogador tem cerca de 1,8 m. A alternativa
+descartada era normalizar pela altura da própria caixa candidata, que penalizava sistematicamente a
+caixa cortada: um jogador ocluído tem caixa mais baixa, a mesma distância em pixel virava distância
+normalizada maior, e ele perdia a disputa por ser o mais difícil de detectar.
+
+**Instante vindo do caminho `midpoint` sai indisponível.** Aquele caminho não mede contato: devolve o
+quadro do meio do clipe quando a trajetória não sustenta quebra nenhuma. A janela anterior a esse
+quadro é um trecho arbitrário, e a regra que lê velocidade e imobilidade ali produzia classe com a
+mesma cara de uma classe medida. A alternativa descartada era classificar de qualquer jeito e
+declarar confiança menor, que esconde a ausência em vez de declará-la.
+
+**Instante sem procedência declarada não é tratado como `midpoint`.** Recusar por falta de declaração
+recusaria todo clipe de um detector que não declara. Tratar ausência como medida publicaria confiança
+que ninguém mediu. Ausência segue a regra, e quem separa os dois casos é a procedência no registro.
+
+**O toque é um episódio de posse, e não proximidade no quadro anterior.** A primeira versão do seam
+devolvia o jogador mais próximo no quadro anterior mais recente, e numa percepção densa isso colapsa:
+a 59,94 fps um passe a 15 m/s anda 0,25 m por quadro, muito dentro de qualquer raio de toque
+razoável, então o quadro anterior ao contato pertence ao próprio finalizador e a comparação com ele
+saía verdadeira também para passe. Agora os quadros são agrupados em sequências consecutivas com a
+bola no raio do mesmo `track_id`, e o toque anterior é o último episódio que termina antes de começar
+o episódio do contato. Passe dá dois episódios de donos diferentes; condução dá vários do mesmo dono.
+
+**O modelo escolhido para a decisão final é softmax multinomial regularizado sobre a evidência.** Ele
+foi escolhido em vez de XGBoost por ter menos graus de liberdade, artefato auditável e inferência
+trivial em NumPy, sem carregar biblioteca de treino na borda. A regra pura fica como linha de base
+porque a interação entre sinais já falhou no desenho atual. Rede temporal visual fica fora desta
+sprint: adicionaria outro peso antes de provar que a evidência estruturada é insuficiente.
+
+## Artefatos e resultados reproduzidos
+
+### O que já está medido
+
+O golden de sete percepções sintéticas fixa a saída atual da regra como literais copiados da
+execução real, e não derivados. Sob mutação dos dois limiares, seis dos sete testes caem, o que é a
+evidência de que ele detecta mudança de predição. As três mutações do gate de procedência também
+morrem.
+
+O custo do gate de `midpoint` é conhecido e baixo nesta população: ele apareceu em 1 dos 38 clipes
+com instante anotado, e em zero dos primeiros 110 clipes da execução de desenvolvimento. O apoio da
+bola nesses 110 saiu 102 `detected`, 5 `mixed`, 2 `interpolated` e 1 `absent`.
+
+### Um defeito da regra atual que o golden expôs
+
+`velocidade_de_chegada_px_por_quadro` e `quadros_imoveis` descrevem intervalos diferentes, e a
+evidência publica os dois lado a lado como se descrevessem o mesmo. Com velocidades de 0, 0, 0, 25,0
+e 0 px por quadro, a contagem de imóveis para corretamente em 12 quadros, mas a velocidade de
+chegada pega o trecho de movimento anterior e sai 25,0. A leitura publicada fica "bola chegou a 25,0
+px por quadro" para uma bola parada nos últimos 12 quadros.
+
+O defeito fica fixado como está, com teste que o replanta, porque corrigi-lo mudaria predição e o
+critério desta fatia é não mudar. A correção é da fatia seguinte, onde mudar predição é o objetivo e
+não o acidente.
+
+### A baseline reproduzida, e ela é negativa
+
+A execução de 03/09 tinha sido interrompida com 46 de 604 eventos, então os números 0,391 e 0,310
+eram relatos históricos e não medidas desta árvore. A reprodução foi feita em 07/09/2026 nas dobras
+0 a 2, com dois braços idênticos exceto uma linha do TOML, porque uma execução só produziria número
+sem par. Os dois terminaram os 363 clipes sem nenhuma falha.
+
+| 363 clipes, dobras 0 a 2 | ranking da bola ligado | ranking desligado |
+| --- | ---: | ---: |
+| cobertura | 98,3% | 98,9% |
+| acurácia | 0,563 | 0,510 |
+| macro-F1 | 0,309 | **0,334** |
+| maioria, acurácia | 0,683 | 0,682 |
+| maioria, macro-F1 | 0,271 | 0,270 |
+| metadado, acurácia | 0,796 | 0,796 |
+
+O resultado que importa não é a comparação entre os braços, e sim a comparação com as barras. **A
+regra está abaixo da maioria nas duas configurações**, 0,563 e 0,510 contra 0,683, e muito abaixo dos
+0,796 que a coluna `origin_of_move` do parceiro já entrega sem tocar em vídeo. O teste de McNemar
+contra a linha de base constante dá, no braço desligado, 90 clipes em que a constante acerta e a
+regra erra contra 28 no sentido oposto, com p de 8,9 vezes dez elevado a menos nove: a constante é
+significativamente melhor.
+
+A macro-F1 é o único sentido em que a regra acrescenta algo, 0,334 contra 0,270 da maioria, e é
+pouco. Publicar esta feature hoje seria publicar algo que o metadado do parceiro faz melhor.
+
+Isso não é um defeito desta fatia e não é surpresa: é a regra de três ramos sobre pixel por quadro
+batendo no teto que a origem do rótulo impõe, e é a justificativa medida para as fatias 4 e 5
+existirem. O número agora está reproduzido nesta árvore, com esta configuração, e é contra ele que o
+ganho de 0,05 absoluto que o gate pede será medido.
+
+### O ranking da bola saiu do padrão
+
+A comparação também respondia a pendência que a emenda 15 tinha deixado. O critério estava fixado
+antes: macro-F1 do braço com ranking superando a do braço sem, com a cobertura não caindo. Ele falha
+nos dois, e perde também em `body_part`, macro-F1 0,279 contra 0,315.
+
+A linha da acurácia é a que merece leitura, porque puxa para o outro lado: com o ranking ligado a
+acurácia sobe e a macro-F1 cai. A spec 04 escreveu antes de qualquer resultado que uma política com
+maior acurácia e menor macro-F1 é rejeitada, e este é o caso previsto: subir acurácia derrubando
+macro-F1 é responder mais vezes a classe majoritária. Sem esse critério escrito antes, a coluna da
+acurácia sozinha teria justificado manter o ranking ligado.
+
+## Trade-offs
+
+A regra atual tem peso zero, roda em NumPy e é completamente explicável: cada classe sai com a
+leitura que a produziu. A evidência em unidades físicas mantém isso e acrescenta transferência entre
+câmeras.
+
+A desvantagem principal é o teto. As features são manuais, então elas limitam o que qualquer modelo
+em cima delas consegue aprender, e a classe comprimida do rótulo continua ambígua por construção.
+Nenhum ganho de engenharia resolve um alvo que junta dois eixos.
+
+Segunda desvantagem: a evidência opcional cria dois regimes de qualidade no mesmo relatório. Um
+clipe com jogadores detectados produz campos em alturas de jogador, e um clipe sem eles produz os
+mesmos campos ausentes. Isso é honesto, e ao mesmo tempo significa que a distribuição das features
+não é homogênea na população.
+
+## Riscos e incertezas
+
+O raio de toque é alvo preliminar de 1,2 altura de jogador e não medida. Ele decide quantos episódios
+uma condução produz, e com um raio generoso um domínio muito próximo nunca sai dele e vira um
+episódio único, caso em que o toque anterior sai ausente. Nenhum número publicado pode depender dele
+antes da calibração nas dobras 0 a 2.
+
+A recepção imediata é o caso que ainda não está resolvido. Se recepção e chute forem o mesmo toque,
+o sinal de toque anterior do finalizador sai verdadeiro para uma finalização de primeira. A idade do
+toque anterior, em segundos, carrega a informação que separa os dois casos, e a decisão de usar zona
+morta ou caminhada por posse depende do piloto de evidências.
+
+A fronteira da janela é ambígua por 1,5 milissegundo: 90 quadros a 59,94 fps são 1,5015 s, então uma
+janela declarada em 1,5 s perde a amostra mais distante em um contato de cada quatro no passo denso.
+Isso não afeta esta fatia, porque a regra continua contando quadros.
+
+O acervo é homogêneo em enquadramento, então o defeito de unidade que esta fatia corrige não aparece
+na medição atual. Um número que só vale porque a população não variou é o risco silencioso mais
+provável desta feature.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| macro-F1 de 0,334 abaixo da maioria em acurácia | fatias 4 e 5: limiares em unidade física sobre o piloto de evidências, depois softmax agrupado por partida |
+| limiares em segundos e alturas de jogador | escolher sobre o piloto de evidências, medindo o diff de predição por clipe |
+| a velocidade de chegada e a contagem de imóveis descreverem o mesmo intervalo | corrigir junto dos limiares, onde mudar predição é o objetivo |
+| calibração do raio de toque | piloto de 24 clipes estratificado por classe, partida e categoria de erro |
+| softmax sobre a evidência | treino agrupado por partida, artefato de coeficientes e inferência em NumPy |
+| intervalo de confiança por partida | bootstrap agrupado, que é código novo do avaliador |
+| pacote reservado | passagem única depois do congelamento, sem recalibrar no mesmo conjunto |
+
+## Referências
+
+1. IFAB. [Lei 8, o início e o reinício do jogo](https://theifab.com/laws/latest/the-start-and-restart-of-play/).
+2. Berger, Della Pietra e Della Pietra. [A maximum entropy approach to natural language processing](https://aclanthology.org/J96-1002/).
+3. Chen e Guestrin. [XGBoost: a scalable tree boosting system](https://arxiv.org/abs/1603.02754).
+4. Xarles et al. [T-DEED: temporal-discriminability enhancer encoder-decoder for precise event spotting](https://openaccess.thecvf.com/content/CVPR2024W/CVsports/papers/Xarles_T-DEED_Temporal-Discriminability_Enhancer_Encoder-Decoder_for_Precise_Event_Spotting_in_Sports_CVPRW_2024_paper.pdf).

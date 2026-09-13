@@ -183,8 +183,9 @@ class _Shot:
 
 def _shot(registro: Mapping[str, object]) -> _Shot:
     """`shooter_track_id` e opcional no contrato, e exigi-lo aqui afirmava mais do que a especie
-    promete. O modulo de instante nao consegue produzi-lo: `tracking` roda na janela ancorada no
-    `shot`, entao depender dele fecharia ciclo no grafo.
+    promete. O modulo de instante nao o produz porque decide sobre a trajetoria da bola e nao sobre
+    caixas de jogador; o ciclo no grafo que existia quando `tracking` rodava na janela ancorada no
+    `shot` foi removido pela uniformizacao dos conjuntos.
     """
     atirador = registro.get("shooter_track_id")
     return _Shot(

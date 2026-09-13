@@ -13,6 +13,7 @@ escreve relatorio.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -65,9 +66,28 @@ class ClipResult:
 
 
 class _Shot:
-    def __init__(self, frame_index: int, shooter_track_id: int | None) -> None:
+    """O contato que as features recebem, com a procedencia do proprio registro de `shot`.
+
+    A procedencia atravessa por aqui porque `run_features` so passa `perception` e `shot`, e sem
+    ela uma feature que le a trajetoria antes do contato nao consegue distinguir janela ancorada em
+    contato medido de janela ancorada em ponto medio estimado. As duas parecem iguais e uma delas
+    nao tem um antes.
+    """
+
+    def __init__(
+        self,
+        frame_index: int,
+        shooter_track_id: int | None,
+        *,
+        source: str | None = None,
+        confidence: float | None = None,
+        ball_support: str | None = None,
+    ) -> None:
         self._frame_index = frame_index
         self._shooter_track_id = shooter_track_id
+        self._source = source
+        self._confidence = confidence
+        self._ball_support = ball_support
 
     @property
     def frame_index(self) -> int:
@@ -76,6 +96,18 @@ class _Shot:
     @property
     def shooter_track_id(self) -> int | None:
         return self._shooter_track_id
+
+    @property
+    def source(self) -> str | None:
+        return self._source
+
+    @property
+    def confidence(self) -> float | None:
+        return self._confidence
+
+    @property
+    def ball_support(self) -> str | None:
+        return self._ball_support
 
 
 def process_clip(
@@ -166,7 +198,29 @@ def _contact(execucao: RunResult, clip: Clip) -> _Shot:
         )
     registro = encontrados[0]
     atirador = registro.get(SHOOTER)
-    return _Shot(quadros.pop(), None if atirador is None else int(cast("Any", atirador)))
+    return _Shot(
+        quadros.pop(),
+        None if atirador is None else int(cast("Any", atirador)),
+        source=_texto(registro, "source"),
+        confidence=_numero(registro, "confidence"),
+        ball_support=_texto(registro, "ball_support"),
+    )
+
+
+def _texto(registro: Mapping[str, object], campo: str) -> str | None:
+    valor = registro.get(campo)
+    return valor if isinstance(valor, str) else None
+
+
+def _numero(registro: Mapping[str, object], campo: str) -> float | None:
+    """Numero real e finito, ou ausencia. `json.loads` aceita `NaN` por padrao, e um `nan` que
+    atravessa vira confianca maxima ou logit envenenado no consumidor."""
+    valor = registro.get(campo)
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return None
+    if not math.isfinite(valor):
+        return None
+    return float(valor)
 
 
 def _frame_index(registro: Mapping[str, object], clip: Clip) -> int:

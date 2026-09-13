@@ -13,3 +13,141 @@ próprias para a interface, a API e a execução do ambiente.
 
 A [quantização e validação dos modelos](/docs/sprint-3/modelos/quantizacao) reúne o fluxo TensorRT
 FP16 na Jetson, os resultados de latência e a comparação de qualidade de Players, Line e Ball.
+
+## Modelos e medição
+
+A sprint 2 entregou o caminho do clipe ao evento com os sete módulos de percepção respondendo do
+gabarito de uma fixture sintética. A sprint 3 troca isso por inferência sobre vídeo real e mede o
+que sai. Esta página é o ponto de integração: ela diz o que existe, o que foi medido e o que ainda
+não.
+
+O princípio que organiza a sprint, e que aparece em cada página: resultado negativo é resultado.
+Três das medições desta sprint foram desfavoráveis e estão publicadas como tais, porque uma
+varredura que fecha uma hipótese barata economiza a caríssima que vinha depois.
+
+## O fluxo
+
+```text
+clipe mp4 -> decode unico -> framesets coarse, dense e window
+  -> modulos de percepcao: players, ball, field, shot, tracking, pose, identity
+  -> Perception montada, com bola, jogadores, track_id e campo no mesmo quadro
+  -> features: body_part, type_of_play
+  -> ShotEvent com valor, status, motivo e evidencia agregada
+  -> avaliador: metrica ao lado da maioria e da linha de base de metadado
+```
+
+O grafo é ordenado por dependência e recusa ciclo antes de começar. As sete espécies foram
+uniformizadas no conjunto `dense`, e o frameset `window`, que é ancorado no `shot`, sobrevive
+declarado mas sem módulo nenhum rodando nele na configuração de produção. Medido: com essa
+configuração, um `shot` que dependesse de `tracking` ordena limpo em `ball, field, identity,
+players, tracking, shot, pose`.
+
+Isso importa porque o argumento do ciclo aparece em vários lugares como se ainda valesse, e ele é
+história. O finalizador não é resolvido dentro do módulo de instante por um motivo mais simples:
+aquele módulo decide sobre a trajetória da bola, não sobre caixas de jogador. O que resta do
+argumento do grafo é fragilidade, e ela basta para manter a separação: `tracking` ainda declara
+`window` no próprio spec, então amarrar os dois faria a validade do grafo depender de qual frameset
+o TOML escolhe.
+
+## Estado por módulo de percepção
+
+São sete módulos declarados em `config/pipeline.models.toml`. Seis apontam para inferência real e um
+continua stub.
+
+| Módulo | Implementação | Página |
+| --- | --- | --- |
+| `field` | 29 keypoints e homografia robusta | [campo e homografia](/docs/sprint-3/modelos/campo-e-homografia) |
+| `ball` | detector treinado e rastreio, com o ranking de candidatos medido e desligado | [bola e trajetória](/docs/sprint-3/modelos/bola-e-trajetoria) |
+| `shot` | quebra da trajetória da bola | [instante da finalização](/docs/sprint-3/modelos/instante-da-finalizacao) |
+| `players` | detecção e caixas por quadro | sem página própria nesta sprint |
+| `tracking` | associação gulosa por IoU, ancorada no instante | sem página própria nesta sprint |
+| `pose` | keypoints de corpo, consumidos por `body_part` | sem página própria nesta sprint |
+| `identity` | ainda `StubIdentity`, e o stub serve a fixture sintética | não entregue |
+
+Vale abrir a última linha, porque ela é mais séria do que "não entregue" sugere. O stub carrega o
+gabarito da fixture sintética canônica, que tem 30 quadros e seis jogadores, e só verifica se o
+índice do quadro cabe nesse intervalo. Sobre um clipe real, o conjunto `dense` amostra os quadros 0,
+4, 8 e seguintes, então oito quadros de cada clipe recebem os seis registros de identidade da
+fixture. O montador junta identidade a jogador por identificador de trilha, e o rastreador numera
+trilhas a partir de 1, então jogadores reais recebem nesses quadros a camisa de um jogador que não
+existe.
+
+Nenhum número publicado está errado por causa disso, porque nenhuma feature implementada lê camisa.
+Mas isso é sorte e não desenho, e o relatório da execução não ajuda: `identity` sai com estado `ok`
+e zero falhas, igual aos seis módulos que fazem inferência de verdade. A correção está desenhada e
+esperando a execução em curso terminar, porque mexer no config agora invalidaria a retomada dela.
+
+## Estado por feature
+
+O conjunto do parceiro declara onze rótulos em `config/labels.toml` e sete métricas. Duas features
+estão implementadas, e é importante que a conta apareça: duas de onze.
+
+| Feature | Estado | Página |
+| --- | --- | --- |
+| `body_part` | implementada, macro-F1 0,315 contra 0,229 da maioria em 97,0% de cobertura | sem página própria nesta sprint |
+| `type_of_play` | implementada, macro-F1 0,334 contra 0,270 da maioria, e abaixo da maioria em acurácia | [tipo da jogada](/docs/sprint-3/modelos/tipo-da-jogada) |
+| `shot_distance_m` | não implementada, depende da homografia estar confiável | ver campo e homografia |
+| as outras oito | não implementadas | ver o que falta |
+
+## O que foi medido, e o que os números dizem
+
+A homografia de campo fica disponível em 69,4% dos quadros de desenvolvimento. Duas varreduras
+fecharam as hipóteses baratas: nenhuma das dezesseis combinações de método e limiar compra cobertura
+sem piorar a consistência, e a análise de suprimento mostrou que 89,6% dos quadros já têm os seis
+pontos que a calibração exige e que a confusão de identidade entre pontos confiantes é praticamente
+nula. O gargalo é precisão métrica de tipos específicos de keypoint.
+
+O ranking de candidatos da bola dobra o acerto de posição, de 93 para 186 acertos em 317 posições
+visíveis, e reduz o erro mediano de 265 px para 2,9 px. E foi desligado. Medido nos 363 clipes de
+desenvolvimento com dois braços idênticos exceto uma linha do TOML, ele perde macro-F1 nas duas
+features implementadas, `type_of_play` 0,309 contra 0,334 e `body_part` 0,279 contra 0,315, perde
+cobertura, piora o instante da finalização e cobra cerca de 2,5 vezes o tempo do módulo de bola.
+
+Vale registrar a forma do resultado, porque ela é o motivo de o critério ter sido escrito antes de
+medir: com o ranking ligado a acurácia de `type_of_play` sobe, 0,563 contra 0,510, enquanto a
+macro-F1 cai. A spec 04 já dizia que política com mais acurácia e menos macro-F1 é rejeitada, porque
+isso é responder mais vezes a classe majoritária e não medir melhor. A coluna da acurácia sozinha
+teria justificado manter o ranking ligado.
+
+Dobrar o acerto de posição da bola é real e está medido, e não é entrega: entrega é a feature que
+chega ao evento. Uma melhora de meio que piora o fim não é melhora.
+
+O instante da finalização continua abaixo do aceitável: erro mediano de 46 a 60 quadros nas 24
+amostras com anotação manual, dependendo da configuração, contra uma tolerância de 30. A política
+que restringe o cálculo a posições medidas não teve efeito nessa população e ficou desligada, com o
+resultado registrado.
+
+`type_of_play` tem o teto no próprio rótulo: o enum do parceiro junta padrão de jogo e assistido
+contra individual, dois eixos que a Opta mantém separados, e `individual` implica `assist = false`
+em 717 de 722 casos preenchidos. Nenhuma regra sobre a trajetória da bola separa individual de
+jogada aberta sem assistência.
+
+E a medição na população completa confirma o teto pelo lado desagradável: com 98,9% de cobertura a
+regra faz 0,510 de acurácia contra 0,683 da maioria e 0,796 do metadado. Ela está abaixo das duas
+barras, e o McNemar contra a constante dá 90 acertos da constante contra 28 da regra, com p de 8,9
+vezes dez elevado a menos nove. A macro-F1, 0,334 contra 0,270, é o único sentido em que ela
+acrescenta algo. Publicar isso hoje seria publicar algo que o metadado do parceiro faz melhor sem
+tocar em vídeo, e é por isso que a página da feature declara as fatias que faltam em vez de celebrar
+cobertura.
+
+## O que decide que uma entrega está pronta
+
+Os gates de código: Ruff, Pyright em modo estrito, e a suíte com cobertura mínima de 80%. As
+fronteiras de import são testadas, então `edge` não pode importar `mlops`, `cli` ou `api`.
+
+Os gates de medição: toda métrica sai ao lado da linha de base de maioria e, quando existe, da linha
+de base de metadado, que mede informação externa e nunca participa da seleção. As calibrações usam
+somente as dobras 0 a 2, agrupadas por partida. As dobras 3 e 4 são o pacote reservado e continuam
+fechadas, para uma passagem única depois do congelamento.
+
+## O que está bloqueado em anotação humana
+
+Duas coisas não avançam com trabalho de engenharia, e a honestidade sobre isso é parte da entrega.
+
+Das 30 anotações de campo do piloto, 27 são proposta do próprio modelo e carregam
+`requires-human-review`. Enquanto elas não passarem por conferência humana, qualquer métrica de
+acurácia de campo é circular, e as páginas dizem isso onde o número aparece.
+
+A segunda anotação cega, que é o que mede concordância entre anotadores e portanto o teto do próprio
+alvo, precisa de outra pessoa por definição. Sem ela, um erro do modelo e uma ambiguidade do rótulo
+chegam iguais ao relatório.

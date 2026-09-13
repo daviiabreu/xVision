@@ -9,9 +9,9 @@ e antes das features que dependem do instante. Ela não identifica o finalizador
 jogada e não calcula xG.
 
 Estado em 07/09/2026: implementação parcial em branch. O que esta rodada entrega é a procedência da
-bola chegando ao detector de instante e ao avaliador, mais o número que faltava para discutir o
-ranking de candidatos com evidência. A qualidade do instante continua abaixo do aceitável e a MR não
-está pronta para merge.
+bola chegando ao detector de instante e ao avaliador, mais o número que faltava para decidir o
+ranking de candidatos com evidência, que saiu contra ele e o desligou. A qualidade do instante
+continua abaixo do aceitável e a MR não está pronta para merge.
 
 ## Onde se encaixa no fluxo
 
@@ -24,8 +24,11 @@ BallDetection por frame, em pixels, com source detected ou interpolated
 ```
 
 O módulo depende apenas de `ball`. `players` entra como restrição opcional, e `tracking` não entra:
-`tracking` roda no frameset `window`, que é ancorado no próprio `shot`, então uma dependência ali
-fecharia ciclo no grafo e a execução seria recusada antes de começar.
+o módulo decide sobre a trajetória da bola e não sobre caixas de jogador, e por isso
+`shooter_track_id` sai sempre ausente dele. O ciclo no grafo que existia quando `tracking` rodava
+na janela ancorada no `shot` foi removido pela uniformização dos conjuntos, e medido na configuração
+de produção um `shot` que dependesse de `tracking` ordena limpo. Quem resolve o finalizador é
+`edge/features/touch.py`, sobre a percepção já montada.
 
 ## Componentes e responsabilidades
 
@@ -112,9 +115,14 @@ módulo nunca mais se absteve. Ele ficou mais confiante e menos certo.
 Pelo gate de desenvolvimento da spec 03, aplicado contra o braço desligado, os dois candidatos
 acrescentam dois acertos dentro de 30, que era a condição 1, mas reduzem os acertos dentro de 90 e
 pioram a mediana, que eram as condições 2 e 4. O ranking, em qualquer das duas formas, não passa no
-gate do instante. Isso não decide sozinho o padrão da bola, porque `type_of_play` também consome a
-trajetória e ainda não foi medido com o ranking; a execução dos 363 clipes de desenvolvimento que
-produz esse número está em andamento.
+gate do instante. Na época isso não decidia sozinho o padrão da bola, porque `type_of_play` também
+consome a trajetória e ainda não tinha sido medido com o ranking.
+
+Esse número saiu em 07/09/2026, nos 363 clipes de desenvolvimento, e foi na mesma direção: o ranking
+perde macro-F1 em `type_of_play`, 0,309 contra 0,334, e em `body_part`, 0,279 contra 0,315, além de
+perder cobertura. Com o instante e as duas features apontando para o mesmo lado, o TOML voltou para
+`ranking = false`. O detalhe da comparação está na
+[página da bola](/docs/sprint-3/modelos/bola-e-trajetoria).
 
 Isso é coerente com o mecanismo. Medido no piloto anotado da bola, as posições interpoladas foram de
 15 para 88 em 328 quadros quando o ranking entrou, porque o ranking entrega um candidato único e o

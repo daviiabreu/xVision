@@ -407,3 +407,53 @@ def test_resume_rejects_checkpoint_without_identity(
     assert "sem identidade" in resultado.output
     assert not vistos
     assert (execucao / "events.jsonl.parcial").read_bytes() == parcial
+
+
+def test_retomar_com_outra_versao_de_feature_e_recusado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O `config_sha256` cobre os bytes do TOML, e a versao da feature mora no codigo.
+
+    Sem esta guarda, subir `type_of_play` de `0.1.0` para `0.2.0` e retomar uma execucao comecada
+    antes passava por todas as verificacoes, e o `events.jsonl` saia com eventos das duas versoes.
+    O `run.json` declarava so a atual, porque ele le a versao do codigo em execucao, e
+    `mlops.evaluate` seleciona feature por nome e nao por versao, entao ele media as duas juntas.
+    """
+    _prepara(monkeypatch, 25, para_em=12)
+    saida = tmp_path / "runs"
+    with pytest.raises(_Interrompe):
+        _executa(saida)
+    execucao = _run_id(saida)
+
+    estado = read_checkpoint(execucao)
+    assert estado.features_sha256, "o checkpoint precisa gravar a versao das features"
+
+    def outras_versoes(_config: Path) -> str:
+        return "0" * 64
+
+    _prepara(monkeypatch, 25)
+    monkeypatch.setattr(cli, "_feature_digest", outras_versoes)
+    resultado = runner.invoke(
+        app,
+        ["run", "--all", "--config", str(CONFIG), "--out", str(saida), "--resume", str(execucao)],
+    )
+
+    assert resultado.exit_code == 1
+    assert "duas versoes de feature" in resultado.output
+
+
+def test_a_versao_das_features_sai_do_config_e_nao_de_um_literal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O digest tem que mudar quando a versao de uma feature muda, senao a guarda nunca dispara."""
+    from edge.features import type_of_play
+
+    antes = cli._feature_digest(CONFIG)  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(
+        type_of_play.TypeOfPlay,
+        "spec",
+        replace(type_of_play.TypeOfPlay.spec, version="9.9.9"),
+    )
+    depois = cli._feature_digest(CONFIG)  # pyright: ignore[reportPrivateUsage]
+
+    assert antes != depois

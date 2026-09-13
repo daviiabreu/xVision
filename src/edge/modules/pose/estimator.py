@@ -19,8 +19,9 @@ recortes por clipe, em lotes, medidos em 14,8 ms cada contra 39,6 ms um a um.
 
 Quem e o finalizador sai da geometria e nao de um campo do contrato: e o jogador cuja caixa esta
 mais perto da bola no instante que a especie `shot` apontou. O `shooter_track_id` do registro de
-`shot` nao serve porque ele nao existe: `tracking` roda na janela ancorada no `shot`, entao um
-modulo de instante que dependesse de trajetoria fecharia ciclo no grafo.
+`shot` nao serve porque ele nao existe: o modulo de instante decide sobre a trajetoria da bola e
+nao sobre caixas de jogador, e por isso nunca preenche o campo. O ciclo no grafo que existia quando
+`tracking` rodava na janela ancorada no `shot` foi removido pela uniformizacao dos conjuntos.
 
 Nao detecta jogador, nao rastreia e nao mede angulo. Quem transforma keypoint em "olhou antes" ou
 em "pe direito" e a feature, sobre a `Perception` ja montada.

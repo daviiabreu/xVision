@@ -54,7 +54,16 @@ class Checkpoint:
     contagem, e `--limit` da ao operador controle exato sobre isso.
     """
     features_sha256: str = ""
-    """Digest de nome e versao das features; o TOML nao declara as versoes."""
+    """Digest de nome e versao de cada feature que a execucao roda, que o TOML nao carrega.
+
+    `config_sha256` cobre os bytes do TOML, e o TOML declara quais features rodam, nao em que
+    versao: a versao mora no codigo, em `FeatureSpec.version`. Sem este campo, subir uma feature de
+    `0.1.0` para `0.2.0` e retomar uma execucao comecada antes passa por todas as guardas, e o
+    `events.jsonl` sai com eventos das duas versoes. Pior, `run.json` declara so a versao atual,
+    porque ele le a versao do codigo em execucao, e o avaliador seleciona feature por nome e nao por
+    versao, entao ele mede as duas juntas sem perceber. E o mesmo defeito que `config_sha256` evita
+    um nivel acima, e ele ficou alcancavel um nivel abaixo.
+    """
     done: list[str] = field(default_factory=list[str])
     ok: int = 0
     failed: int = 0

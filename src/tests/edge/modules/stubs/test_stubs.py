@@ -14,7 +14,7 @@ from edge.cache.perception import (
     perception_key,
     run_module,
 )
-from edge.modules.base import MODULE_KINDS, ModuleOutput, PerceptionModule
+from edge.modules.base import MODULE_KINDS, FrameBatch, ModuleOutput, PerceptionModule
 from edge.modules.conformance import ModuleConformance, make_batch
 from edge.modules.stubs import STUBS
 from edge.modules.stubs.base import UnexpectedClip
@@ -171,3 +171,74 @@ class TestEachStubPassesTheConformanceSuite(ModuleConformance):
     @pytest.fixture
     def module(self, kind: str) -> PerceptionModule:
         return POR_ESPECIE[kind]()
+
+
+class TestRecusaDeClipeEstranho:
+    """Stub servindo o gabarito da fixture sobre video de partida, achado em 07/09/2026.
+
+    `StubModule.load` chama `clip_truth()`, que e o gabarito da fixture sintetica canonica e nao do
+    clipe em execucao, e `_at` so verificava se o indice do quadro cabia no intervalo daquele
+    gabarito. A fixture tem 30 quadros e seis jogadores com track_id em 1, 2, 3, 4, 5 e 7, e o
+    conjunto `dense` amostra os quadros 0, 4, 8 e seguintes, entao oito dos noventa quadros
+    amostrados de todo clipe real recebiam os seis registros da fixture. `assemble` junta identidade
+    a jogador por track_id, e o rastreador numera trilhas a partir de 1, entao jogadores reais
+    recebiam a camisa de um jogador que nao existe.
+
+    E o relatorio nao dizia nada: medido em `var/runs/shot-instant-20260907/`, `identity` saia com
+    `status = ok` e zero falhas, igual aos seis modulos que inferem de verdade.
+    """
+
+    def _lote(self, kind: str, **campos: object) -> FrameBatch:
+        stub = POR_ESPECIE[kind]()
+        return replace(make_batch(stub.spec.preprocess), **campos)  # pyright: ignore[reportArgumentType]
+
+    @pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+    def test_todo_stub_recusa_lote_com_geometria_do_parceiro(self, kind: str) -> None:
+        stub = POR_ESPECIE[kind]()
+        stub.load()
+
+        with pytest.raises(UnexpectedClip, match="320x240"):
+            stub.infer(self._lote(kind, source_size=(1920, 1080)), {})
+
+    @pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+    def test_todo_stub_recusa_lote_na_taxa_do_parceiro(self, kind: str) -> None:
+        stub = POR_ESPECIE[kind]()
+        stub.load()
+
+        with pytest.raises(UnexpectedClip, match="59.940"):
+            stub.infer(self._lote(kind, source_fps=59.94), {})
+
+    @pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+    def test_todo_stub_aceita_a_geometria_da_propria_fixture(self, kind: str) -> None:
+        stub = POR_ESPECIE[kind]()
+        stub.load()
+
+        saida = stub.infer(self._lote(kind, source_size=(WIDTH, HEIGHT), source_fps=float(FPS)), {})
+
+        assert saida.kind == kind
+
+    @pytest.mark.parametrize("kind", sorted(MODULE_KINDS))
+    def test_lote_sem_tamanho_nem_taxa_continua_aceito(self, kind: str) -> None:
+        """A suite de conformidade monta lote a mao, sem os dois campos, e exigi-los ali quebraria
+        a conformidade sem achar defeito nenhum. A recusa existe para evidencia positiva."""
+        stub = POR_ESPECIE[kind]()
+        stub.load()
+
+        assert stub.infer(self._lote(kind), {}).kind == kind
+
+    def test_a_identidade_nao_cola_camisa_da_fixture_em_clipe_de_partida(self) -> None:
+        """O caso concreto que motivou a recusa, com o mesmo quadro que a producao amostra.
+
+        No quadro 0 a fixture tem seis jogadores, e sem a recusa este lote devolvia os seis com
+        `jersey_number` para um clipe de 1920 por 1080.
+        """
+        stub = POR_ESPECIE["identity"]()
+        stub.load()
+        da_fixture = stub.infer(
+            replace(make_batch(stub.spec.preprocess), source_size=(WIDTH, HEIGHT)), {}
+        )
+
+        assert [r["jersey_number"] for r in da_fixture.records[0]] == [10, 3, 1, 9, 5, 7]
+
+        with pytest.raises(UnexpectedClip):
+            stub.infer(replace(make_batch(stub.spec.preprocess), source_size=(1920, 1080)), {})

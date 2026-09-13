@@ -1,10 +1,12 @@
 """O instante da finalizacao a partir da trajetoria da bola, no lugar do `StubShot`.
 
-Este modulo e a ancora do pipeline inteiro: o frameset `window` abre em volta do quadro que ele
-apontar, e e nessa janela que `pose`, `tracking` e `identity` medem. Instante errado move a janela
-inteira, entao a tolerancia sai da configuracao e nao de gosto. Com `before_s = 1.5` e
-`after_s = 0.5` a 59,94 fps, a janela e 90 quadros antes e 30 depois: erro de ate 30 quadros ainda
-preserva dois tercos do contexto anterior, e erro acima de 120 tira o contato de dentro da janela.
+Este modulo e a ancora declarada do pipeline: o frameset `window` abre em volta do quadro que ele
+apontar. Hoje nenhum modulo do config de producao roda nessa janela, porque as sete especies foram
+uniformizadas no `dense`, e o `window` sobrevive como janela declarada que a config
+`oracle-janela` usa para `pose`. Ela continua sendo a medida do contexto que o instante precisa
+acertar: com `before_s = 1.5` e `after_s = 0.5` a 59,94 fps sao 90 quadros antes e 30 depois, entao
+erro de ate 30 quadros ainda preserva dois tercos do contexto anterior e erro acima de 120 tira o
+contato de dentro dela. A tolerancia sai dessa conta e nao de gosto.
 
 Ele nao olha um pixel. Toda a decisao sai de `edge.geometry.contact` sobre as caixas que a especie
 `ball` produziu, e por isso a `PreprocessSpec` declarada e a menor que o contrato aceita: o lote
@@ -18,11 +20,13 @@ quebra causada por quique no gramado, e `edge.geometry.contact` aceita esse filt
 exigir `players` dobraria a superficie de falha de um clipe para refinar um caso. O filtro entra
 quando `players` for modulo de verdade com confiabilidade medida, e nao antes.
 
-A segunda e que `shooter_track_id` sai sempre ausente, e isso e estrutural e nao esquecimento. O
-identificador de trajetoria vem da especie `tracking`, que roda no frameset `window`, que e
-ancorado no `shot`. Um `shot` que dependesse de `tracking` fecharia ciclo no grafo e o
-`topological_order` recusaria a execucao antes de comecar. Quem precisa saber de quem e o chute
-identifica o jogador mais proximo da bola no quadro do contato, sobre a `Perception` ja montada.
+A segunda e que `shooter_track_id` sai sempre ausente, e o motivo nao e mais o ciclo no grafo.
+Quando `tracking` rodava na janela ancorada no `shot`, a dependencia fechava ciclo de verdade; a
+uniformizacao dos conjuntos removeu isso, e medido no config de producao `shot` dependendo de
+`tracking` ordena limpo. O motivo que fica e o simples: este modulo decide sobre a trajetoria da
+bola, nao sobre caixas de jogador, e amarra-lo a `tracking` faria a validade do grafo depender de
+qual frameset o TOML escolhe. Quem precisa saber de quem e o chute usa `edge/features/touch.py`,
+sobre a `Perception` ja montada.
 
 A terceira e o ponto medio como degradacao declarada. Sem quebra utilizavel o modulo poderia nao
 emitir nada, e ai `process_clip` levanta `NoShotDetected` e o clipe inteiro sai sem evento, sem

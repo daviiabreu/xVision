@@ -29,7 +29,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from contracts import FeatureValue, FramePerception, Perception
-from edge.features.base import FeatureSpec, ShotOutput, unavailable
+from edge.features.base import FeatureSpec, ShotOutput, shot_provenance, unavailable
+from edge.features.play_evidence import PlayEvidence, PlayTelemetry, measure
 
 ABERTA = "open play"
 PARADA = "set piece"
@@ -48,16 +49,45 @@ PARADA_MIN_QUADROS = 24
 CONDUCAO_PX_POR_QUADRO = 6.0
 """Piso de velocidade de um passe. Abaixo disso a bola vinha junto com quem chutou."""
 
+ASSOCIADO = "associated"
+INDISPONIVEL = "unavailable"
+"""Como a evidencia declara toque anterior presente e ausente, sem expor `track_id`.
+
+O identificador do jogador nao entra na evidencia publicada: ela sai no `ShotEvent` e conteudo
+restrito do parceiro nao atravessa essa fronteira. O que o consumidor precisa e se houve toque e se
+ele foi do finalizador, e `toque_anterior_do_finalizador` responde a segunda parte.
+"""
+
+PONTO_MEDIO = "midpoint"
+"""Procedencia de instante que esta feature recusa, porque ela le o antes e ali nao ha antes.
+
+O caminho `midpoint` do detector de instante nao mede contato: ele devolve o quadro do meio do
+clipe quando a trajetoria nao sustenta quebra nenhuma. A janela de 90 quadros antes desse quadro e
+um trecho arbitrario do clipe, e a regra que le velocidade e imobilidade ali produz classe com a
+mesma cara de uma classe medida. Recusar declara a ausencia; classificar a esconde.
+
+Instante que nao declara procedencia nao entra aqui. Ler ausencia como `midpoint` recusaria clipe
+por falta de declaracao, e todos os dubles de teste do projeto nao declaram.
+"""
+
 
 class TypeOfPlay:
     spec = FeatureSpec(
         name="type_of_play",
-        version="0.1.0",
+        version="0.2.0",
         requires=("ball",),
         unit="classe",
     )
 
     def extract(self, perception: Perception, shot: ShotOutput) -> FeatureValue:
+        procedencia = shot_provenance(shot)
+        if procedencia.source == PONTO_MEDIO:
+            return unavailable(
+                self.spec,
+                f"o instante veio de {PONTO_MEDIO!r}, entao a janela esta ancorada em estimativa "
+                "e nao existe um antes do contato para ler",
+            )
+
         antes = _antes_do_contato(perception, shot.frame_index)
         if len(antes) < MIN_OBSERVACOES:
             return unavailable(
@@ -68,7 +98,9 @@ class TypeOfPlay:
 
         velocidades = _velocidades(antes)
         recentes = velocidades[-2:]
-        if not recentes:
+        if not recentes:  # pragma: no cover - MIN_OBSERVACOES ja garante duas velocidades
+            # Inalcancavel com MIN_OBSERVACOES em 3, e mantido de proposito: baixar essa constante
+            # para 1 tornaria o caminho vivo, e sem esta guarda ele estouraria em max(()).
             return unavailable(self.spec, "a trajetoria da bola nao tem dois pontos para comparar")
         imoveis = _imoveis_no_fim(antes, velocidades)
         chegada = max(recentes)
@@ -80,6 +112,7 @@ class TypeOfPlay:
         else:
             valor, motivo = ABERTA, f"bola chegou a {chegada:.1f} px por quadro"
 
+        evidencia, contagem = measure(perception, shot, procedencia)
         return FeatureValue(
             name=self.spec.name,
             version=self.spec.version,
@@ -92,8 +125,51 @@ class TypeOfPlay:
                 "quadros_imoveis": imoveis,
                 "velocidade_de_chegada_px_por_quadro": round(chegada, 2),
                 "leitura": motivo,
+                **_em_unidades(evidencia, contagem),
             },
         )
+
+
+def _em_unidades(evidencia: PlayEvidence, contagem: PlayTelemetry) -> dict[str, object]:
+    """A mesma jogada em segundos e alturas de jogador, ao lado das chaves em pixel por quadro.
+
+    Ao lado, e nao no lugar. Trocar unidade e trocar limiar na mesma rodada tornaria impossivel
+    separar o efeito de um do efeito do outro, e a spec 04 pede a reproducao antes da mudanca. As
+    quatro chaves antigas continuam identicas e um golden de sete percepcoes prende isso.
+
+    `None` atravessa como `None`: `_freeze` do contrato aceita nulo, e virar zero aqui faria recusa
+    de medida chegar ao consumidor com a mesma cara de medida que deu zero.
+
+    Nada de `track_id`, coordenada ou identificador entra. A evidencia sai no evento publicado, e
+    conteudo restrito do parceiro nao atravessa essa fronteira.
+    """
+    return {
+        "imobilidade_s": _arredonda(evidencia.stationary_s),
+        "caminho_alturas": _arredonda(evidencia.path_player_heights),
+        "velocidade_de_chegada_alturas_por_s": _arredonda(evidencia.arrival_speed_player_heights_s),
+        "fracao_observada": round(evidencia.observed_fraction, 4),
+        "toque_anterior": ASSOCIADO if evidencia.previous_touch_source else INDISPONIVEL,
+        "toque_anterior_do_finalizador": evidencia.previous_touch_is_shooter,
+        "idade_do_toque_anterior_s": _arredonda(evidencia.previous_touch_age_s),
+        "corte_de_camera": evidencia.camera_cut,
+        "procedencia_do_instante": evidencia.shot_source,
+        "apoio_da_bola": evidencia.shot_ball_support,
+        "escala_alturas_px": _arredonda(contagem.median_player_height_px),
+        "quadros_na_janela": contagem.frames_in_window,
+        "bola_detectada": contagem.ball_detected,
+        "episodios_de_posse": contagem.touch.episodios,
+    }
+
+
+def _arredonda(valor: float | None) -> float | None:
+    """Quatro casas nos campos com unidade, preservando ausencia como ausencia.
+
+    A conta em ponto flutuante deixa lixo visivel no artefato publicado, como 2,997000000000001 para
+    uma velocidade de 2,997, e ele varia entre execucoes sem que nada tenha mudado, o que suja
+    qualquer diff de evento. Quatro casas sao mais resolucao do que qualquer limiar desta feature
+    usa. `None` atravessa: `round(None)` estouraria e zero seria medida onde nao houve.
+    """
+    return None if valor is None else round(valor, 4)
 
 
 def _antes_do_contato(perception: Perception, contato: int) -> tuple[tuple[int, float, float], ...]:

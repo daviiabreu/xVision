@@ -9,6 +9,7 @@ execucao com codigo de saida zero.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
 
@@ -244,3 +245,40 @@ class TestTruncate:
         )
 
         assert truncate_to(parcial, 2) == 2
+
+
+def test_todo_campo_do_checkpoint_sobrevive_ao_disco(tmp_path: Path) -> None:
+    """Meta-teste: campo novo no dataclass que ninguem serializa volta com o padrao, em silencio.
+
+    Foi o que aconteceu ao acrescentar `features_sha256`: o campo existia no dataclass, a guarda
+    da retomada o comparava, e ele voltava vazio do disco porque `to_dict` e `read_checkpoint` nao
+    o conheciam. Guarda que compara string vazia nao recusa nada, e a retomada voltava a aceitar
+    tudo. O erro nao levanta e nao muda nenhuma contagem: ele so desliga uma verificacao.
+    """
+    campos = {f.name for f in fields(Checkpoint)}
+    povoado = Checkpoint(
+        config_sha256="c" * 64,
+        population=7,
+        started_at="2026-09-07T00:00:00.000Z",
+        selection_sha256="s" * 64,
+        features_sha256="f" * 64,
+        done=["a", "b", "c"],
+        ok=2,
+        failed=1,
+        resumed=3,
+        origens={"ball-break": 2},
+        fontes={"a": "ball-break", "b": "ball-break"},
+        apoios={"a": "detected", "b": "detected"},
+        tempos={"ball": [1.0, 2.0]},
+        identidade={"ball": ["yolo-ball", "0.1.0"]},
+        falhas={"ball": [1, "motivo"]},
+    )
+    assert campos == set(asdict(povoado)), "o dataclass ganhou campo que este teste nao povoa"
+
+    write_checkpoint(tmp_path, povoado)
+    de_volta = read_checkpoint(tmp_path)
+
+    for campo in sorted(campos):
+        esperado = getattr(povoado, campo)
+        obtido = getattr(de_volta, campo)
+        assert obtido == esperado, f"{campo} nao sobreviveu: {obtido!r} em vez de {esperado!r}"
