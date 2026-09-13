@@ -1,0 +1,251 @@
+---
+title: Desempenho e paralelismo da pipeline de execução
+---
+
+Esta entrega ataca o tempo de inferência do pipeline sem trocar nenhum peso. São quatro alavancas
+declaradas em configuração na borda — meia precisão por espécie, lote único dos ladrilhos da bola,
+letterbox no device e plano TensorRT — mais a paralelização do decode e das duas inferências na
+pipeline da visão superior.
+
+Ela fecha itens que [bola e tracking bola](/docs/sprint-3/modelos/bola-e-trajetoria) e
+[campo e homografia](/docs/sprint-3/modelos/campo-e-homografia) listavam como pendência embarcada:
+o encaixe de TensorRT existia no contrato e estava vazio, e agora tem implementação e medição.
+
+O padrão não muda. Todas as alavancas são opt-in, declaradas no TOML. Quem não declara nada
+executa, argumento por argumento, a mesma chamada de antes desta entrega existir. A razão está em
+[decisões](#decisões): a divergência de acurácia contra gabarito ainda não foi medida, e ninguém
+pode herdar meia precisão sem ter pedido.
+
+## Onde se encaixa no fluxo
+
+```text
+FrameBatch
+  -> letterbox            cv2 (CPU) | cuda (device)      <- declarado por espécie
+  -> backend              PyTorch | TensorRT             <- declarado por espécie
+  -> precisão             fp32 | fp16                    <- declarado por espécie
+  -> NMS global
+  -> trajetória / keypoints / jogadores
+```
+
+Nenhuma etapa nova entra no fluxo. As quatro alavancas trocam como cada etapa existente
+executa, e o contrato de saída de cada espécie permanece o mesmo.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que não faz |
+| --- | --- | --- |
+| `edge/modules/precision.py` | traduzir a precisão declarada no TOML para o kwarg do `predict` | não escolhe precisão nem mede desvio |
+| `edge/trt.py` | abrir o plano, alocar buffers do device e entregar numpy para numpy | não constrói plano nem conhece caixa ou NMS |
+| `TensorRTBackend` | irmão do `PyTorchBackend` sob o mesmo `InferenceBackend` | não muda o pós-processamento |
+| `_letterbox_em_cuda` | redimensionar e preencher o ladrilho no device | não altera a geometria do letterbox |
+| `_passada_em_lote` | despachar os quatro ladrilhos da bola num tensor só | não decide trajetória |
+| `BallTracker._reancorar` | prender a reâncora ao alcance físico da última posição | não identifica jogador ou toque |
+| `top_view/pipeline.py` | coordenar decode, as duas inferências paralelas e a homografia | não renderiza nem identifica equipes |
+
+## Alterações no dispositivo de borda (Jetson)
+
+### Meia precisão declarada por espécie
+
+O vocabulário tem duas palavras, `fp32` e `fp16`, e para aqui de propósito. O Ultralytics também
+aceita `8`, `int8` e esquemas como `w8a8`, mas para um peso `.pt` em `predict` só 16 muda alguma
+coisa — declarar `int8` seria aceito e não faria nada, que é o modo de falha calado que o projeto
+recusa em configuração.
+
+O parâmetro é `quantize`, e não `half`. O `half` está depreciado no ultralytics 8.4 e, além de
+depreciado, é mais lento: no mesmo peso e no mesmo quadro mediu 62,4 ms, contra 45,2 ms de fp32 e
+28,6 ms de `quantize='fp16'`. Ele não é um sinônimo antigo do caminho novo, é outro caminho.
+
+No padrão, `ajuste_do_predict` devolve dicionário vazio em vez de mandar `quantize='fp32'`: assim
+a chamada de quem não declarou nada continua idêntica à de antes.
+
+### Lote único dos ladrilhos da bola
+
+Os quatro ladrilhos passavam um a um pelo backend. Agora são concatenados num tensor
+`4 x 3 x 992 x 1600` e despachados numa chamada só. O `strict=True` no `zip` que redistribui as
+detecções por ladrilho é deliberado: essa correspondência posicional é a única coisa que liga
+detecção a ladrilho, e se ela mudar o deslocamento errado seria somado à caixa sem erro nenhum
+aparecer.
+
+### Letterbox no device
+
+O letterbox dos quatro ladrilhos sai do `cv2` na CPU e vai para o device, declarado com
+`letterbox = "cuda"`.
+
+A ordem importa para a banda de memória: sobe o quadro em `uint8`, que são 2 MiB por ladrilho,
+e converte para `float32` no device. Subir já convertido custaria 19 MiB por ladrilho — dez vezes
+mais tráfego, e o ganho inteiro estaria nisso.
+
+A interpolação não é a do `cv2`: o desvio máximo medido por pixel é 0,003 na escala 0..1. Por isso
+o caminho é declarado e não herdado.
+
+### Plano TensorRT
+
+O `InferenceBackend` já previa `Literal["pytorch", "tensorrt"]` e `format="engine"`, e o encaixe
+estava vazio. Esta entrega preenche com o `TensorRTBackend`, o loader em `edge/trt.py` e a escolha
+por configuração em `ball` e `field`.
+
+Os buffers do device são alocados uma vez, no load, porque o engine tem shape fixo: realocar por
+chamada custaria mais que a cópia e não compraria nada.
+
+`quantize` junto de `engine` levanta erro em vez de ser ignorado. A precisão foi fixada na
+construção do plano, e aceitar o ajuste calado faria o TOML descrever algo que não acontece. No
+campo isso seria especialmente enganoso, porque ali `fp16` piora.
+
+## O caso do campo: meia precisão piora
+
+O campo é o caso que separa os dois mecanismos, e por isso está documentado no próprio
+`from_weights`.
+
+| Espécie | Entrada | fp32 | fp16 | Plano TensorRT |
+| --- | --- | --- | --- | --- |
+| `field` | `1 x 3 x 544 x 960` | 32,9 ms | 37,5 ms | 7,9 ms (4,2x) |
+| `ball` | `4 x 3 x 992 x 1600` | 157,7 ms | 101,3 ms | 45,1 ms (2,2x) |
+
+Meia precisão deixa o campo mais lento, medido duas vezes por caminhos diferentes, porque o
+modelo é pequeno a 960 e fica preso em lançamento de kernel em vez de cômputo. A fusão de camadas
+do TensorRT ataca exatamente lançamento, e por isso rende ali o maior ganho das três espécies.
+
+Uma coisa não prediz a outra: aqui elas apontam para lados opostos.
+
+## A reâncora presa ao alcance físico
+
+Ligar `fp16` na bola esbarrou num defeito que já existia e que só a meia precisão expôs.
+
+Uma caixa a 3,7e-05 do corte `conf = 0,10` sumia em fp16, a lacuna não fechava, e a reâncora — que
+era a maior confiança em qualquer lugar do quadro — levava a trajetória para outro objeto a
+1641 px. Divergiam 61 dos 360 quadros do clipe.
+
+A causa não é a meia precisão: perturbar o próprio fp32 em 1e-04 reproduz a mesma cascata. É o
+corte de confiança num rastreador sequencial.
+
+A correção prende a primeira âncora de um segmento ao que a física admite desde a última perda,
+usando o mesmo gate que já protege a continuação (`max_ball_speed_px_per_s * dt * gate_margin`),
+só aplicado através da lacuna em vez de descartado nela. Com ela, a divergência caiu de 61 para
+1 quadro em 360 — e nesse único quadro a bola não se move: o fp32 marca `detected` e o fp16
+marca `interpolated` na mesma posição, com deslocamento de 0,6 px no pior caso.
+
+## Pipeline paralela da visão superior
+
+A implementação da visão superior foi separada por responsabilidade antes de ser paralelizada:
+
+| Módulo | Responsabilidade |
+| --- | --- |
+| `field_keypoints/model.py` | carrega o modelo e detecta pontos do campo em pixels |
+| `homography/geometry.py` | calcula a homografia e projeta as posições |
+| `top_view/pipeline.py` | coordena as etapas |
+| `top_view/create_top_view.py` | renderiza o resultado |
+
+Um decoder entrega cada quadro a dois workers — jogadores/tracking e detecção de pontos do campo —
+num `ThreadPoolExecutor` de dois workers.
+
+As inferências do mesmo quadro rodam em paralelo, e o próximo quadro só avança quando as duas
+terminam. Essa barreira por quadro é deliberada: ela limita a memória de imagens em voo e
+preserva o estado temporal dos rastreadores, que não são seguros para chamadas concorrentes.
+
+A execução é reportada em três etapas:
+
+```text
+ETAPA 1/3  inferência paralela (jogadores + pontos do campo) -> detections.json
+ETAPA 2/3  identificação de equipes sobre o clipe completo
+ETAPA 3/3  projeção das posições e cálculo da marcação em metros
+```
+
+A homografia é acumulada por `HomographyTracker`, que exige 7 pontos para começar, 6 para
+atualizar, e descarta a matriz depois de 15 quadros sem calibração. Sem homografia válida não há
+marcação em metros naquele quadro.
+
+Como os modelos rodam em paralelo, a soma dos tempos acumulados por modelo pode ser maior que o
+tempo real de parede — os logs reportam os dois. A bola está fora desta pipeline por enquanto.
+
+## Resultados medidos
+
+Todos na Jetson Orin desse bench, com ultralytics 8.4.
+
+| Alavanca | Escopo | Antes | Depois | Ganho |
+| --- | --- | --- | --- | --- |
+| `quantize = "fp16"` | `players` a 960 | 45,2 ms | 28,6 ms | 25% a 35% |
+| `quantize = "fp16"` | ladrilho da bola a 1600 | 66,8 ms | 53,3 ms | 20% |
+| `letterbox = "cuda"` | quadro da bola, 30 quadros | 260,0 ms | 232,9 ms | 10,4% |
+| `quantize = "fp16"` | bola no caminho de produção | 237,4 ms | 176,6 ms | 25,6% |
+| plano TensorRT | etapa do campo, clipe de 90 quadros | ~4,96 s | ~2,94 s | 41% |
+| plano TensorRT | etapa da bola, clipe de 90 quadros | ~22 s | ~16,5 s | 25% |
+
+### Concordância com o fp32
+
+| Alavanca | Detecções | IoU mediano | Trajetória em 360 quadros |
+| --- | --- | --- | --- |
+| `players` fp16 | 685, zero perdidas | 0,985 | n/a |
+| `letterbox` cuda | 108 contra 108, zero inventadas | 0,9986 | divergência zero |
+| `ball` fp16 | — | — | 1 quadro, deslocamento 0,6 px |
+| plano da bola | zero a mais ou a menos | — | desvio máximo 0,497 px |
+
+As três caixas não casadas do `players` eram duplicatas sobre objeto já casado, e não perda de
+recall. No `letterbox` cuda a trajetória entregue é idêntica fonte a fonte: 333 `detected`,
+15 `interpolated`, 12 `missing` dos dois lados.
+
+## Decisões
+
+O padrão do pipe continua PyTorch fp32, por três razões medidas:
+
+- Na bola não há detecção a mais ou a menos e o desvio máximo é
+  0,497 px, mas o `shot` passa de "quadro 180, midpoint, conf 0,05" para "quadro 106, ball-break,
+  conf 0,620" — determinístico dos dois lados. No campo, a homografia válida cai de 28 para 26
+  quadros em 90. Sem conjunto anotado não dá para dizer qual está certo, só que mudou.
+- São 85 a 190 MB, não atravessam versão de TensorRT nem placa, e por
+  isso ficam em `var/engines/` e fora do repositório. Nesta máquina convivem o `trtexec` do apt
+  (10.16) e o binding do pip (11.3), e um plano gerado por um não abre no outro — a falha é um
+  `magicTag` que não casa, na desserialização. Por isso `RuntimeInfo.runtime_versions` registra a
+  versão usada.
+
+A bola fica em fp32 no TOML, e o `players` não. A saída do `players` é consumida inteira, sem
+redução sequencial, e perde zero detecções. A bola alimenta um rastreador sequencial, onde uma
+detecção marginal vira cascata — e mesmo com a reâncora corrigida, ligar por padrão espera o
+`eval-ball` com o conjunto do parceiro.
+
+`edge/trt.py` mora fora de `edge/runtime.py` para o contrato continuar importável pelo venv de
+teste, que não tem nem `tensorrt` nem `torch` — mesmo motivo de o adapter do Ultralytics morar na
+espécie. Os testes do backend usam loader falso e rodam sem placa.
+
+## Guarda de regressão
+
+`test_meia_precisao_nao_pode_ser_mais_lenta_que_precisao_cheia` compara as medianas de fp16 e fp32
+e reprova se a meia precisão for mais lenta, o que denunciaria tensor core ocioso — um custo que
+de outro modo seria mudo.
+
+A guarda mede por `quantize`, e não por `half`: medida por `half` ela reprovaria com os tensor core
+funcionando perfeitamente, e o defeito que procura passaria despercebido no falso positivo. É
+mediana e não média porque uma pausa de governor de clock desloca a média inteira.
+
+É opt-in (`XVISION_BENCH=1`) porque depende de peso em disco e de placa, não porque seja
+secundária.
+
+## Riscos e incertezas
+
+- Nada aqui foi medido contra gabarito. Todos os números de qualidade acima são concordância
+  com o fp32, e não prova de que a acurácia não piorou. O conjunto do parceiro não está na máquina
+  e o `eval-ball` continua sendo o juiz.
+- O paralelismo da visão superior não garante aceleração na mesma GPU. O ganho e o consumo de
+  VRAM precisam ser medidos no hardware alvo; a barreira por quadro limita a memória, não o
+  contention.
+- As medições são de uma bancada só. Jetson Orin, ultralytics 8.4, um clipe. Placa, versão ou
+  geometria diferentes mudam o balanço entre lançamento de kernel e cômputo, que é justamente o que
+  faz o campo e a bola responderem em direções opostas à meia precisão.
+- A identificação de equipes ainda relê o vídeo e gera um intermediário removido depois. O
+  decode compartilhado é só o das inferências.
+
+## Ainda não implementado
+
+| Item | O que falta |
+| --- | --- |
+| `ball` com `quantize = "fp16"` por padrão | `eval-ball` contra o conjunto anotado do parceiro |
+| plano TensorRT por padrão | conjunto anotado para arbitrar a mudança no `shot` e na homografia |
+| bola na pipeline paralela | a visão superior roda hoje só com jogadores e keypoints |
+| decode único do clipe | identificação e render ainda releem o vídeo |
+| `int8` e demais esquemas | sem efeito em `predict` sobre peso `.pt`; exigiria caminho de export |
+
+## Referências
+
+- `src/config/pipeline.models.toml` — as alavancas declaradas, com a medição de cada uma no comentário
+- `src/edge/modules/precision.py` — o vocabulário de precisão e por que ele tem duas palavras
+- `src/edge/trt.py` — o loader do plano e a não portabilidade do engine
+- `src/models/README.md` — como executar a pipeline da visão superior

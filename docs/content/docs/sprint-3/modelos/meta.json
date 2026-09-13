@@ -4,6 +4,7 @@
     "campo-e-homografia",
     "bola-e-trajetoria",
     "retomada-e-procedencia",
-    "quantizacao"
+    "quantizacao",
+    "desempenho-e-paralelismo"
   ]
 }
