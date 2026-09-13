@@ -182,6 +182,103 @@ class PyTorchBackend:
         self._info = None
 
 
+class TensorRTBackend:
+    """Executa um engine TensorRT montado por um loader especifico da especie.
+
+    E irmao do `PyTorchBackend`, e nao um modo dele, porque as duas diferencas sao de contrato e
+    nao de ajuste: o formato aceito (`engine` contra `pt`) e o nome que vai para
+    `RuntimeInfo.backend`, que o registro da execucao usa para dizer o que de fato rodou. Um
+    booleano no construtor faria essas duas invariantes dependerem de quem chama.
+
+    O loader tem a mesma assinatura do PyTorch de proposito: recebe caminho e device, devolve algo
+    que leva numpy a numpy. Assim `edge.runtime` nao importa `tensorrt`, o venv de teste (que nao
+    tem nem tensorrt nem torch) continua importando este modulo, e o engine de verdade mora em
+    `edge.trt`, carregado so na placa.
+
+    `precision` reporta o dtype dos bindings, nao o do computo interno. Um engine com peso em
+    fp16 e pontas em fp32 aparece aqui como `float32`, que e o que o chamador entrega e recebe;
+    a meia precisao de dentro fica registrada no ONNX que `parent_onnx_sha256` fixa. O TensorRT
+    nao expoe a precisao de computo pelos bindings, entao inventar o campo seria pior que o
+    limite declarado.
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        device: str,
+        loader: ModelLoader,
+        runtime_versions: tuple[tuple[str, str], ...] = (),
+    ) -> None:
+        self._provider = provider
+        self._device = device
+        self._loader = loader
+        self._runtime_versions = runtime_versions
+        self._artifact: RuntimeArtifact | None = None
+        self._model: RuntimeModel | None = None
+        self._info: RuntimeInfo | None = None
+        self._inference_lock = threading.Lock()
+
+    @property
+    def info(self) -> RuntimeInfo:
+        if self._info is None:
+            raise RuntimeUnavailable("runtime ainda nao foi carregado")
+        return self._info
+
+    def load(self, artifact: RuntimeArtifact) -> None:
+        if self._artifact is not None:
+            if self._artifact.sha256 == artifact.sha256:
+                return
+            raise ArtifactIncompatible("runtime ja foi carregado com outro artefato")
+        if artifact.format != "engine":
+            raise ArtifactIncompatible(f"TensorRT nao abre formato {artifact.format!r}")
+        if not artifact.path.is_file():
+            raise RuntimeUnavailable(f"{artifact.path} nao existe")
+        actual = _sha256(artifact.path)
+        if actual != artifact.sha256:
+            raise ArtifactIncompatible(
+                f"{artifact.path.name} tem sha256 {actual[:12]}, esperado {artifact.sha256[:12]}"
+            )
+        self._model = self._loader(artifact.path, self._device)
+        self._artifact = artifact
+        self._info = RuntimeInfo(
+            backend="tensorrt",
+            provider=self._provider,
+            device=self._device,
+            precision=artifact.inputs[0].dtype,
+            runtime_versions=self._runtime_versions,
+            artifact_sha256=artifact.sha256,
+            parent_onnx_sha256=artifact.parent_onnx_sha256,
+            inputs=artifact.inputs,
+            outputs=artifact.outputs,
+            inference_count=0,
+            fallback_reason=None,
+        )
+
+    def infer(self, inputs: Mapping[str, Array]) -> tuple[RuntimeTensor, ...]:
+        if self._model is None or self._artifact is None or self._info is None:
+            raise RuntimeUnavailable("runtime nao esta carregado")
+        if not self._inference_lock.acquire(blocking=False):
+            raise RuntimeUnavailable("runtime nao aceita inferencia concorrente")
+        try:
+            _validate_tensors(inputs, self._artifact.inputs)
+            raw = self._model(inputs)
+            _validate_tensors(raw, self._artifact.outputs)
+            outputs = tuple(
+                RuntimeTensor(spec.name, _immutable_copy(raw[spec.name]))
+                for spec in self._artifact.outputs
+            )
+            self._info = replace(self._info, inference_count=self._info.inference_count + 1)
+            return outputs
+        finally:
+            self._inference_lock.release()
+
+    def close(self) -> None:
+        self._model = None
+        self._artifact = None
+        self._info = None
+
+
 def verify_onnx(path: Path) -> None:
     """Recusa um ONNX estruturalmente invalido antes de qualquer runtime embarcado."""
     if not path.is_file():

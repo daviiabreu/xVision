@@ -30,6 +30,9 @@ fps      = "native"
 impl     = "edge.modules.players:YoloPlayers"
 artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
+# Espelha a producao: a percepcao tem que ser identica, senao a comparacao mede duas
+# mudancas somadas em vez de uma. Medicao e justificativa em `pipeline.models.toml`.
+quantize = "fp16"
 
 [modules.ball]
 impl     = "edge.modules.ball:YoloBall"
@@ -43,6 +46,10 @@ sobreposicao_px = 100
 # Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
 ranking            = false
 ranking_candidates = 2
+# Espelha a producao: a percepcao tem que ser identica, senao a comparacao mede duas
+# mudancas somadas em vez de uma. Medicao e justificativa em `pipeline.models.toml`.
+letterbox = "cuda"
+quantize = "fp16"
 
 [modules.field]
 impl     = "edge.modules.field:YoloField"

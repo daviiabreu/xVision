@@ -109,3 +109,24 @@ def test_from_weights_nao_importa_ultralytics_no_topo(monkeypatch: pytest.Monkey
 
     assert chamado == ["peso.pt"]
     assert isinstance(adaptador, UltralyticsPlayers)
+
+
+def test_a_precisao_declarada_chega_ao_predict() -> None:
+    """Medido nesta Jetson a 960: 45,2 ms em fp32 contra 28,6 ms com `quantize='fp16'`."""
+    modelo = _Modelo([])
+
+    UltralyticsPlayers(modelo, imgsz=960, conf=0.25, device="cuda", quantize="fp16").detect(
+        object()
+    )
+
+    assert modelo.chamadas[0]["quantize"] == "fp16"
+
+
+def test_sem_declaracao_o_predict_nao_recebe_quantize() -> None:
+    """O padrao continua fp32, e a prova e a chamada nao ganhar parametro nenhum a mais."""
+    modelo = _Modelo([])
+
+    UltralyticsPlayers(modelo, imgsz=960, conf=0.25, device="cuda").detect(object())
+
+    assert "quantize" not in modelo.chamadas[0]
+    assert "half" not in modelo.chamadas[0], "half esta depreciado no 8.4 e mediu 62,4 ms"

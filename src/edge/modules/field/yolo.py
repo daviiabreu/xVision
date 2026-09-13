@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from importlib import import_module
 from importlib.metadata import version
@@ -13,12 +14,16 @@ import numpy as np
 from edge.artifacts import sha256_of
 from edge.modules.base import ModuleError
 from edge.modules.field.geometry import PITCH_105X68, ImageKeypoint
+from edge.modules.precision import PADRAO, ajuste_do_predict
 from edge.runtime import (
     Array,
+    InferenceBackend,
+    ModelLoader,
     PyTorchBackend,
     RuntimeArtifact,
     RuntimeInfo,
     RuntimeModel,
+    TensorRTBackend,
     TensorSpec,
 )
 
@@ -37,40 +42,48 @@ class UltralyticsFieldEstimator:
         imgsz: int,
         conf: float,
         device: str,
-        backend: PyTorchBackend | None = None,
+        quantize: str = PADRAO,
+        backend: InferenceBackend | None = None,
     ) -> None:
         self._model = model
         self._imgsz = imgsz
         self._conf = conf
         self._device = device
+        self._quantize = quantize
         self._backend = backend
 
     @classmethod
     def from_weights(
-        cls, weights: str, *, imgsz: int, conf: float, device: str
+        cls,
+        weights: str,
+        *,
+        imgsz: int,
+        conf: float,
+        device: str,
+        quantize: str = PADRAO,
+        engine: str = "",
+        engine_onnx_sha256: str = "",
     ) -> UltralyticsFieldEstimator:
+        """Monta o runtime da especie: um plano TensorRT quando declarado, senao o PyTorch.
+
+        Medido nesta Jetson, entrada (1,3,544,960): o forward do PyTorch custa 32,9 ms em fp32 e
+        37,5 ms em fp16, e o plano custa 7,9 ms — 76,1% a menos que o fp32, ou 4,2x.
+
+        O campo e o caso que separa os dois mecanismos. Meia precisao o deixa MAIS LENTO, medido
+        duas vezes por caminhos diferentes, porque o modelo e pequeno a 960 e fica preso em
+        lancamento de kernel em vez de computo. A fusao de camadas do TensorRT ataca exatamente
+        lancamento, e por isso rende aqui o maior ganho das tres especies. Nao assuma que uma coisa
+        prediz a outra: aqui elas apontam para lados opostos.
+        """
         if imgsz != 960:
             raise FieldModelIncompatible(
                 f"backend de campo foi congelado em imgsz=960, recebeu {imgsz}"
             )
-        path = Path(weights)
-        backend = PyTorchBackend(
-            provider="ultralytics",
-            device=device,
-            loader=_load_ultralytics,
-            runtime_versions=(("torch", version("torch")), ("ultralytics", version("ultralytics"))),
-        )
-        backend.load(
-            RuntimeArtifact(
-                path=path,
-                sha256=sha256_of(path),
-                format="pt",
-                parent_onnx_sha256=None,
-                inputs=(INPUT,),
-                outputs=(OUTPUT,),
-            )
-        )
-        return cls(None, imgsz=imgsz, conf=conf, device=device, backend=backend)
+        if engine:
+            backend = _backend_de_plano(engine, engine_onnx_sha256, device, quantize)
+        else:
+            backend = _backend_de_peso(weights, device, quantize)
+        return cls(None, imgsz=imgsz, conf=conf, device=device, quantize=quantize, backend=backend)
 
     @property
     def runtime_info(self) -> RuntimeInfo | None:
@@ -91,6 +104,7 @@ class UltralyticsFieldEstimator:
             conf=self._conf,
             device=self._device,
             verbose=False,
+            **ajuste_do_predict(self._quantize),
         )
         if not outputs:
             return None
@@ -170,15 +184,39 @@ def check_field_model(model: object) -> None:
         )
 
 
-def _load_ultralytics(path: Path, device: str) -> RuntimeModel:
+def ultralytics_loader(quantize: str = PADRAO) -> ModelLoader:
+    """O loader do backend com a precisao declarada ja fechada dentro dele.
+
+    `ModelLoader` e `(path, device)` e a precisao nao cabe nessa assinatura: ela e do artefato e
+    nao da chamada, e o `PyTorchBackend` mora em `edge.runtime`, que nao conhece especie nenhuma.
+    """
+
+    def load(path: Path, device: str) -> RuntimeModel:
+        return _load_ultralytics(path, device, quantize)
+
+    return load
+
+
+def _load_ultralytics(path: Path, device: str, quantize: str = PADRAO) -> RuntimeModel:
+    """A meia precisao mora aqui porque producao nao passa pelo `predict` deste arquivo.
+
+    `from_weights` sempre monta o `PyTorchBackend`, e o `predict` acima so roda com modelo
+    injetado. O binding declarado em `INPUT` e `OUTPUT` continua float32 nos dois casos, e a saida
+    volta por `.float()`; o que vira meia precisao sao o peso e o tensor, dentro desta funcao.
+    """
     ultralytics = cast("Any", import_module("ultralytics"))
     torch = cast("Any", import_module("torch"))
     yolo = ultralytics.YOLO(str(path))
     check_field_model(yolo)
     model = yolo.model.to(device).eval()
+    half = quantize != PADRAO
+    if half:
+        model = model.half()
 
     def infer(inputs: Mapping[str, Array]) -> Mapping[str, Array]:
         tensor = torch.from_numpy(inputs["images"]).to(device)
+        if half:
+            tensor = tensor.half()
         with torch.inference_mode():
             output = model(tensor)
             prediction = cast("Any", output[0] if isinstance(output, tuple) else output)
@@ -186,3 +224,67 @@ def _load_ultralytics(path: Path, device: str) -> RuntimeModel:
         return {"predictions": cast("Array", np.ascontiguousarray(host))}
 
     return infer
+
+
+def _backend_de_peso(weights: str, device: str, quantize: str) -> InferenceBackend:
+    path = Path(weights)
+    backend = PyTorchBackend(
+        provider="ultralytics",
+        device=device,
+        loader=ultralytics_loader(quantize),
+        runtime_versions=(("torch", version("torch")), ("ultralytics", version("ultralytics"))),
+    )
+    backend.load(
+        RuntimeArtifact(
+            path=path,
+            sha256=sha256_of(path),
+            format="pt",
+            parent_onnx_sha256=None,
+            inputs=(INPUT,),
+            outputs=(OUTPUT,),
+        )
+    )
+    return backend
+
+
+def _backend_de_plano(
+    engine: str, engine_onnx_sha256: str, device: str, quantize: str
+) -> InferenceBackend:
+    """Recusa cedo o que so falharia na primeira inferencia, pelo mesmo motivo da bola.
+
+    `quantize` junto de `engine` levanta em vez de ser ignorado: a precisao de um plano foi fixada
+    quando ele foi construido, e aceitar o ajuste calado faria o TOML descrever algo que nao
+    acontece — e no campo isso seria especialmente enganoso, porque `fp16` aqui PIORA o PyTorch.
+    """
+    from edge.modules.field.module import FieldConfigError
+    from edge.trt import tensorrt_loader
+
+    plano = Path(engine)
+    if not plano.is_file():
+        raise FieldConfigError(f"field.engine: {plano} nao existe")
+    if re.fullmatch(r"[0-9a-f]{64}", engine_onnx_sha256) is None:
+        raise FieldConfigError(
+            "field.engine_onnx_sha256: um plano exige o sha256 do ONNX que o gerou, com 64 hex"
+        )
+    if quantize != PADRAO:
+        raise FieldConfigError(
+            f"field.quantize={quantize!r} nao se aplica a um plano: a precisao foi fixada "
+            "quando ele foi construido"
+        )
+    backend = TensorRTBackend(
+        provider="tensorrt",
+        device=device,
+        loader=tensorrt_loader(),
+        runtime_versions=(("tensorrt", version("tensorrt")),),
+    )
+    backend.load(
+        RuntimeArtifact(
+            path=plano,
+            sha256=sha256_of(plano),
+            format="engine",
+            parent_onnx_sha256=engine_onnx_sha256,
+            inputs=(INPUT,),
+            outputs=(OUTPUT,),
+        )
+    )
+    return backend

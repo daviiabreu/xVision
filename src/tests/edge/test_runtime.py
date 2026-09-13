@@ -16,6 +16,7 @@ from edge.runtime import (
     RuntimeArtifact,
     RuntimeUnavailable,
     ShapeMismatch,
+    TensorRTBackend,
     TensorSpec,
     verify_onnx,
 )
@@ -123,3 +124,93 @@ def test_onnx_verifier_runs_checker_and_shape_inference(
     verify_onnx(path)
 
     assert calls == ["load:field.onnx", "check:model", "shape:model"]
+
+
+def _engine(path: Path, digest: str) -> RuntimeArtifact:
+    return RuntimeArtifact(
+        path=path,
+        sha256=digest,
+        format="engine",
+        parent_onnx_sha256="b" * 64,
+        inputs=(TensorSpec("images", (1, 3, 4, 4), "float32", "NCHW"),),
+        outputs=(TensorSpec("predictions", (1, 2), "float32", "flat"),),
+    )
+
+
+def _plano_no_disco(tmp_path: Path) -> tuple[Path, str]:
+    plano = tmp_path / "ball.engine"
+    plano.write_bytes(b"plano serializado")
+    return plano, hashlib.sha256(b"plano serializado").hexdigest()
+
+
+def _loader_falso(saida: Any = None) -> Any:
+    def loader(path: Path, device: str) -> Any:
+        def model(inputs: dict[str, Any]) -> dict[str, Any]:
+            if saida is not None:
+                return saida
+            return {"predictions": np.asarray([[inputs["images"].sum(), 2]], dtype=np.float32)}
+
+        return model
+
+    return loader
+
+
+def test_tensorrt_backend_reporta_ter_rodado_engine(tmp_path: Path) -> None:
+    """O registro da execucao precisa distinguir engine de `.pt`, senao a comparacao entre os dois
+    caminhos reporta numero de um e procedencia do outro."""
+    plano, digest = _plano_no_disco(tmp_path)
+    backend = TensorRTBackend(provider="trt", device="cuda:0", loader=_loader_falso())
+    backend.load(_engine(plano, digest))
+
+    assert backend.info.backend == "tensorrt"
+    assert backend.info.parent_onnx_sha256 == "b" * 64
+    assert backend.info.inference_count == 0
+
+    (saida,) = backend.infer({"images": np.ones((1, 3, 4, 4), dtype=np.float32)})
+    assert saida.name == "predictions"
+    assert not saida.value.flags.writeable
+    assert backend.info.inference_count == 1
+
+
+def test_tensorrt_backend_recusa_peso_pytorch(tmp_path: Path) -> None:
+    """Apontar o engine para um `.pt` e erro de configuracao, e falhar calado custaria a medicao."""
+    peso = tmp_path / "ball.pt"
+    peso.write_bytes(b"peso")
+    artefato = RuntimeArtifact(
+        path=peso,
+        sha256=hashlib.sha256(b"peso").hexdigest(),
+        format="pt",
+        parent_onnx_sha256=None,
+        inputs=(TensorSpec("images", (1, 3, 4, 4), "float32", "NCHW"),),
+        outputs=(TensorSpec("predictions", (1, 2), "float32", "flat"),),
+    )
+    backend = TensorRTBackend(provider="trt", device="cuda:0", loader=_loader_falso())
+    with pytest.raises(ArtifactIncompatible, match="formato 'pt'"):
+        backend.load(artefato)
+
+
+def test_tensorrt_backend_recusa_plano_trocado(tmp_path: Path) -> None:
+    """Engine nao atravessa versao de TensorRT nem placa: sha256 diferente e artefato diferente."""
+    plano, digest = _plano_no_disco(tmp_path)
+    plano.write_bytes(b"outro plano")
+    backend = TensorRTBackend(provider="trt", device="cuda:0", loader=_loader_falso())
+    with pytest.raises(ArtifactIncompatible, match="sha256"):
+        backend.load(_engine(plano, digest))
+
+
+def test_tensorrt_backend_recusa_saida_com_shape_errado(tmp_path: Path) -> None:
+    """O plano tem shape fixo; outra saida significa que ele nao e o que o spec declara."""
+    plano, digest = _plano_no_disco(tmp_path)
+    errada = {"predictions": np.zeros((1, 5), dtype=np.float32)}
+    backend = TensorRTBackend(provider="trt", device="cuda:0", loader=_loader_falso(errada))
+    backend.load(_engine(plano, digest))
+    with pytest.raises(ShapeMismatch, match="predictions"):
+        backend.infer({"images": np.ones((1, 3, 4, 4), dtype=np.float32)})
+
+
+def test_tensorrt_backend_sem_carregar_nao_infere() -> None:
+    backend = TensorRTBackend(provider="trt", device="cuda:0", loader=_loader_falso())
+    with pytest.raises(RuntimeUnavailable, match="nao esta carregado"):
+        backend.infer({"images": np.ones((1, 3, 4, 4), dtype=np.float32)})
+    with pytest.raises(RuntimeUnavailable, match="ainda nao foi carregado"):
+        _ = backend.info

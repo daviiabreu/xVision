@@ -19,6 +19,7 @@ alavancas; a decisao de treinar sai da medicao de recall, nao antes dela.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 from importlib import import_module
@@ -34,13 +35,16 @@ from contracts import BallDetection, Box
 from edge.artifacts import sha256_of
 from edge.modules.base import ModuleError
 from edge.modules.inference import as_deteccoes
+from edge.modules.precision import PADRAO, ajuste_do_predict, precisao_valida
 from edge.runtime import (
     Array,
     InferenceBackend,
+    ModelLoader,
     PyTorchBackend,
     RuntimeArtifact,
     RuntimeInfo,
     RuntimeModel,
+    TensorRTBackend,
     TensorSpec,
 )
 
@@ -90,7 +94,25 @@ class DetectorConfig:
     imgsz: int = 1280
     ball_class_id: int = 32
     device: str = "cpu"
-    half: bool = False
+    quantize: str = PADRAO
+    """Precisao da inferencia, e o unico campo de texto que o TOML ajusta aqui.
+
+    Ela substitui um campo `half: bool = False` que morreu neste lugar. Ele nunca chegou ao
+    predict: estava na lista de exclusao de `com_ajustes` e nenhuma chamada o passava adiante.
+    `half = true` no TOML ja era erro antes desta alavanca, justamente por estar excluido: caia em
+    `desconhecidas` e levantava `AjusteDesconhecido`. O que ele aceitava calado era a construcao
+    programatica, `DetectorConfig(half=True)`, que passava e nao ligava meia precisao nenhuma.
+
+    O substituto nao e um `half` que agora funciona: o parametro `half` esta depreciado no
+    ultralytics 8.4 e e mais lento que a precisao cheia. Medido nesta Jetson com o peso de
+    jogadores a 960, `half=True` deu 62,4 ms contra 45,2 ms de fp32 e 28,6 ms de
+    `quantize='fp16'`.
+
+    O padrao continua fp32, aqui e no `predict`: com meia precisao a divergencia de acuracia ainda
+    nao foi medida contra gabarito, e um clipe rodado sem declarar nada tem de sair identico ao de
+    antes.
+    """
+
     min_side_frac: float = 0.004
     max_side_frac: float = 0.06
     min_aspect: float = 0.5
@@ -134,6 +156,56 @@ class DetectorConfig:
     agressivo fundir dois objetos legitimos.
     """
 
+    ladrilhos_por_lote: int = 4
+    """Quantos ladrilhos entram num despacho do Ultralytics; 4 poe o 2x2 inteiro numa chamada so.
+
+    O lote e a alavanca de tempo, porque troca quatro idas ao modelo por uma, mas multiplica por
+    quatro a memoria de ativacao, e nesta Jetson os 8 GB sao divididos entre CPU e GPU. O venv de
+    teste nao tem torch, entao esse consumo nao foi medido aqui: o valor fica ajustavel pelo TOML
+    para quem medir na placa poder descer para 2 sem reescrever o detector. Valor acima do numero
+    de ladrilhos nao muda nada, porque o lote nunca passa do que existe.
+    """
+
+    engine: str = ""
+    """Caminho de um plano TensorRT. Vazio mantem o PyTorch, que continua sendo o padrao.
+
+    Medido nesta Jetson Orin, lote 4 a 992x1600: o forward do PyTorch em fp16 custa 101,3 ms e o
+    plano equivalente custa 45,1 ms, 55,5% a menos. Quase metade disso nao vem da precisao e sim
+    da fusao de camadas: em fp32 o plano ja custa 89,2 ms contra 157,7 ms do PyTorch.
+
+    Fica em caminho e nao em manifesto porque plano nao e artefato versionavel: tem cerca de
+    140 MB, nao atravessa versao de TensorRT nem placa, e por isso e construido nesta maquina em
+    vez de baixado. O `engine_onnx_sha256` abaixo amarra o plano ao ONNX que o gerou, que e a
+    unica procedencia que sobrevive a serializacao.
+
+    O padrao continua no PyTorch de proposito: ele e o oraculo contra o qual a divergencia do
+    plano e medida, e e o que roda se o plano nao carregar.
+    """
+
+    engine_onnx_sha256: str = ""
+    """sha256 do ONNX que originou o plano, exigido pelo `RuntimeArtifact` no formato `engine`.
+
+    Sem ele nao ha como saber de qual peso o plano veio: o `.engine` e opaco e nao carrega o
+    digest do `.pt`. So e lido quando `engine` esta preenchido.
+    """
+
+    letterbox: str = "cv2"
+    """Onde o letterbox dos ladrilhos acontece: no `cv2` da CPU ou no device com `cuda`.
+
+    Medido nesta Jetson Orin, quatro ladrilhos de um 2x2 a imgsz 1600: o caminho de `cv2` mais
+    numpy custa 69,9 ms por quadro, e o de CUDA custa 18,8 ms mais 6,0 ms para descer os 73 MiB
+    de volta para numpy, ou seja 24,8 ms. Sao 45 ms por quadro num quadro de 270 ms, com a bola
+    respondendo por cerca de 70% do clipe.
+
+    Descer para numpy no fim e de proposito: o `PyTorchBackend` recebe array, e manter esse
+    contrato e o que deixa o mesmo binding servir ao TensorRT depois. Na Jetson a memoria e
+    unificada, entao a descida custa 6 ms e nao a viagem de PCIe que custaria numa placa discreta.
+
+    O padrao fica no `cv2` porque as duas interpolacoes nao dao o mesmo pixel: o desvio maximo
+    medido e 0,003 na escala 0..1. E pouco, mas a bola tem cerca de 13 px e a divergencia de
+    deteccao ainda nao foi medida contra gabarito.
+    """
+
     def com_ajustes(self, options: Mapping[str, object]) -> DetectorConfig:
         """Aplica o que a entrada `[modules.ball]` do TOML declarou, e recusa o que ela errou.
 
@@ -141,7 +213,7 @@ class DetectorConfig:
         aqui: `conf` escrito `confidence` deixaria o detector no padrao 0,25 e a execucao inteira
         reportaria o numero de antes como se fosse o da calibracao nova.
         """
-        ajustaveis = {c.name for c in fields(self)} - {"weights", "ball_class_id", "device", "half"}
+        ajustaveis = {c.name for c in fields(self)} - {"weights", "ball_class_id", "device"}
         desconhecidas = sorted(set(options) - ajustaveis)
         if desconhecidas:
             raise AjusteDesconhecido(
@@ -150,10 +222,42 @@ class DetectorConfig:
             )
         valores: dict[str, object] = {}
         for nome, valor in options.items():
+            if nome == "quantize":
+                valores[nome] = precisao_valida("modules.ball.quantize", valor, AjusteDesconhecido)
+                continue
+            if nome == "letterbox":
+                valores[nome] = _letterbox_valido(valor)
+                continue
+            if nome in {"engine", "engine_onnx_sha256"}:
+                valores[nome] = _texto(nome, valor)
+                continue
             numero = _numero(nome, valor)
-            inteiros = {"imgsz", "ladrilhos", "sobreposicao_px"}
+            inteiros = {"imgsz", "ladrilhos", "sobreposicao_px", "ladrilhos_por_lote"}
             valores[nome] = int(numero) if nome in inteiros else float(numero)
         return replace(self, **valores)
+
+
+LETTERBOX_ACEITOS = ("cv2", "cuda")
+
+
+def _letterbox_valido(valor: object) -> str:
+    """`gpu` em vez de `cuda` cairia no padrao e a execucao reportaria o tempo de antes."""
+    if not isinstance(valor, str) or valor not in LETTERBOX_ACEITOS:
+        raise AjusteDesconhecido(
+            f"modules.ball.letterbox = {valor!r}, e o aceito e {' ou '.join(LETTERBOX_ACEITOS)}"
+        )
+    return valor
+
+
+def _texto(nome: str, valor: object) -> str:
+    """Caminho de plano e digest sao texto, e o ramo numerico os rejeitaria antes de qualquer uso.
+
+    Erra calado de um jeito caro: sem isto, `engine` declarado no TOML levanta "espera numero",
+    que aponta para o tipo do valor em vez do campo que falta tratar.
+    """
+    if not isinstance(valor, str) or not valor:
+        raise AjusteDesconhecido(f"modules.ball.{nome} = {valor!r}, e o campo espera texto")
+    return valor
 
 
 def _numero(nome: str, valor: object) -> float:
@@ -167,8 +271,30 @@ def _numero(nome: str, valor: object) -> float:
     return float(valor)
 
 
+def lote_do_backend(config: DetectorConfig) -> int:
+    """Quantos ladrilhos o backend recebe por despacho.
+
+    O artefato de producao e `.pt`, e modelo PyTorch aceita qualquer lote: o lote 1 que estava aqui
+    era restricao nossa, escrita neste arquivo, e nao do peso. Medido no forward do shape de
+    producao (992x1600) nesta Jetson Orin: quatro despachos de lote 1 custam 220,6 ms contra
+    158,3 ms de um despacho de lote 4, com pico de 375 MiB, que nao pesa nos 8 GB da placa.
+
+    Lote que nao divide o numero de ladrilhos e recusado aqui em vez de no meio do quadro: o
+    binding do backend e de shape fixo, entao um resto produziria um segundo despacho de outro
+    tamanho, e a recusa viria depois de metade do trabalho feito.
+    """
+    ladrilhos = max(1, config.ladrilhos) ** 2
+    lote = min(ladrilhos, max(1, config.ladrilhos_por_lote))
+    if ladrilhos % lote:
+        raise BallModelIncompatible(
+            f"ladrilhos_por_lote = {config.ladrilhos_por_lote} nao divide os {ladrilhos} "
+            f"ladrilhos de um {config.ladrilhos}x{config.ladrilhos}, e o binding do backend e fixo"
+        )
+    return lote
+
+
 def backend_specs(config: DetectorConfig) -> tuple[TensorSpec, TensorSpec]:
-    """Bindings fixos para o quadro ou ladrilho declarado na configuracao."""
+    """Bindings fixos para o lote de ladrilhos declarado na configuracao."""
     shapes = {
         _letterbox_shape(height, width, config.imgsz)
         for width, height in _tile_sizes(1920, 1088, config.ladrilhos, config.sobreposicao_px)
@@ -177,9 +303,10 @@ def backend_specs(config: DetectorConfig) -> tuple[TensorSpec, TensorSpec]:
         raise BallModelIncompatible("ladrilhos produzem shapes diferentes para o runtime fixo")
     height, width = shapes.pop()
     anchors = sum((height // stride) * (width // stride) for stride in (8, 16, 32))
+    lote = lote_do_backend(config)
     return (
-        TensorSpec("images", (1, 3, height, width), "float32", "NCHW"),
-        TensorSpec("predictions", (1, 5, anchors), "float32", "flat"),
+        TensorSpec("images", (lote, 3, height, width), "float32", "NCHW"),
+        TensorSpec("predictions", (lote, 5, anchors), "float32", "flat"),
     )
 
 
@@ -321,27 +448,13 @@ class YoloBallDetector:
         trata todo simbolo de import nao resolvido como desconhecido, o que exigiria supressao
         linha a linha em cada uso.
         """
-        path = Path(config.weights)
         input_spec, output_spec = backend_specs(config)
-        backend = PyTorchBackend(
-            provider="ultralytics",
-            device=config.device,
-            loader=_load_ultralytics,
-            runtime_versions=(
-                ("torch", version("torch")),
-                ("ultralytics", version("ultralytics")),
-            ),
-        )
-        backend.load(
-            RuntimeArtifact(
-                path=path,
-                sha256=sha256_of(path),
-                format="pt",
-                parent_onnx_sha256=None,
-                inputs=(input_spec,),
-                outputs=(output_spec,),
-            )
-        )
+        backend: InferenceBackend
+        if config.engine:
+            backend, artifact = _engine_backend(config, input_spec, output_spec)
+        else:
+            backend, artifact = _pytorch_backend(config, input_spec, output_spec)
+        backend.load(artifact)
         return cls(None, replace(config, ball_class_id=0), backend=backend)
 
     def detect_raw(self, frame: FrameArray) -> tuple[tuple[Box, float, int], ...]:
@@ -350,16 +463,20 @@ class YoloBallDetector:
         E o que o cache compartilhado guarda: a mesma passada serve a `ball` e a `players` quando as
         duas usam o mesmo peso, e cada uma filtra o que e dela depois.
 
-        Com `ladrilhos` maior que um, roda uma passada por pedaco e devolve tudo junto no espaco
+        Com `ladrilhos` maior que um, os pedacos vao ao modelo em lote e voltam juntos no espaco
         do quadro completo, com supressao por sobreposicao na juncao. O cache compartilhado deixa
         de servir nesse modo e nao perde nada: ladrilhar so faz sentido quando `ball` tem peso
         proprio, e ai a chave do cache ja e outra.
+
+        `inference_ms` mede o lote inteiro, e nao a soma de quatro medicoes: com um despacho so a
+        soma nao existe mais, e o que interessa ao orcamento por quadro e o tempo de parede da
+        inferencia toda.
         """
         config = self._config
         self._telemetry = DetectorTelemetry()
         if config.ladrilhos <= 1:
             start = perf_counter()
-            detections = self._passada(frame, 0.0, 0.0)
+            detections = self._passada_em_lote(((frame, 0.0, 0.0),))
             elapsed = (perf_counter() - start) * 1000.0
             self._telemetry = DetectorTelemetry(
                 tiles_executed=1,
@@ -369,12 +486,12 @@ class YoloBallDetector:
             )
             return detections
         achadas: list[tuple[Box, float, int]] = []
-        inference_ms = 0.0
         tiles = pedacos(frame, config.ladrilhos, config.sobreposicao_px)
-        for pedaco, x, y in tiles:
-            start = perf_counter()
-            achadas.extend(self._passada(pedaco, x, y))
-            inference_ms += (perf_counter() - start) * 1000.0
+        por_lote = max(1, config.ladrilhos_por_lote)
+        start = perf_counter()
+        for inicio in range(0, len(tiles), por_lote):
+            achadas.extend(self._passada_em_lote(tiles[inicio : inicio + por_lote]))
+        inference_ms = (perf_counter() - start) * 1000.0
         start_nms = perf_counter()
         mantidas = sem_repetidas(achadas, config.nms_iou)
         nms_ms = (perf_counter() - start_nms) * 1000.0
@@ -387,19 +504,42 @@ class YoloBallDetector:
         )
         return mantidas
 
-    def _passada(
-        self, frame: FrameArray, dx: float, dy: float
+    def _passada_em_lote(
+        self, ladrilhos: Sequence[tuple[FrameArray, float, float]]
     ) -> tuple[tuple[Box, float, int], ...]:
+        """Um despacho para varios ladrilhos, ja devolvendo as caixas no espaco do quadro inteiro.
+
+        O Ultralytics aceita a lista de imagens de uma vez e devolve um result por imagem na mesma
+        ordem da entrada, entao o deslocamento de cada ladrilho casa por indice. Medido nesta
+        Jetson, um ladrilho a imgsz 1600 custa 70,4 ms, ou 282 ms por quadro nos quatro despachos
+        sequenciais que isto substitui. Um ladrilho so continua indo cru, fora de lista, para nao
+        mudar nada quando `ladrilhos` esta desligado.
+
+        O caminho do backend tambem bateleia, e o `TensorSpec` declara o lote em `backend_specs`.
+        A versao anterior desta docstring afirmava que batelar ali exigiria exportar um artefato
+        novo: isso vale para ONNX e para engine, onde o shape fica assado no arquivo, e nao para o
+        `.pt` de producao, que aceita qualquer lote. O lote 1 era restricao escrita aqui.
+
+        A ordem da saida e a ordem dos ladrilhos, e ela e contratual: `sem_repetidas` ordena por
+        confianca com `sorted` estavel, entao o empate se desfaz pela ordem de insercao e vira o
+        `detection_index` que o rastreamento usa como chave.
+        """
         if self._backend is not None:
-            return self._backend_pass(frame, dx, dy)
+            return self._backend_em_lote(ladrilhos)
         if self._model is None:
             raise BallModelIncompatible("detector da bola sem modelo ou backend")
         config = self._config
+        imagens = [pedaco for pedaco, _, _ in ladrilhos]
         results = self._model(
-            frame, imgsz=config.imgsz, conf=config.conf, device=config.device, verbose=False
+            imagens[0] if len(imagens) == 1 else imagens,
+            imgsz=config.imgsz,
+            conf=config.conf,
+            device=config.device,
+            verbose=False,
+            **ajuste_do_predict(config.quantize),
         )
         cruas: list[tuple[Box, float, int]] = []
-        for result in results:
+        for result, (_, dx, dy) in zip(results, ladrilhos, strict=True):
             boxes = getattr(result, "boxes", None)
             if boxes is None:
                 continue
@@ -415,44 +555,65 @@ class YoloBallDetector:
                 )
         return tuple(cruas)
 
-    def _backend_pass(
-        self, frame: FrameArray, dx: float, dy: float
+    def _backend_em_lote(
+        self, ladrilhos: Sequence[tuple[FrameArray, float, float]]
     ) -> tuple[tuple[Box, float, int], ...]:
-        image = np.asarray(frame)
-        if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
-            raise BallModelIncompatible(
-                f"ball recebeu tensor {image.shape} {image.dtype}, esperado HxWx3 uint8"
-            )
-        tensor, gain, padding = _letterbox_tensor(image, self._config.imgsz)
+        """Empilha os ladrilhos num tensor e faz um despacho, restaurando cada caixa no seu pedaco.
+
+        Cada ladrilho tem letterbox proprio, com ganho e enchimento proprios, entao a geometria e
+        guardada por indice e usada na volta: misturar as geometrias poria a caixa de um pedaco no
+        espaco de outro, e o resultado continuaria sendo quatro floats plausiveis.
+
+        O `non_max_suppression` do Ultralytics devolve uma lista com uma entrada por item do lote,
+        na ordem da entrada. O `strict=True` no zip existe porque essa correspondencia e a unica
+        coisa que liga deteccao a ladrilho: se ela mudar, o deslocamento errado seria somado a
+        caixa sem erro nenhum aparecer.
+        """
         backend = self._backend
         if backend is None:
             raise BallModelIncompatible("detector da bola sem backend")
-        raw = backend.infer({"images": tensor})[0].value
+        tensores: list[Any] = []
+        geometrias: list[tuple[float, tuple[float, float], int, int, float, float]] = []
+        for pedaco, dx, dy in ladrilhos:
+            image = np.asarray(pedaco)
+            if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
+                raise BallModelIncompatible(
+                    f"ball recebeu tensor {image.shape} {image.dtype}, esperado HxWx3 uint8"
+                )
+            tensor, gain, padding = _letterbox_tensor(
+                image, self._config.imgsz, self._config.letterbox
+            )
+            tensores.append(tensor)
+            altura, largura = image.shape[:2]
+            geometrias.append((gain, padding, int(largura), int(altura), dx, dy))
+        empilhado = np.ascontiguousarray(np.concatenate(tensores, axis=0))
+        raw = backend.infer({"images": empilhado})[0].value
         torch = cast("Any", import_module("torch"))
         nms = cast("Any", import_module("ultralytics.utils.nms"))
-        detections = nms.non_max_suppression(
+        por_ladrilho = nms.non_max_suppression(
             torch.from_numpy(np.array(raw, copy=True)),
             conf_thres=self._config.conf,
             iou_thres=0.7,
             nc=1,
             max_det=300,
-        )[0]
-        if len(detections) == 0:
-            return ()
-        height, width = image.shape[:2]
-        rows: list[tuple[Box, float, int]] = []
-        for row in detections.detach().cpu().numpy():
-            x1, y1, x2, y2 = _restore_box(row[:4], gain, padding, width, height)
-            if x2 <= x1 or y2 <= y1:
+        )
+        achadas: list[tuple[Box, float, int]] = []
+        for deteccoes, geometria in zip(por_ladrilho, geometrias, strict=True):
+            gain, padding, largura, altura, dx, dy = geometria
+            if len(deteccoes) == 0:
                 continue
-            rows.append(
-                (
-                    Box(x1 + dx, y1 + dy, x2 + dx, y2 + dy),
-                    float(row[4]),
-                    int(row[5]),
+            for row in deteccoes.detach().cpu().numpy():
+                x1, y1, x2, y2 = _restore_box(row[:4], gain, padding, largura, altura)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                achadas.append(
+                    (
+                        Box(x1 + dx, y1 + dy, x2 + dx, y2 + dy),
+                        float(row[4]),
+                        int(row[5]),
+                    )
                 )
-            )
-        return tuple(rows)
+        return tuple(achadas)
 
     def candidates_from(
         self, cruas: Sequence[tuple[Box, float, int]], frame_height: float
@@ -491,15 +652,41 @@ def check_ball_model(model: object) -> None:
         )
 
 
-def _load_ultralytics(path: Path, device: str) -> RuntimeModel:
+def carregador_ultralytics(quantize: str = PADRAO) -> ModelLoader:
+    """O loader do backend ja fechado sobre a precisao declarada.
+
+    Existe porque `ModelLoader` e `(caminho, dispositivo)` e a precisao nao cabe nessa assinatura:
+    ela e do artefato e nao da chamada, e o `PyTorchBackend` mora em `edge.runtime`, que nao sabe
+    de especie nenhuma.
+    """
+
+    def carregar(path: Path, device: str) -> RuntimeModel:
+        return _load_ultralytics(path, device, quantize)
+
+    return carregar
+
+
+def _load_ultralytics(path: Path, device: str, quantize: str = PADRAO) -> RuntimeModel:
+    """A meia precisao mora aqui, e nao no `predict`, porque producao nao passa pelo `predict`.
+
+    `from_config` sempre monta o `PyTorchBackend`, entao o caminho do `predict` neste arquivo so
+    roda com modelo injetado. O binding do artefato continua float32 dos dois lados: `TensorSpec`
+    declara float32 na entrada e o `PyTorchBackend` cobra isso, e a saida volta por `.float()`
+    antes do numpy. O que muda em fp16 sao o peso e o tensor, dentro desta funcao.
+    """
     ultralytics = cast("Any", import_module("ultralytics"))
     torch = cast("Any", import_module("torch"))
     yolo = ultralytics.YOLO(str(path))
     check_ball_model(yolo)
     model = yolo.model.to(device).eval()
+    meia = quantize != PADRAO
+    if meia:
+        model = model.half()
 
     def infer(inputs: Mapping[str, Array]) -> Mapping[str, Array]:
         tensor = torch.from_numpy(inputs["images"]).to(device)
+        if meia:
+            tensor = tensor.half()
         with torch.inference_mode():
             output = model(tensor)
             prediction = cast("Any", output[0] if isinstance(output, tuple) else output)
@@ -509,24 +696,84 @@ def _load_ultralytics(path: Path, device: str) -> RuntimeModel:
     return infer
 
 
-def _letterbox_tensor(
-    image: np.ndarray[Any, Any], imgsz: int
-) -> tuple[np.ndarray[Any, Any], float, tuple[float, float]]:
-    height, width = image.shape[:2]
+def _letterbox_geometria(
+    height: int, width: int, imgsz: int
+) -> tuple[float, tuple[float, float], tuple[int, int]]:
+    """O ganho, o enchimento e o tamanho redimensionado, num lugar so.
+
+    Os dois letterbox precisam da MESMA geometria, porque `_restore_box` desfaz o ganho e o
+    enchimento na volta. Se cada caminho calculasse por conta, uma divergencia de arredondamento
+    poria a caixa no espaco errado, e o resultado continuaria sendo quatro floats plausiveis.
+    """
     target_height, target_width = _letterbox_shape(height, width, imgsz)
     gain = min(target_height / height, target_width / width)
     resized_width, resized_height = round(width * gain), round(height * gain)
-    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
     pad_x = (target_width - resized_width) / 2.0
     pad_y = (target_height - resized_height) / 2.0
-    left, right = round(pad_x - 0.1), round(pad_x + 0.1)
-    top, bottom = round(pad_y - 0.1), round(pad_y + 0.1)
+    return gain, (pad_x, pad_y), (resized_height, resized_width)
+
+
+def _enchimento(pad: float) -> tuple[int, int]:
+    """Os dois lados do enchimento, com o desempate de 0,1 que o Ultralytics usa."""
+    return round(pad - 0.1), round(pad + 0.1)
+
+
+def _letterbox_tensor(
+    image: np.ndarray[Any, Any], imgsz: int, modo: str = "cv2"
+) -> tuple[np.ndarray[Any, Any], float, tuple[float, float]]:
+    """Despacha entre o letterbox da CPU e o do device, com a mesma saida em numpy."""
+    if modo == "cuda":
+        return _letterbox_em_cuda(image, imgsz)
+    return _letterbox_em_cv2(image, imgsz)
+
+
+def _letterbox_em_cv2(
+    image: np.ndarray[Any, Any], imgsz: int
+) -> tuple[np.ndarray[Any, Any], float, tuple[float, float]]:
+    height, width = image.shape[:2]
+    gain, (pad_x, pad_y), (resized_height, resized_width) = _letterbox_geometria(
+        height, width, imgsz
+    )
+    resized = cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_LINEAR)
+    left, right = _enchimento(pad_x)
+    top, bottom = _enchimento(pad_y)
     padded = cv2.copyMakeBorder(
         resized, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
     )
     rgb = padded[:, :, ::-1].transpose(2, 0, 1)[None]
     tensor = np.ascontiguousarray(rgb, dtype=np.float32) / np.float32(255.0)
     return tensor, gain, (pad_x, pad_y)
+
+
+def _letterbox_em_cuda(
+    image: np.ndarray[Any, Any], imgsz: int
+) -> tuple[np.ndarray[Any, Any], float, tuple[float, float]]:
+    """O mesmo letterbox no device, subindo uint8 e descendo float32.
+
+    A ordem importa para a banda de memoria: sobe o quadro em uint8, que sao 2 MiB por ladrilho, e
+    a conversao para float32 acontece no device. Subir ja convertido custaria 19 MiB por ladrilho,
+    dez vezes mais trafego, e o ganho todo estaria nisso.
+
+    A interpolacao nao e a do `cv2`: o desvio maximo medido por pixel e 0,003 na escala 0..1. Por
+    isso este caminho e declarado no TOML e nao herdado, e a divergencia de deteccao precisa ser
+    medida antes de virar padrao.
+    """
+    torch = cast("Any", import_module("torch"))
+    funcional = cast("Any", import_module("torch.nn.functional"))
+    height, width = image.shape[:2]
+    gain, (pad_x, pad_y), (resized_height, resized_width) = _letterbox_geometria(
+        height, width, imgsz
+    )
+    device = torch.from_numpy(np.ascontiguousarray(image)).cuda()
+    rgb = device[:, :, [2, 1, 0]].permute(2, 0, 1).unsqueeze(0).float()
+    escalado = funcional.interpolate(
+        rgb, size=(resized_height, resized_width), mode="bilinear", align_corners=False
+    )
+    left, right = _enchimento(pad_x)
+    top, bottom = _enchimento(pad_y)
+    enchido = funcional.pad(escalado, (left, right, top, bottom), value=114.0)
+    tensor = (enchido / 255.0).cpu().numpy()
+    return np.ascontiguousarray(tensor, dtype=np.float32), gain, (pad_x, pad_y)
 
 
 def _restore_box(
@@ -542,3 +789,68 @@ def _restore_box(
     x2 = min(float(width), max(0.0, (float(raw[2]) - pad_x) / gain))
     y2 = min(float(height), max(0.0, (float(raw[3]) - pad_y) / gain))
     return (x1, y1, x2, y2)
+
+
+def _pytorch_backend(
+    config: DetectorConfig, input_spec: TensorSpec, output_spec: TensorSpec
+) -> tuple[InferenceBackend, RuntimeArtifact]:
+    path = Path(config.weights)
+    backend = PyTorchBackend(
+        provider="ultralytics",
+        device=config.device,
+        loader=carregador_ultralytics(config.quantize),
+        runtime_versions=(
+            ("torch", version("torch")),
+            ("ultralytics", version("ultralytics")),
+        ),
+    )
+    artifact = RuntimeArtifact(
+        path=path,
+        sha256=sha256_of(path),
+        format="pt",
+        parent_onnx_sha256=None,
+        inputs=(input_spec,),
+        outputs=(output_spec,),
+    )
+    return backend, artifact
+
+
+def _engine_backend(
+    config: DetectorConfig, input_spec: TensorSpec, output_spec: TensorSpec
+) -> tuple[InferenceBackend, RuntimeArtifact]:
+    """Monta o caminho TensorRT, e recusa cedo o que so falharia na primeira inferencia.
+
+    O formato de 64 hex do `engine_onnx_sha256` e checado aqui e nao no `RuntimeArtifact` porque
+    la o campo so precisa existir; o formato e o que separa "declarei a procedencia" de "colei
+    qualquer coisa". O `quantize` levanta em vez de ser ignorado: a precisao de um plano foi
+    fixada na construcao, e aceitar o ajuste calado faria o TOML descrever algo que nao acontece.
+    """
+    from edge.trt import tensorrt_loader
+
+    plano = Path(config.engine)
+    if not plano.is_file():
+        raise AjusteDesconhecido(f"engine: {plano} nao existe")
+    if re.fullmatch(r"[0-9a-f]{64}", config.engine_onnx_sha256) is None:
+        raise AjusteDesconhecido(
+            "engine_onnx_sha256: um plano exige o sha256 do ONNX que o gerou, com 64 hex"
+        )
+    if config.quantize != PADRAO:
+        raise AjusteDesconhecido(
+            f"quantize={config.quantize!r} nao se aplica a um plano: a precisao foi fixada "
+            "quando ele foi construido, e declara-la aqui descreveria algo que nao acontece"
+        )
+    backend = TensorRTBackend(
+        provider="tensorrt",
+        device=config.device,
+        loader=tensorrt_loader(),
+        runtime_versions=(("tensorrt", version("tensorrt")),),
+    )
+    artifact = RuntimeArtifact(
+        path=plano,
+        sha256=sha256_of(plano),
+        format="engine",
+        parent_onnx_sha256=config.engine_onnx_sha256,
+        inputs=(input_spec,),
+        outputs=(output_spec,),
+    )
+    return backend, artifact

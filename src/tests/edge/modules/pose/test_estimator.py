@@ -16,6 +16,7 @@ import pytest
 from edge.modules.base import FrameBatch, ModuleNotLoaded, ModuleOutput, PerceptionModule
 from edge.modules.conformance import ModuleConformance
 from edge.modules.pose import COCO_KEYPOINTS, PREPROCESS, Keypoints, YoloPose, keypoints_de
+from edge.modules.pose.estimator import PoseConfigError
 from edge.modules.records import check_records
 
 FONTE = (1920, 1080)
@@ -264,3 +265,65 @@ def test_close_solta_o_estimador() -> None:
 
     with pytest.raises(ModuleNotLoaded):
         modulo.infer(_lote((0,)), {})
+
+
+def test_a_precisao_declarada_no_toml_chega_ao_estimador(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A via e a mesma das outras especies: o registro entrega `options` ao `configure`."""
+    from edge.modules.pose.yolo import YoloPoseEstimator
+
+    chamada: dict[str, object] = {}
+
+    def montar(weights: str, **kwargs: object) -> object:
+        chamada.update(weights=weights, **kwargs)
+        return _EstimadorFalso()
+
+    monkeypatch.setattr(YoloPoseEstimator, "from_weights", montar)
+    modulo = YoloPose(weights="pose.pt")
+    modulo.configure({"quantize": "fp16"})
+
+    modulo.load()
+
+    assert chamada == {"weights": "pose.pt", "quantize": "fp16"}
+
+
+def test_sem_declaracao_o_estimador_recebe_precisao_cheia(monkeypatch: pytest.MonkeyPatch) -> None:
+    from edge.modules.pose.yolo import YoloPoseEstimator
+
+    chamada: dict[str, object] = {}
+
+    def montar(weights: str, **kwargs: object) -> object:
+        chamada.update(weights=weights, **kwargs)
+        return _EstimadorFalso()
+
+    monkeypatch.setattr(YoloPoseEstimator, "from_weights", montar)
+
+    YoloPose(weights="pose.pt").load()
+
+    assert chamada == {"weights": "pose.pt", "quantize": "fp32"}
+
+
+@pytest.mark.parametrize("valor", ["fp8", True, 16, "half"])
+def test_precisao_invalida_na_secao_de_pose_levanta(valor: object) -> None:
+    with pytest.raises(PoseConfigError, match="fp32.*fp16"):
+        YoloPose().configure({"quantize": valor})
+
+
+def test_ajuste_desconhecido_na_secao_de_pose_levanta_em_vez_de_ficar_calado() -> None:
+    with pytest.raises(PoseConfigError, match="quantise"):
+        YoloPose().configure({"quantise": "fp16"})
+
+
+def test_a_precisao_declarada_muda_a_chave_do_cache_de_percepcao() -> None:
+    """Mesmo motivo de `players`: keypoint de fp32 guardado nao responde por um pedido de fp16."""
+    from edge.cache.perception import perception_key, tuning_of
+
+    def chave(modulo: YoloPose) -> str:
+        return perception_key("clipe", modulo.spec, (0, 1), {}, "impl", tuning=tuning_of(modulo))
+
+    cheia = YoloPose()
+    meia = YoloPose()
+    meia.configure({"quantize": "fp16"})
+
+    assert tuning_of(cheia) is None, "quem nao declarou precisao fica no endereco de sempre"
+    assert tuning_of(meia) == "quantize=fp16"
+    assert chave(cheia) != chave(meia)

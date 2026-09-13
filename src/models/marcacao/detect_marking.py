@@ -28,12 +28,9 @@ from edge.participants.video import TEAM_COLORS, UNKNOWN_COLOR, process_video
 MODELS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODELS_DIR))
 
-from top_view.homography_view import (  # noqa: E402
-    detect_keypoints,
-    find_transformation,
-    load_model,
-)
-from top_view.top_view_config import get_homography_model_path  # noqa: E402
+from field_keypoints import detect_keypoints, load_model  # noqa: E402
+from homography import find_transformation  # noqa: E402
+from top_view.top_view_config import get_keypoint_model_path  # noqa: E402
 
 OUTPUT_ROOT = Path("data/marcacao_output")
 SCHEMA_VERSION = "player-marking.v0"
@@ -55,7 +52,7 @@ def default_weights():
 
 def build_projection(video_path, frame_index, model):
     if model is None:
-        return None, "px", {"reason": "sem peso de homografia"}
+        return None, "px", {"reason": "sem peso do detector de pontos"}
 
     frame = read_frame(video_path, frame_index)
     device = 0 if torch.cuda.is_available() else "cpu"
@@ -299,7 +296,7 @@ def write_json(path, document):
     temporary.replace(path)
 
 
-def process_clip(video_path, args, tracker, homografia, weights, *, em_lote=False):
+def process_clip(video_path, args, tracker, keypoint_model, weights, *, em_lote=False):
     if args.output_dir:
         raiz = Path(args.output_dir)
         output_dir = raiz / video_path.stem if em_lote else raiz
@@ -337,7 +334,7 @@ def process_clip(video_path, args, tracker, homografia, weights, *, em_lote=Fals
         frame_perception = tracking.frames[frame_index]
         clip = ClipeJanela(tracking.clip_id, 0, len(tracking.frames))
 
-    project, unit, diagnostico = build_projection(video_path, frame_index, homografia)
+    project, unit, diagnostico = build_projection(video_path, frame_index, keypoint_model)
     radius = (
         args.radius if args.radius is not None else (DEFAULT_RADIUS_M if unit == "m" else RADIUS_PX)
     )
@@ -411,14 +408,12 @@ def run(args):
         confidence_threshold=CONFIDENCE,
         device=args.device,
     )
-    homography_path = args.homography if args.homography else get_homography_model_path()
-    homografia = (
-        load_model(Path(homography_path))
-        if homography_path and Path(homography_path).exists()
-        else None
+    keypoint_path = args.keypoint_weights or get_keypoint_model_path()
+    keypoint_model = (
+        load_model(Path(keypoint_path)) if keypoint_path and Path(keypoint_path).exists() else None
     )
-    if homografia is None:
-        print("sem peso de homografia: a distancia sai em pixel")
+    if keypoint_model is None:
+        print("sem peso do detector de pontos: a distancia sai em pixel")
 
     resumos = []
     for indice, video in enumerate(videos, start=1):
@@ -427,7 +422,7 @@ def run(args):
             print(f"[{indice}/{len(videos)}] {video.name}")
         try:
             resumos.append(
-                process_clip(video, args, tracker, homografia, weights, em_lote=len(videos) > 1)
+                process_clip(video, args, tracker, keypoint_model, weights, em_lote=len(videos) > 1)
             )
         except Exception as erro:  # noqa: BLE001 - um clipe ruim nao pode custar o lote
             print(f"  FALHOU: {type(erro).__name__}: {erro}")
@@ -473,7 +468,11 @@ def build_parser():
         "--frame", type=int, default=None, help="quadro a medir (padrao: o do meio)"
     )
     parser.add_argument("--weights", default=None, help="peso de deteccao (padrao: o do manifesto)")
-    parser.add_argument("--homography", default=None, help="peso de keypoints do campo")
+    parser.add_argument(
+        "--keypoint-weights",
+        default=None,
+        help="peso do detector de pontos do campo",
+    )
     parser.add_argument("--radius", type=float, default=None, help="raio maximo de marcacao")
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--device", default="auto", choices=("auto", "cpu", "mps", "cuda"))

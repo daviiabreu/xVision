@@ -141,6 +141,7 @@ class BallTracker:
         self._segment = -1
         self._last_frame_index: int | None = None
         self._last_timestamp_s: float | None = None
+        self._perdido: tuple[tuple[float, float], float] | None = None
         self._telemetry = TrackerTelemetry()
 
     @property
@@ -154,7 +155,7 @@ class BallTracker:
         if observation.camera_cut:
             self._telemetry = replace(self._telemetry, camera_cuts=self._telemetry.camera_cuts + 1)
             prefix = self._close_pending()
-            self._reset_track(count=bool(self._last is not None or prefix))
+            self._reset_track(count=bool(self._last is not None or prefix), lembrar=False)
 
         chosen, rejected_jump = self._select(observation.candidates, observation.timestamp_s)
         if rejected_jump:
@@ -224,9 +225,7 @@ class BallTracker:
             return None, False
         last = self._last
         if last is None or last.center is None:
-            if self._config.candidate_order:
-                return candidates[0], False
-            return max(candidates, key=lambda d: d.confidence), False
+            return self._reancorar(candidates, timestamp_s)
 
         dt = timestamp_s - last.timestamp_s
         allowed = self._config.max_ball_speed_px_per_s * dt * self._config.gate_margin
@@ -252,6 +251,40 @@ class BallTracker:
             ),
             False,
         )
+
+    def _reancorar(
+        self, candidates: tuple[BallDetection, ...], timestamp_s: float
+    ) -> tuple[BallDetection | None, bool]:
+        """A primeira ancora de um segmento, restrita ao que a fisica admite desde a ultima perda.
+
+        Sem essa restricao a reancora era a maior confianca em qualquer lugar do quadro, e uma
+        deteccao marginal perdida no corte de confianca levava a trajetoria para outro objeto:
+        medido num clipe, o fp16 divergia em 61 dos 360 quadros e o pior caso ficou a 1641 px, com
+        a bola do fim do clipe sendo outro objeto.
+
+        O gate e o MESMO que protege a continuacao, `max_ball_speed_px_per_s * dt * gate_margin`,
+        so aplicado atraves da lacuna em vez de descartado nela. Ele nao precisa de prazo: com os
+        padroes de 3000 px/s e margem 1,5, passado cerca de meio segundo o raio permitido excede a
+        diagonal de um quadro 1920x1080 e a memoria deixa de restringir sozinha.
+
+        Sem memoria, que e o comeco do clipe, o criterio segue sendo a maior confianca.
+        """
+        perdido = self._perdido
+        if perdido is not None:
+            (px, py), quando = perdido
+            dt = timestamp_s - quando
+            allowed = self._config.max_ball_speed_px_per_s * dt * self._config.gate_margin
+            alcancaveis = tuple(
+                candidate
+                for candidate in candidates
+                if dt <= 0 or math.hypot(*_delta(_box_center(candidate.box), (px, py))) <= allowed
+            )
+            if not alcancaveis:
+                return None, True
+            candidates = alcancaveis
+        if self._config.candidate_order:
+            return candidates[0], False
+        return max(candidates, key=lambda d: d.confidence), False
 
     def _predict(self, timestamp_s: float) -> tuple[float, float]:
         """Extrapola a proxima posicao pela velocidade dos dois ultimos pontos confirmados."""
@@ -280,7 +313,17 @@ class BallTracker:
             )
         return self._static_run >= self._config.stationary_frames
 
-    def _reset_track(self, *, count: bool) -> None:
+    def _reset_track(self, *, count: bool, lembrar: bool = True) -> None:
+        """Esquece a trajetoria, mas lembra ONDE ela morreu, para a reancora nao trocar de objeto.
+
+        `lembrar` fica falso quando a posicao anterior deixou de significar algo: corte de camera
+        muda o plano inteiro, e erro de ordem quebra a identidade do stream. Nos dois casos guardar
+        a ultima posicao faria a reancora respeitar uma coordenada de outro enquadramento.
+        """
+        if lembrar and self._last is not None and self._last.center is not None:
+            self._perdido = (self._last.center, self._last.timestamp_s)
+        elif not lembrar:
+            self._perdido = None
         self._last = None
         self._prev = None
         self._static_run = 0
@@ -289,15 +332,15 @@ class BallTracker:
 
     def _check_order(self, observation: BallObservation) -> None:
         if not math.isfinite(observation.timestamp_s):
-            self._reset_track(count=self._last is not None)
+            self._reset_track(count=self._last is not None, lembrar=False)
             raise TrajectoryOrderError("timestamp da bola precisa ser finito")
         if self._last_frame_index is not None and observation.frame_index <= self._last_frame_index:
-            self._reset_track(count=self._last is not None)
+            self._reset_track(count=self._last is not None, lembrar=False)
             raise TrajectoryOrderError(
                 f"frame da bola {observation.frame_index} nao sucede {self._last_frame_index}"
             )
         if self._last_timestamp_s is not None and observation.timestamp_s <= self._last_timestamp_s:
-            self._reset_track(count=self._last is not None)
+            self._reset_track(count=self._last is not None, lembrar=False)
             raise TrajectoryOrderError(
                 f"timestamp da bola {observation.timestamp_s} nao sucede {self._last_timestamp_s}"
             )

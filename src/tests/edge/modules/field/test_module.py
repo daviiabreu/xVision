@@ -172,8 +172,25 @@ def test_inference_options_reach_the_real_estimator(
 ) -> None:
     calls: dict[str, object] = {}
 
-    def build(weights: str, *, imgsz: int, conf: float, device: str) -> _Estimator:
-        calls.update(weights=weights, imgsz=imgsz, conf=conf, device=device)
+    def build(
+        weights: str,
+        *,
+        imgsz: int,
+        conf: float,
+        device: str,
+        quantize: str,
+        engine: str,
+        engine_onnx_sha256: str,
+    ) -> _Estimator:
+        calls.update(
+            weights=weights,
+            imgsz=imgsz,
+            conf=conf,
+            device=device,
+            quantize=quantize,
+            engine=engine,
+            engine_onnx_sha256=engine_onnx_sha256,
+        )
         return _Estimator()
 
     def entrypoint(artifact: str | None) -> Path:
@@ -186,4 +203,82 @@ def test_inference_options_reach_the_real_estimator(
 
     module.load()
 
-    assert calls == {"weights": "field.pt", "imgsz": 640, "conf": 0.4, "device": "cpu"}
+    assert calls == {
+        "weights": "field.pt",
+        "imgsz": 640,
+        "conf": 0.4,
+        "device": "cpu",
+        "quantize": "fp32",
+        "engine": "",
+        "engine_onnx_sha256": "",
+    }
+
+
+def test_plano_declarado_chega_ao_estimador(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sem isto, `engine` no TOML seria lido e descartado, e a execucao reportaria o tempo do peso.
+
+    E o modo de falha caro desta especie: o campo ganha 4,2x com plano, entao uma medicao que
+    silenciosamente rodou em PyTorch pareceria "TensorRT nao ajudou aqui".
+    """
+    calls: dict[str, object] = {}
+
+    def build(weights: str, **kwargs: object) -> _Estimator:
+        calls.update(kwargs)
+        return _Estimator()
+
+    def entrypoint(artifact: str | None) -> Path:
+        return Path("field.pt")
+
+    monkeypatch.setattr("edge.modules.field.module.entrypoint_of", entrypoint)
+    monkeypatch.setattr(UltralyticsFieldEstimator, "from_weights", build)
+    module = YoloField()
+    module.configure({"engine": "/planos/field.engine", "engine_onnx_sha256": "a" * 64})
+
+    module.load()
+
+    assert calls["engine"] == "/planos/field.engine"
+    assert calls["engine_onnx_sha256"] == "a" * 64
+
+
+def test_plano_com_texto_vazio_e_recusado() -> None:
+    module = YoloField()
+    with pytest.raises(FieldConfigError, match="engine espera texto"):
+        module.configure({"engine": ""})
+
+
+def test_the_declared_precision_reaches_the_real_estimator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    def build(weights: str, **kwargs: object) -> _Estimator:
+        calls.update(weights=weights, **kwargs)
+        return _Estimator()
+
+    def entrypoint(artifact: str | None) -> Path:
+        return Path("field.pt")
+
+    monkeypatch.setattr("edge.modules.field.module.entrypoint_of", entrypoint)
+    monkeypatch.setattr(UltralyticsFieldEstimator, "from_weights", build)
+    module = YoloField()
+    module.configure({"quantize": "fp16"})
+
+    module.load()
+
+    assert calls["quantize"] == "fp16"
+
+
+def test_precision_changes_the_perception_cache_fingerprint() -> None:
+    """Meia precisao devolve outros numeros, entao a passada guardada da outra nao pode servir."""
+    module = YoloField(_Estimator())
+    original = module.fingerprint()
+
+    module.configure({"quantize": "fp16"})
+
+    assert module.fingerprint() != original
+
+
+@pytest.mark.parametrize("value", ["fp8", True, 16, "half"])
+def test_an_invalid_precision_is_refused_with_what_is_accepted(value: object) -> None:
+    with pytest.raises(FieldConfigError, match="fp32.*fp16"):
+        YoloField().configure({"quantize": value})

@@ -28,6 +28,7 @@ from edge.artifacts import entrypoint_of
 from edge.frames.preprocess import to_source_box
 from edge.modules.base import (
     FrameBatch,
+    ModuleError,
     ModuleInputs,
     ModuleNotLoaded,
     ModuleOutput,
@@ -37,6 +38,7 @@ from edge.modules.base import (
 )
 from edge.modules.device import preferred_device
 from edge.modules.inference import shared
+from edge.modules.precision import PADRAO, precisao_valida
 
 PREPROCESS = PreprocessSpec(width=1280, height=736, color="bgr", letterbox=True, normalize="none")
 
@@ -52,11 +54,21 @@ proxima, e contar a propria bola como gente daria distancia zero em todo quadro.
 MIN_CONFIDENCE = 0.25
 
 
+class PlayersConfigError(ModuleError): ...
+
+
 @dataclass(frozen=True)
 class PlayersConfig:
     imgsz: int = 1280
     conf: float = MIN_CONFIDENCE
     device: str = ""
+    quantize: str = PADRAO
+    """Precisao da inferencia, declarada em `[modules.players]` e medida antes de ser oferecida.
+
+    Nesta Jetson, a 960: 45,2 ms em fp32 e 28,6 ms com `quantize='fp16'`. O padrao fica em fp32
+    porque a divergencia de acuracia de meia precisao ainda nao foi medida contra gabarito.
+    """
+
     classes: Mapping[int, str | None] = field(default_factory=lambda: COCO_PERSON)
 
 
@@ -81,6 +93,42 @@ class YoloPlayers:
         self._peso = ""
         self._pronto = False
 
+    def fingerprint(self) -> str | None:
+        """O ajuste em vigor, para o cache de percepcao nao servir a percepcao da outra precisao.
+
+        `run_module` le isto por `getattr` e sem o metodo devolve `None`, entao a chave de disco
+        ficava identica em fp32 e em fp16: rodar o clipe no padrao, declarar `quantize = "fp16"` e
+        rodar de novo devolvia a percepcao guardada e o modelo nem era chamado. A alavanca ficaria
+        muda exatamente no uso que ela existe para servir, que e comparar as duas precisoes.
+
+        No padrao devolve `None`, e nao `quantize=fp32`, para nao mudar de endereco quem nao pediu
+        nada: com texto fixo, so acrescentar este metodo jogaria fora todo clipe de `players` ja
+        guardado nesta maquina e cobraria a recontagem em GPU sem nenhum ganho de correcao.
+        """
+        return None if self._config.quantize == PADRAO else f"quantize={self._config.quantize}"
+
+    def configure(self, options: Mapping[str, object]) -> None:
+        """A especie ajusta a precisao da inferencia, e so ela por enquanto.
+
+        `imgsz`, `conf` e `device` existem na `PlayersConfig` e continuam fora do vocabulario do
+        TOML de proposito: nenhum deles foi calibrado por medicao aqui, e abrir o campo agora
+        conviveria com o valor do manifesto sem dizer qual dos dois ganha. Nome desconhecido
+        levanta em vez de ser ignorado pelo motivo de sempre: quem escreve `quantise` leria o
+        arquivo, veria a execucao terminar sem reclamar e concluiria que ligou meia precisao.
+        """
+        desconhecidas = sorted(set(options) - {"quantize"})
+        if desconhecidas:
+            raise PlayersConfigError(
+                f"{', '.join(desconhecidas)}: a especie players ajusta quantize"
+            )
+        if "quantize" in options:
+            self._config = replace(
+                self._config,
+                quantize=precisao_valida(
+                    "modules.players.quantize", options["quantize"], PlayersConfigError
+                ),
+            )
+
     def load(self) -> None:
         if self._backend is None:
             peso = entrypoint_of(self.spec.artifact)
@@ -93,6 +141,7 @@ class YoloPlayers:
                     imgsz=self._config.imgsz,
                     conf=self._config.conf,
                     device=self._config.device or preferred_device(),
+                    quantize=self._config.quantize,
                 )
                 self._config = replace(
                     self._config, classes=_classes_do_peso(self._backend, self._config)

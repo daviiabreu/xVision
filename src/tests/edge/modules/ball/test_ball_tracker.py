@@ -237,3 +237,75 @@ def test_candidate_order_com_um_candidato_nao_muda_nada() -> None:
     ]
 
     assert padrao == ordenado
+
+
+def _obs_multi(frame: int, *candidatos: tuple[tuple[float, float], float]) -> BallObservation:
+    return BallObservation(
+        frame, frame / 30.0, tuple(_ball(centro, conf) for centro, conf in candidatos)
+    )
+
+
+def _perde_a_trajetoria(tracker: BallTracker, ate: int) -> None:
+    """Estabelece a trajetoria perto de (100, 100) e abre lacuna longa o bastante para resetar."""
+    for frame in range(3):
+        tracker.update(_obs(frame, (100.0 + frame * 5.0, 100.0)))
+    for frame in range(3, ate):
+        tracker.update(_obs(frame, None))
+
+
+def test_a_reancora_respeita_a_ultima_posicao_conhecida() -> None:
+    """Depois de perder a bola, reancorar pela maior confianca joga a trajetoria noutro objeto.
+
+    Medido: o fp16 na bola divergia em 61 dos 360 quadros de um clipe, e a cascata inteira vinha de
+    uma caixa a 3,7e-05 do corte `conf = 0,10`. Perdida ela, a lacuna nao fechava, a trajetoria
+    morria e a reancora escolhia o candidato de maior confianca em qualquer lugar do quadro: 1641 px
+    de distancia, outro objeto. O gate de velocidade que protege a continuacao nao valia aqui.
+    """
+    tracker = BallTracker()
+    _perde_a_trajetoria(tracker, 10)
+
+    pontos = tracker.update(_obs_multi(10, ((1700.0, 900.0), 0.95), ((120.0, 100.0), 0.30)))
+
+    escolhido = [p for p in pontos if p.source == "detected"]
+    assert len(escolhido) == 1
+    assert escolhido[0].center == (120.0, 100.0)
+
+
+def test_reancora_impossivel_nao_inventa_trajetoria() -> None:
+    """Se o unico candidato esta longe demais para ser a mesma bola, a lacuna continua aberta.
+
+    Ancorar nele seria trocar de objeto em silencio, que e pior que admitir que a bola foi perdida.
+    """
+    tracker = BallTracker()
+    _perde_a_trajetoria(tracker, 10)
+
+    pontos = tracker.update(_obs_multi(10, ((1700.0, 900.0), 0.95)))
+
+    assert [p for p in pontos if p.source == "detected"] == []
+    assert tracker.telemetry.rejected_jumps >= 1
+
+
+def test_a_memoria_da_perda_expira_pela_propria_fisica() -> None:
+    """Sem prazo, uma posse nova do outro lado do campo nunca ancoraria.
+
+    O prazo nao precisa de parametro novo: o raio permitido e `3000 px/s * dt * 1,5`, entao passado
+    cerca de meio segundo ele ja excede a diagonal de um quadro 1920x1080 e admite qualquer posicao.
+    """
+    tracker = BallTracker()
+    _perde_a_trajetoria(tracker, 10)
+
+    longe = _ball((1700.0, 900.0), 0.95)
+    pontos = tracker.update(BallObservation(100, 100 / 30.0, (longe,)))
+
+    escolhido = [p for p in pontos if p.source == "detected"]
+    assert len(escolhido) == 1
+    assert escolhido[0].center == (1700.0, 900.0)
+
+
+def test_a_primeira_ancora_do_clipe_continua_pela_confianca() -> None:
+    """Sem posicao anterior nao ha o que respeitar, e o criterio segue sendo a maior confianca."""
+    tracker = BallTracker()
+
+    pontos = tracker.update(_obs_multi(0, ((1700.0, 900.0), 0.95), ((120.0, 100.0), 0.30)))
+
+    assert [p.center for p in pontos if p.source == "detected"] == [(1700.0, 900.0)]

@@ -43,6 +43,9 @@ fps      = "native"
 impl     = "edge.participants.module:PlayersModule"
 artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
+# Sem `quantize`: o `PlayersModule` deste pacote nao expoe a alavanca que o `YoloPlayers` da
+# producao expoe. A comparacao que este arquivo serve e entre as duas implementacoes, e o
+# teste de paridade ja isenta `players` e `tracking` por isso.
 
 [modules.ball]
 impl     = "edge.modules.ball:YoloBall"
@@ -56,6 +59,10 @@ sobreposicao_px = 100
 # Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
 ranking            = false
 ranking_candidates = 2
+# Espelha a producao: a percepcao tem que ser identica, senao a comparacao mede duas
+# mudancas somadas em vez de uma. Medicao e justificativa em `pipeline.models.toml`.
+letterbox = "cuda"
+quantize = "fp16"
 
 [modules.field]
 impl     = "edge.modules.field:YoloField"

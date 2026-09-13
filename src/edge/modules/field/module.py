@@ -32,6 +32,7 @@ from edge.modules.field.geometry import (
     pitch_to_image,
 )
 from edge.modules.field.refinement import LineRefinement, refine_white_lines
+from edge.modules.precision import PADRAO, precisao_valida
 
 PREPROCESS = PreprocessSpec(width=960, height=544, color="bgr", letterbox=True, normalize="none")
 
@@ -64,6 +65,9 @@ class YoloField:
         self._imgsz = PREPROCESS.width
         self._conf = 0.25
         self._device = ""
+        self._quantize = PADRAO
+        self._engine = ""
+        self._engine_onnx_sha256 = ""
         self._ready = False
         self._line_refinement = False
 
@@ -74,6 +78,7 @@ class YoloField:
                 "imgsz": self._imgsz,
                 "conf": self._conf,
                 "device": self._device,
+                "quantize": self._quantize,
                 "line_refinement": self._line_refinement,
             },
             sort_keys=True,
@@ -89,6 +94,9 @@ class YoloField:
             "imgsz",
             "conf",
             "device",
+            "quantize",
+            "engine",
+            "engine_onnx_sha256",
             "line_refinement",
         }
         unknown = set(options) - allowed
@@ -144,6 +152,16 @@ class YoloField:
             if not isinstance(value, str) or not value:
                 raise FieldConfigError("field.device espera texto nao vazio")
             self._device = value
+        if "quantize" in options:
+            self._quantize = precisao_valida(
+                "field.quantize", options["quantize"], FieldConfigError
+            )
+        for nome in ("engine", "engine_onnx_sha256"):
+            if nome in options:
+                valor = options[nome]
+                if not isinstance(valor, str) or not valor:
+                    raise FieldConfigError(f"field.{nome} espera texto nao vazio")
+                setattr(self, f"_{nome}", valor)
         self._calibration = replace(self._calibration, **changes)  # pyright: ignore[reportArgumentType]
 
     def load(self) -> None:
@@ -159,6 +177,9 @@ class YoloField:
                     imgsz=self._imgsz,
                     conf=self._conf,
                     device=self._device or preferred_device(),
+                    quantize=self._quantize,
+                    engine=self._engine,
+                    engine_onnx_sha256=self._engine_onnx_sha256,
                 )
                 self._owns_estimator = True
         self._ready = True

@@ -1,51 +1,45 @@
+import argparse
 import subprocess
 import sys
 from collections import defaultdict, deque
 from pathlib import Path
+from time import perf_counter
 
 import cv2
 import imageio_ffmpeg
-import torch
 
-from edge.participants.identification import load_tracking, process_identification
+# ruff: noqa: E402, I001
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+MODELS_DIR = SCRIPT_DIR.parent
+SRC_DIR = MODELS_DIR.parent
+for import_root in (SRC_DIR, MODELS_DIR):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
+
+from edge.modules.device import preferred_device
 from edge.participants.tracking import PlayerTracker
-from edge.participants.video import (
-    TEAM_COLORS,
-    annotate_frame,
-)
-from edge.participants.video import (
-    process_video as process_tracking_video,
-)
+from edge.participants.video import TEAM_COLORS, annotate_frame
 
-MODELS_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(MODELS_DIR))
-
-from top_view.homography_view import (  # noqa: E402
-    detect_keypoints,
+from field_keypoints import load_model  # noqa: E402
+from homography import (  # noqa: E402
     draw_homography,
     draw_keypoints,
     draw_top_view,
-    find_transformation,
-    load_model,
-    project_players,
-    select_half,
-    smooth_positions,
 )
-from top_view.top_view_config import get_homography_model_path  # noqa: E402
+from top_view.pipeline import log, run_pipeline  # noqa: E402
+from top_view.top_view_config import get_keypoint_model_path  # noqa: E402
 from track_players.tracking_config import get_model_path  # noqa: E402
 
-DEVICE = 0 if torch.cuda.is_available() else "cpu"
-PLAYER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+PLAYER_DEVICE = preferred_device()
+DEVICE = PLAYER_DEVICE
 IMGSZ = 960
 CONFIDENCE = 0.25
 IOU = 0.7
 TRAIL_LENGTH = 35
-MAX_FRAMES_WITHOUT_CALIBRATION = 15
-MINIMUM_POINTS_TO_START = 7
-MINIMUM_POINTS_TO_UPDATE = 6
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".m4v", ".webm"}
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = SCRIPT_DIR
 OUTPUT_DIR = PROJECT_DIR / "video_tracking"
 
 
@@ -78,6 +72,8 @@ def create_writer(output_folder, video_path, fps, size):
 
 
 def convert_to_h264(temporary_path, output_path):
+    log("Conversão H.264 iniciada")
+    started = perf_counter()
     command = [
         imageio_ffmpeg.get_ffmpeg_exe(),
         "-y",
@@ -93,77 +89,76 @@ def convert_to_h264(temporary_path, output_path):
     ]
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     temporary_path.unlink()
+    elapsed = perf_counter() - started
+    log(f"Conversão H.264 concluída — {elapsed:.2f}s")
+    return elapsed
 
 
-def remove_intermediate_videos(tracking_dir):
-    files = [
-        tracking_dir / "annotated.mp4",
-        tracking_dir / "identification" / "identified.mp4",
-    ]
-
-    for file in files:
-        file.unlink(missing_ok=True)
-
-
-def process_video(tracker, video_path, input_dir, homography_model):
-    """O render da API importa esta funcao e chama posicionalmente, e por isso a ordem e fixa.
-
-    `src/api/render.py` nao sabe rastrear nem identificar: ele passa o tracker e espera o video
-    pronto. Entao as tres etapas moram aqui, e nao no `main`, senao o render desenharia sem time
-    e a assinatura mudaria a cada etapa nova. Quem cobra essa ligacao, que nenhum type checker
-    enxerga, e `src/tests/api/test_render.py`.
-    """
-    output_folder = OUTPUT_DIR / video_path.relative_to(input_dir).parent
-    output_folder.mkdir(parents=True, exist_ok=True)
-    tracking_dir = output_folder / "tracking"
-
-    process_tracking_video(video_path, tracking_dir, tracker)
-    tracking = load_tracking(tracking_dir / "detections.json")
-    identification = process_identification(
+def process_video(
+    tracker,
+    video_path,
+    input_dir,
+    homography_model,
+    *,
+    output_dir=None,
+):
+    output_folder = (output_dir or OUTPUT_DIR) / video_path.relative_to(input_dir).parent
+    total_started = perf_counter()
+    log(f"Pipeline iniciada — vídeo: {video_path}")
+    result = run_pipeline(
+        tracker,
         video_path,
-        tracking_dir / "detections.json",
-        tracking_dir / "identification",
+        output_folder / video_path.stem / "tracking",
+        homography_model,
+        DEVICE,
     )
-    teams = {
-        track["track_id"]: track["team"]
-        for track in identification["tracks"]
-        if track["team"] is not None
-    }
+    output_path, render_seconds, conversion_seconds = build_top_view_video(
+        video_path, output_folder, result
+    )
+    total_seconds = perf_counter() - total_started
+    log("RESUMO DE TEMPOS")
+    log(f"  Modelo de jogadores (acum.) .. {result.timings['players_model']:.2f}s")
+    log(f"  Modelo de pontos (acum.) ..... {result.timings['field_keypoints_model']:.2f}s")
+    log(f"  Inferência paralela (parede) . {result.timings['parallel_inference']:.2f}s")
+    log(f"  Identificação de equipes ..... {result.timings['team_identification']:.2f}s")
+    log(f"  Cálculo da homografia ........ {result.timings['homography']:.2f}s")
+    log(f"  Projeção e marcação .......... {result.timings['projection_marking']:.2f}s")
+    log(f"  Renderização ................. {render_seconds:.2f}s")
+    log(f"  Conversão H.264 .............. {conversion_seconds:.2f}s")
+    log(f"  TOTAL ........................ {total_seconds:.2f}s")
+    log(f"Arquivo gerado: {output_path}")
+    return output_path
 
-    try:
-        build_top_view_video(video_path, input_dir, homography_model, tracking, teams)
-    finally:
-        remove_intermediate_videos(tracking_dir)
 
-
-def build_top_view_video(video_path, input_dir, homography_model, tracking, teams):
-    relative_folder = video_path.relative_to(input_dir).parent
-    output_folder = OUTPUT_DIR / relative_folder
+def build_top_view_video(video_path, output_folder, result):
+    log("Renderização do top view iniciada")
+    render_started = perf_counter()
     output_folder.mkdir(parents=True, exist_ok=True)
-
+    tracking, teams = result.tracking, result.teams
     capture = cv2.VideoCapture(str(video_path))
 
     if not capture.isOpened():
+        capture.release()
         raise RuntimeError(f"Não foi possível abrir: {video_path}")
 
-    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
-    total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    top_view = draw_top_view(height, [], color_for_id)
-    writer, temporary_path, output_path = create_writer(
-        output_folder,
-        video_path,
-        fps,
-        (width + top_view.shape[1], height),
-    )
+    try:
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+        total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        top_view = draw_top_view(height, [], color_for_id)
+        writer, temporary_path, output_path = create_writer(
+            output_folder,
+            video_path,
+            fps,
+            (width + top_view.shape[1], height),
+        )
+    except Exception:
+        capture.release()
+        raise
 
     trajectories = defaultdict(lambda: deque(maxlen=TRAIL_LENGTH))
     frame_number = 0
-    matrix = None
-    frames_without_calibration = 0
-    mirror = None
-    previous_positions = {}
 
     try:
         while True:
@@ -171,72 +166,56 @@ def build_top_view_video(video_path, input_dir, homography_model, tracking, team
             if not ok:
                 break
 
+            if frame_number >= len(result.frames):
+                raise ValueError("Video tem mais quadros que os resultados da pipeline")
+            prepared = result.frames[frame_number]
+            if prepared.frame_index != frame_number:
+                raise ValueError("Resultados da pipeline fora de ordem")
             detections = tracking.frames[frame_number].players
             annotated = annotate_frame(frame, detections, trajectories, teams)
-            boxes = []
-            ids = []
-
-            for detection in detections:
-                if detection.track_id is None:
-                    continue
-
-                box = detection.box
-                boxes.append([box.x1, box.y1, box.x2, box.y2])
-                ids.append(detection.track_id)
-
-            keypoints, confidence = detect_keypoints(
-                homography_model,
-                frame,
-                DEVICE,
-            )
-            current_matrix, inliers = find_transformation(keypoints, confidence)
-            inlier_count = 0 if inliers is None else int(inliers.sum())
-
-            if current_matrix is not None:
-                if (matrix is None and inlier_count >= MINIMUM_POINTS_TO_START) or (
-                    matrix is not None and inlier_count >= MINIMUM_POINTS_TO_UPDATE
-                ):
-                    matrix = current_matrix
-                frames_without_calibration = 0
-            else:
-                frames_without_calibration += 1
-                if frames_without_calibration > MAX_FRAMES_WITHOUT_CALIBRATION:
-                    matrix = None
-
-            draw_homography(annotated, matrix)
-            draw_keypoints(annotated, keypoints, confidence, inliers)
-            positions = project_players(matrix, boxes, ids)
-            positions = smooth_positions(positions, previous_positions)
-            mirror = select_half(positions, mirror)
+            field = prepared.field
+            draw_homography(annotated, field.matrix)
+            draw_keypoints(annotated, field.keypoints, field.confidence, field.inliers)
+            centers = {
+                player.track_id: (round((player.box.x1 + player.box.x2) / 2), round(player.box.y2))
+                for player in detections
+                if player.track_id is not None
+            }
+            for pair in prepared.markings:
+                cv2.line(
+                    annotated, centers[pair.team_a_key], centers[pair.team_b_key], (0, 255, 255), 2
+                )
             top_view = draw_top_view(
                 height,
-                positions,
+                prepared.positions,
                 lambda track_id: color_for_player(track_id, teams),
-                mirror,
+                prepared.mirror,
             )
             writer.write(cv2.hconcat([annotated, top_view]))
             frame_number += 1
 
             if frame_number % 30 == 0 or frame_number == total_frames:
                 progress = frame_number / total_frames * 100 if total_frames else 0
-                print(f"  {video_path.name}: {progress:.1f}%", end="\r", flush=True)
+                log(f"Renderização — {frame_number}/{total_frames} frames ({progress:.1f}%)")
     finally:
         capture.release()
         writer.release()
 
-    convert_to_h264(temporary_path, output_path)
-
-    print(f"  {video_path.name}: concluído em {output_path.name}")
+    if frame_number != len(result.frames):
+        raise ValueError("Video terminou antes dos resultados da pipeline")
+    render_seconds = perf_counter() - render_started
+    log(f"Renderização concluída — {frame_number} frames em {render_seconds:.2f}s")
+    conversion_seconds = convert_to_h264(temporary_path, output_path)
+    return output_path, render_seconds, conversion_seconds
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit(
-            "Uso: python models/top_view/create_top_view.py "
-            "caminho/para/video.mp4 ou caminho/para/pasta"
-        )
-
-    input_path = Path(sys.argv[1]).expanduser().resolve()
+    application_started = perf_counter()
+    parser = argparse.ArgumentParser(description="Pipeline paralela e visao superior")
+    parser.add_argument("input", help="Video ou pasta de videos")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    args = parser.parse_args()
+    input_path = Path(args.input).expanduser().resolve()
 
     if input_path.is_file():
         if input_path.suffix.lower() not in VIDEO_EXTENSIONS:
@@ -250,48 +229,66 @@ def main():
             for path in input_dir.rglob("*")
             if path.is_file()
             and path.suffix.lower() in VIDEO_EXTENSIONS
-            and not path.is_relative_to(OUTPUT_DIR)
+            and not path.is_relative_to(args.output_dir.resolve())
         ]
     else:
         raise FileNotFoundError(f"Vídeo ou pasta não encontrado: {input_path}")
 
     player_model_path = get_model_path()
-    homography_model_path = get_homography_model_path()
+    keypoint_model_path = get_keypoint_model_path()
+
+    log(f"Dispositivo: {PLAYER_DEVICE}")
+    log(f"Peso esperado de jogadores: {player_model_path}")
+    log(f"Peso esperado de pontos do campo: {keypoint_model_path}")
 
     if not player_model_path.exists():
-        raise FileNotFoundError(f"Modelo não encontrado: {player_model_path}")
+        log(f"FALHA — peso de jogadores não encontrado: {player_model_path}")
+        raise FileNotFoundError(f"Modelo de jogadores não encontrado: {player_model_path}")
 
-    if not homography_model_path.exists():
-        raise FileNotFoundError(f"Modelo de homografia não encontrado: {homography_model_path}")
+    if not keypoint_model_path.exists():
+        log(f"FALHA — peso de pontos do campo não encontrado: {keypoint_model_path}")
+        raise FileNotFoundError(f"Modelo de pontos do campo não encontrado: {keypoint_model_path}")
 
     if not videos:
         raise FileNotFoundError("Nenhum vídeo foi encontrado na pasta.")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(DEVICE)}")
-    else:
-        print("Processando na CPU")
-    print(f"Vídeos encontrados: {len(videos)}")
+    log(f"Vídeos encontrados: {len(videos)}")
 
-    homography_model = load_model(homography_model_path)
+    started = perf_counter()
+    log("Carregando modelo de pontos do campo")
+    keypoint_model = load_model(keypoint_model_path)
+    log(f"Modelo de pontos carregado — {perf_counter() - started:.2f}s")
 
     for index, video_path in enumerate(sorted(videos), start=1):
-        print(f"\n[{index}/{len(videos)}] Rastreando: {video_path.name}")
-        process_video(
-            PlayerTracker(
-                player_model_path,
-                image_size=IMGSZ,
-                confidence_threshold=CONFIDENCE,
-                device=PLAYER_DEVICE,
-            ),
-            video_path,
-            input_dir,
-            homography_model,
+        log(f"VÍDEO {index}/{len(videos)} — {video_path.name}")
+        started = perf_counter()
+        log("Carregando modelo de jogadores")
+        tracker = PlayerTracker(
+            player_model_path,
+            image_size=IMGSZ,
+            confidence_threshold=CONFIDENCE,
+            device=PLAYER_DEVICE,
         )
+        log(f"Modelo de jogadores carregado — {perf_counter() - started:.2f}s")
+        try:
+            process_video(
+                tracker,
+                video_path,
+                input_dir,
+                keypoint_model,
+                output_dir=args.output_dir,
+            )
+        except Exception as error:
+            log(
+                f"FALHA no vídeo {video_path.name} após {perf_counter() - started:.2f}s — "
+                f"{type(error).__name__}: {error}"
+            )
+            raise
 
-    print(f"\nResultados em: {OUTPUT_DIR}")
+    log(f"Todos os vídeos foram concluídos em {perf_counter() - application_started:.2f}s")
+    log(f"Resultados em: {args.output_dir.resolve()}")
 
 
 if __name__ == "__main__":

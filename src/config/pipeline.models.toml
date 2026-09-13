@@ -30,6 +30,15 @@ fps      = "native"
 impl     = "edge.modules.players:YoloPlayers"
 artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
+# Meia precisao ligada so aqui, e a bola fica em fp32 de proposito.
+# Medido nesta Jetson, 40 quadros reais: `players` perde ZERO deteccoes em 685 (as tres caixas
+# nao casadas eram duplicatas sobre objeto ja casado, nao recall), IoU mediano 0,985, e ganha
+# de 25% a 35% de tempo. A saida desta especie e consumida inteira, sem reducao sequencial.
+# A bola nao entra: no mesmo video a trajetoria diverge em 61 dos 360 quadros, e sem gabarito
+# nao se sabe qual das duas esta certa. A causa nem e a meia precisao, e o corte conf = 0,10
+# num tracker sequencial, que reproduz a mesma cascata quando se perturba o proprio fp32 em
+# 1e-04. Ligar a bola espera o `eval-ball` com o conjunto do parceiro.
+quantize = "fp16"
 
 [modules.ball]
 impl     = "edge.modules.ball:YoloBall"
@@ -43,6 +52,26 @@ sobreposicao_px = 100
 # Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
 ranking            = false
 ranking_candidates = 2
+# Letterbox dos quatro ladrilhos no device, e nao no cv2 da CPU.
+# Medido nesta Jetson, 30 quadros reais: 260,0 ms cai para 232,9 ms por quadro, 10,4% em tres
+# rodadas intercaladas. A concordancia e a mais limpa que medimos: 108 contra 108 deteccoes, zero
+# perdidas, zero inventadas, IoU mediano 0,9986. E na trajetoria que o rastreador entrega, sobre os
+# 360 quadros do clipe, a divergencia e ZERO: mesmas fontes (333 detected, 15 interpolated,
+# 12 missing) e deslocamento abaixo do meio decimo de pixel.
+letterbox = "cuda"
+# Meia precisao, medida no caminho de producao (letterbox no device, lote 4), tres rodadas
+# intercaladas sobre quadros reais: 237,4 ms cai para 176,6 ms por quadro, 25,6%.
+#
+# Segurou ate o `ee11364` existir. Antes dele, uma caixa a 3,7e-05 do corte `conf = 0,10` sumia em
+# fp16, a lacuna nao fechava e a trajetoria reancorava em outro objeto a 1641 px: 61 dos 360
+# quadros divergiam. Com a reancora presa ao alcance da ultima posicao, a divergencia caiu para
+# 1 quadro em 360, e nesse unico quadro a bola nao se move: o fp32 marca `detected` e o fp16
+# marca `interpolated` na mesma posicao, com deslocamento de 0,6 px no pior caso do clipe.
+#
+# O que ainda NAO foi medido e acuracia contra gabarito: o conjunto do parceiro nao esta na
+# maquina, entao isto e concordancia com o fp32, e nao prova de que nao piorou. O `eval-ball`
+# continua sendo o juiz.
+quantize = "fp16"
 
 [modules.field]
 impl     = "edge.modules.field:YoloField"

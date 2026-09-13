@@ -39,6 +39,7 @@ from edge.artifacts import entrypoint_of
 from edge.frames.preprocess import to_source_box, to_tensor_box
 from edge.modules.base import (
     FrameBatch,
+    ModuleError,
     ModuleInputs,
     ModuleNotLoaded,
     ModuleOutput,
@@ -46,6 +47,7 @@ from edge.modules.base import (
     PreprocessSpec,
     check_preprocess,
 )
+from edge.modules.precision import PADRAO, precisao_valida
 
 PREPROCESS = PreprocessSpec(width=1280, height=736, color="bgr", letterbox=True, normalize="none")
 
@@ -87,6 +89,9 @@ LOTE = 32
 Keypoints = tuple[tuple[str, float, float, float], ...]
 
 
+class PoseConfigError(ModuleError): ...
+
+
 class PoseEstimator(Protocol):
     """Um conjunto de keypoints por recorte, no espaco do recorte, ou `None` quando nao ha corpo."""
 
@@ -115,7 +120,36 @@ class YoloPose:
     ) -> None:
         self._estimator = estimator
         self._weights = weights
+        self._quantize = PADRAO
         self._pronto = False
+
+    def fingerprint(self) -> str | None:
+        """O ajuste em vigor, pelo mesmo motivo de `players`: o cache guarda numero, nao intencao.
+
+        `run_module` le isto por `getattr` e, sem o metodo, a chave de disco saia igual nas duas
+        precisoes. Declarar `quantize = "fp16"` depois de um clipe ja rodado devolvia o keypoint
+        de fp32 do cache, e a comparacao entre as duas reportaria "identico" por acerto de chave.
+
+        O padrao devolve `None` pela mesma razao de `players`: quem nao declarou precisao continua
+        no endereco de sempre, e o cache que ja existe nesta maquina segue valido.
+        """
+        return None if self._quantize == PADRAO else f"quantize={self._quantize}"
+
+    def configure(self, options: Mapping[str, object]) -> None:
+        """A especie ajusta a precisao da inferencia, e so ela.
+
+        `IMGSZ` e `CONF` continuam constantes medidas do adaptador: 256 e o que amplia o recorte de
+        cerca de 40 por 130 px sem inventar, e abri-los ao TOML agora seria oferecer numero que
+        ninguem calibrou. Nome desconhecido levanta para `quantise` no lugar de `quantize` nao
+        virar meia precisao imaginaria lida no arquivo.
+        """
+        desconhecidas = sorted(set(options) - {"quantize"})
+        if desconhecidas:
+            raise PoseConfigError(f"{', '.join(desconhecidas)}: a especie pose ajusta quantize")
+        if "quantize" in options:
+            self._quantize = precisao_valida(
+                "modules.pose.quantize", options["quantize"], PoseConfigError
+            )
 
     def load(self) -> None:
         if self._estimator is None:
@@ -123,7 +157,7 @@ class YoloPose:
             if peso is not None:
                 from edge.modules.pose.yolo import YoloPoseEstimator
 
-                self._estimator = YoloPoseEstimator.from_weights(peso)
+                self._estimator = YoloPoseEstimator.from_weights(peso, quantize=self._quantize)
         self._pronto = True
 
     def close(self) -> None:

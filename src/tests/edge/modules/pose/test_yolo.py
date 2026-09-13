@@ -92,3 +92,23 @@ def test_os_padroes_declarados_sao_os_usados(monkeypatch: pytest.MonkeyPatch) ->
     assert modelo.chamadas[0]["imgsz"] == IMGSZ
     assert modelo.chamadas[0]["conf"] == CONF
     assert modelo.chamadas[0]["verbose"] is False
+
+
+def test_a_precisao_declarada_chega_ao_predict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O recorte e pequeno e o lote e grande: 121 recortes por clipe passam por esta chamada."""
+    monkeypatch.setattr("edge.modules.device.preferred_device", lambda: "cpu")
+    modelo = _Modelo([_Saida([_corpo(1.0)], [0.9])])
+
+    YoloPoseEstimator(modelo, quantize="fp16").estimate_many([object()])
+
+    assert modelo.chamadas[0]["quantize"] == "fp16"
+
+
+def test_sem_declaracao_o_predict_nao_recebe_quantize(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("edge.modules.device.preferred_device", lambda: "cpu")
+    modelo = _Modelo([_Saida([_corpo(1.0)], [0.9])])
+
+    YoloPoseEstimator(modelo).estimate_many([object()])
+
+    assert "quantize" not in modelo.chamadas[0]
+    assert "half" not in modelo.chamadas[0], "half esta depreciado no 8.4 e mediu 62,4 ms"

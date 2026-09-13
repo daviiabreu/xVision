@@ -439,8 +439,13 @@ def chave_do_cache(config: DetectorConfig) -> str:
     entao as chaves ja nao colidem por outro motivo e este preco nao esta sendo pago. A guarda fica
     porque voltar as duas especies ao mesmo peso e uma linha de configuracao, e a colisao voltaria
     calada.
+
+    A precisao entra pelo mesmo motivo dos outros dois: meia precisao devolve outros numeros, e o
+    `PreprocessSpec` nao a carrega.
     """
-    return f"{config.weights}#conf={config.conf:g}#imgsz={config.imgsz:d}"
+    return (
+        f"{config.weights}#conf={config.conf:g}#imgsz={config.imgsz:d}#quantize={config.quantize}"
+    )
 
 
 def _as_tuple(box: Box) -> tuple[float, float, float, float]:

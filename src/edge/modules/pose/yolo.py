@@ -15,6 +15,7 @@ from importlib import import_module
 from typing import Any, cast
 
 from edge.modules.pose.estimator import Keypoints, keypoints_de
+from edge.modules.precision import PADRAO, ajuste_do_predict
 
 IMGSZ = 256
 """O recorte de um jogador de transmissao tem cerca de 40 por 130 px, e 256 amplia sem inventar."""
@@ -23,15 +24,18 @@ CONF = 0.25
 
 
 class YoloPoseEstimator:
-    def __init__(self, model: Any, *, imgsz: int = IMGSZ, conf: float = CONF) -> None:
+    def __init__(
+        self, model: Any, *, imgsz: int = IMGSZ, conf: float = CONF, quantize: str = PADRAO
+    ) -> None:
         self._model = model
         self._imgsz = imgsz
         self._conf = conf
+        self._quantize = quantize
 
     @classmethod
-    def from_weights(cls, weights: str) -> YoloPoseEstimator:
+    def from_weights(cls, weights: str, *, quantize: str = PADRAO) -> YoloPoseEstimator:
         yolo = cast("Any", import_module("ultralytics")).YOLO
-        return cls(yolo(weights))
+        return cls(yolo(weights), quantize=quantize)
 
     def estimate_many(self, crops: Sequence[Any]) -> tuple[Keypoints | None, ...]:
         if not crops:
@@ -44,6 +48,7 @@ class YoloPoseEstimator:
             conf=self._conf,
             device=preferred_device(),
             verbose=False,
+            **ajuste_do_predict(self._quantize),
         )
         return tuple(_melhor(saida) for saida in saidas)
 

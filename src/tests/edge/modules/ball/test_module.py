@@ -544,3 +544,17 @@ def test_production_config_keeps_rejected_ranker_disabled() -> None:
 
     assert entrada.options["ranking"] is False
     assert entrada.options["ranking_candidates"] == 2
+
+
+def test_a_chave_do_cache_compartilhado_separa_a_precisao() -> None:
+    """Meia precisao devolve outros numeros, entao a passada de uma nao pode servir a outra.
+
+    E o mesmo defeito que `conf` e `imgsz` ja fecham nesta chave: o `PreprocessSpec` nao carrega
+    precisao, entao duas especies sobre o mesmo peso casariam na chave e a segunda consumiria em
+    silencio a passada da primeira, medindo a precisao que nao pediu.
+    """
+    peso = "var/models/abc/yolov8n.pt"
+    cheia = chave_do_cache(DetectorConfig(weights=peso))
+    meia = chave_do_cache(DetectorConfig(weights=peso, quantize="fp16"))
+
+    assert cheia != meia

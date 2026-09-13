@@ -16,6 +16,7 @@ from contracts import Box
 from edge.modules.base import FrameBatch, ModuleNotLoaded, PerceptionModule
 from edge.modules.conformance import ModuleConformance
 from edge.modules.players import COCO_PERSON, FUTEBOL, PREPROCESS, PlayersConfig, YoloPlayers
+from edge.modules.players.detector import PlayersConfigError
 from edge.modules.records import check_records
 
 FONTE = (1920, 1080)
@@ -151,3 +152,83 @@ def test_close_solta_o_backend() -> None:
 
     with pytest.raises(ModuleNotLoaded):
         modulo.infer(_lote(), {})
+
+
+def test_a_precisao_declarada_no_toml_chega_ao_adaptador(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A via e a mesma dos outros ajustes: o registro entrega `options` ao `configure`."""
+    from pathlib import Path
+
+    from edge.modules.players.yolo import UltralyticsPlayers
+
+    chamada: dict[str, object] = {}
+
+    def montar(weights: str, **kwargs: object) -> object:
+        chamada.update(weights=weights, **kwargs)
+        return _BackendFalso(())
+
+    def entrypoint(artifact: str | None) -> Path:
+        return Path("p.pt")
+
+    monkeypatch.setattr("edge.modules.players.detector.entrypoint_of", entrypoint)
+    monkeypatch.setattr(UltralyticsPlayers, "from_weights", montar)
+    modulo = YoloPlayers()
+    modulo.configure({"quantize": "fp16"})
+
+    modulo.load()
+
+    assert chamada["quantize"] == "fp16"
+
+
+def test_sem_declaracao_o_adaptador_recebe_precisao_cheia(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pathlib import Path
+
+    from edge.modules.players.yolo import UltralyticsPlayers
+
+    chamada: dict[str, object] = {}
+
+    def montar(weights: str, **kwargs: object) -> object:
+        chamada.update(weights=weights, **kwargs)
+        return _BackendFalso(())
+
+    def entrypoint(artifact: str | None) -> Path:
+        return Path("p.pt")
+
+    monkeypatch.setattr("edge.modules.players.detector.entrypoint_of", entrypoint)
+    monkeypatch.setattr(UltralyticsPlayers, "from_weights", montar)
+
+    YoloPlayers().load()
+
+    assert chamada["quantize"] == "fp32"
+
+
+@pytest.mark.parametrize("valor", ["fp8", True, 16, "half"])
+def test_precisao_invalida_na_secao_de_players_levanta(valor: object) -> None:
+    with pytest.raises(PlayersConfigError, match="fp32.*fp16"):
+        YoloPlayers().configure({"quantize": valor})
+
+
+def test_ajuste_desconhecido_na_secao_de_players_levanta_em_vez_de_ficar_calado() -> None:
+    """`quantise` no lugar de `quantize` deixaria a especie em fp32 sem ninguem saber."""
+    with pytest.raises(PlayersConfigError, match="quantise"):
+        YoloPlayers().configure({"quantise": "fp16"})
+
+
+def test_a_precisao_declarada_muda_a_chave_do_cache_de_percepcao() -> None:
+    """Sem isto a alavanca fica muda: o cache responde com a percepcao da outra precisao.
+
+    `run_module` monta a chave de disco com `tuning_of`, que le `fingerprint` por `getattr` e
+    devolve `None` para quem nao tem o metodo. Sem ele, rodar o clipe no padrao e depois declarar
+    `quantize = "fp16"` cai na mesma chave e o modelo nem e chamado.
+    """
+    from edge.cache.perception import perception_key, tuning_of
+
+    def chave(modulo: YoloPlayers) -> str:
+        return perception_key("clipe", modulo.spec, (0, 1), {}, "impl", tuning=tuning_of(modulo))
+
+    cheia = YoloPlayers()
+    meia = YoloPlayers()
+    meia.configure({"quantize": "fp16"})
+
+    assert tuning_of(cheia) is None, "quem nao declarou precisao fica no endereco de sempre"
+    assert tuning_of(meia) == "quantize=fp16"
+    assert chave(cheia) != chave(meia)

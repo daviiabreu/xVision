@@ -13,15 +13,4 @@ MODEL_PATH = RUN_DIR / "weights" / "best.pt"
 
 
 def get_model_path():
-    paths = [
-        MODULE_DIR / RUN_NAME / "weights" / "best.pt",
-        REPO_ROOT / RUN_NAME / "weights" / "best.pt",
-        MODEL_PATH,
-        RUNS_DIR / "detect" / "runs" / RUN_NAME / "weights" / "best.pt",
-    ]
-
-    for path in paths:
-        if path.exists():
-            return path
-
-    return paths[0]
+    return MODULE_DIR / "best.pt"
