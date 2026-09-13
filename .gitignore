@@ -210,3 +210,7 @@ scripts/cortes.zip
 
 # worktrees temporarios de agentes
 .claude/worktrees/
+
+# Artefatos locais de planejamento gerados pelo Superpowers
+docs/plans/
+docs/specs/

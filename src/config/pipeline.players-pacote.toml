@@ -90,8 +90,13 @@ artifact = "models/manifests/pose/yolov8n-pose-8.4.0.toml"
 frames   = "dense"
 
 [modules.identity]
-impl   = "edge.modules.stubs:StubIdentity"
-frames   = "dense"
+impl   = "edge.modules.identity:TeamIdentity"
+frames = "dense"
+
+[modules.marking]
+impl  = "edge.modules.stubs:StubMarking"
+frames = "dense"
+needs = ["players", "tracking", "identity"]
 
 [features.body_part]
 impl = "edge.features.body_part:BodyPart"

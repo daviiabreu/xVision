@@ -41,6 +41,7 @@ REQUIRED: Mapping[str, frozenset[str]] = {
     ),
     "tracking": frozenset({"track_id"}),
     "identity": frozenset({"track_id"}),
+    "marking": frozenset({"team_a_track_id", "team_b_track_id", "distance"}),
     "pose": frozenset({"track_id", "keypoints"}),
     "shot": frozenset({"frame_index"}),
 }

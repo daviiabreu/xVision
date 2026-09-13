@@ -33,6 +33,7 @@ consegue separar clipe medido de clipe estimado, que e exatamente o que um zero 
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
@@ -51,6 +52,26 @@ BALL = "ball"
 PLAYERS = "players"
 MEDIDO = "ball-break"
 ESTIMADO = "midpoint"
+DETECTADA = "detected"
+INTERPOLADA = "interpolated"
+DESCONHECIDA = "unknown"
+AUSENTE = "absent"
+AJUSTES: Mapping[str, str] = {
+    "estimar_quando_nao_medir": "_estimar",
+    "exigir_jogador_perto": "_exigir_jogador",
+    "exigir_bola_medida": "_exigir_medida",
+}
+"""O vocabulario que `configure` aceita, mapeado no atributo interno.
+
+Nome errado levanta em vez de ser ignorado, pelo mesmo motivo do resto do projeto: quem escreveu
+`exigir_bola_detectada` no TOML leria o arquivo, veria a execucao terminar sem reclamar e concluiria
+que a politica mudou.
+"""
+"""Vocabulario de `ball_support`, o mesmo que o registro da bola usa para `source`.
+
+`absent` e o quadro escolhido sem posicao nenhuma, que acontece no caminho `midpoint`: o ponto medio
+do trecho nao precisa ter bola. `unknown` e posicao sem procedencia declarada.
+"""
 FALLBACK_CONFIDENCE = 0.05
 
 MARGEM_LARGURA = 0.6
@@ -82,10 +103,29 @@ class BallBreakShot:
         *,
         estimar_quando_nao_medir: bool = True,
         exigir_jogador_perto: bool = True,
+        exigir_bola_medida: bool = False,
     ) -> None:
         self._pronto = False
         self._estimar = estimar_quando_nao_medir
         self._exigir_jogador = exigir_jogador_perto
+        self._exigir_medida = exigir_bola_medida
+
+    def configure(self, options: Mapping[str, object]) -> None:
+        """Os tres ajustes deste modulo por configuracao, para poderem ser medidos sem
+        editar `src`.
+
+        Sem isto qualquer comparacao entre politicas exigia trocar o codigo, e um numero medido com
+        codigo diferente do que roda nao vale como comparacao.
+        """
+        for nome in options:
+            if nome not in AJUSTES:
+                raise ValueError(
+                    f"shot.{nome} nao existe: os ajustes sao {', '.join(sorted(AJUSTES))}"
+                )
+        for nome, valor in options.items():
+            if not isinstance(valor, bool):
+                raise ValueError(f"shot.{nome} espera booleano, recebeu {valor!r}")
+            setattr(self, AJUSTES[nome], valor)
 
     def load(self) -> None:
         self._pronto = True
@@ -110,14 +150,18 @@ class BallBreakShot:
         e caso de teste artificial: e o que acontece quando a especie de que ele depende falhou.
         """
         limite = max(batch.indices) + 1
-        bola = observacoes(ctx.get(BALL))
+        saida_da_bola = ctx.get(BALL)
+        bola = observacoes(saida_da_bola)
+        procedencia = procedencias(saida_da_bola)
+        if self._exigir_medida:
+            bola = tuple(o for o in bola if procedencia.get(o.frame_index) == DETECTADA)
         candidatos = _com_jogador_perto(bola, ctx.get(PLAYERS)) if self._exigir_jogador else None
         contato = find_contact(bola, frame_count=limite, candidates=candidatos)
         if contato is not None:
-            return _medido(contato)
+            return _medido(contato, procedencia)
         if not self._estimar:
             return None
-        return _estimado(batch.indices)
+        return _estimado(batch.indices, procedencia)
 
 
 def _com_jogador_perto(
@@ -160,6 +204,24 @@ def _com_jogador_perto(
     return frozenset(perto)
 
 
+def procedencias(saida: ModuleOutput | None) -> dict[int, str]:
+    """Procedencia da posicao da bola por quadro, na mesma leitura que `observacoes` faz.
+
+    Le `registros[0]` como `observacoes`, para os dois lados enxergarem a mesma bola. Registro sem
+    `source` entra como `desconhecida` em vez de `detectada`: um detector que nao declara nao pode
+    ser lido como se tivesse declarado medida.
+    """
+    if saida is None:
+        return {}
+    fontes: dict[int, str] = {}
+    for indice, registros in zip(saida.frames, saida.records, strict=True):
+        if not registros or registros[0].get("box") is None:
+            continue
+        fonte = registros[0].get("source")
+        fontes[indice] = DESCONHECIDA if fonte is None else str(fonte)
+    return fontes
+
+
 def observacoes(saida: ModuleOutput | None) -> tuple[Observation, ...]:
     """O centro de cada caixa de bola, um por quadro.
 
@@ -182,7 +244,7 @@ def observacoes(saida: ModuleOutput | None) -> tuple[Observation, ...]:
     return tuple(observacoes)
 
 
-def _medido(contato: Contact) -> dict[str, object]:
+def _medido(contato: Contact, procedencia: Mapping[int, str]) -> dict[str, object]:
     return {
         "frame_index": contato.frame_index,
         "confidence": round(contato.confidence, 6),
@@ -191,15 +253,44 @@ def _medido(contato: Contact) -> dict[str, object]:
         "speed_ratio": None
         if contato.speed_ratio == float("inf")
         else round(contato.speed_ratio, 3),
+        **_suporte(contato.frame_index, procedencia),
     }
 
 
-def _estimado(indices: Sequence[int]) -> dict[str, object]:
+def _estimado(indices: Sequence[int], procedencia: Mapping[int, str]) -> dict[str, object]:
+    escolhido = indices[len(indices) // 2]
     return {
-        "frame_index": indices[len(indices) // 2],
+        "frame_index": escolhido,
         "confidence": FALLBACK_CONFIDENCE,
         "source": ESTIMADO,
         "reason": "a trajetoria da bola nao sustentou uma quebra, e o instante e o meio do trecho",
+        **_suporte(escolhido, procedencia),
+    }
+
+
+def _suporte(quadro: int, procedencia: Mapping[int, str]) -> dict[str, object]:
+    """Se a posicao da bola no quadro escolhido foi medida ou inventada, e quantas de cada
+    no trecho.
+
+    O rastreador da bola preenche lacuna curta por interpolacao linear, e o instante do chute e
+    exatamente onde a trajetoria vira: uma reta tracada por cima da virada passa longe do pe. Ate
+    aqui o modulo tratava as duas iguais, porque `observacoes` le so a caixa e joga fora o campo
+    `source` que o registro da bola carrega.
+
+    Isso deixou de ser detalhe quando o ranking de candidatos entrou: medido no piloto anotado, as
+    posicoes interpoladas foram de 15 para 88 em 328 quadros, e tres dos 24 quadros de contato
+    passaram a nao ter deteccao real. Sem `ball_support`, um instante decidido sobre posicao
+    inventada sai com a mesma cara de um decidido sobre medida, e nenhuma metrica agregada separa
+    os dois.
+
+    Nao muda a previsao. A spec manda primeiro preservar a procedencia e reproduzir as contagens,
+    e so depois testar uma regra que use isso para decidir.
+    """
+    contagem = Counter(procedencia.values())
+    return {
+        "ball_support": procedencia.get(quadro, AUSENTE),
+        "ball_detected_frames": contagem.get(DETECTADA, 0),
+        "ball_interpolated_frames": contagem.get(INTERPOLADA, 0),
     }
 
 

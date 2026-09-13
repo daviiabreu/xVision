@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,7 @@ from edge.modules.base import (
     PreprocessSpec,
     UnknownModuleKind,
 )
+from edge.modules.identity import TeamIdentity
 from edge.modules.registry import (
     ModuleNotConfigurable,
     UnknownDependency,
@@ -175,3 +177,11 @@ def test_entrada_sem_ajuste_nao_exige_configure() -> None:
     modules = load_modules(read_config(f'[modules.players]\nimpl = "{HERE}:_Players"\n'))
 
     assert isinstance(modules["players"], _Players)
+
+
+def test_a_configuracao_de_modelos_liga_identity_ao_modulo_real() -> None:
+    """`pipeline.models.toml` deixou de apontar `identity` para `StubIdentity`."""
+    modules = load_modules(read_config(Path("config/pipeline.models.toml")))
+
+    assert isinstance(modules["identity"], TeamIdentity)
+    assert modules["identity"].spec.needs == ("players", "tracking")

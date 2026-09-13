@@ -383,6 +383,7 @@ def conjunto_falso(tmp_path: Path) -> Path:
             "occupied_area": "true",
             "goalkeaper_position": "false",
             "assist": "true",
+            "crowded": "3",
             "used": "head",
             "type_of_play": "open play",
             "expected_goals": "0.4",
@@ -469,7 +470,8 @@ def test_run_all_and_eval_agree_on_the_population(
 
     monkeypatch.setenv(DATA_ENV, str(conjunto_falso))
     saida = tmp_path / "execucoes"
-    runner.invoke(app, ["run", "--all", "--out", str(saida)])
+    rodagem = runner.invoke(app, ["run", "--all", "--out", str(saida)])
+    assert rodagem.exit_code == 0, rodagem.output
     (registro,) = list(saida.rglob("run.json"))
 
     resultado = runner.invoke(app, ["eval", str(registro.parent)])

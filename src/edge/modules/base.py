@@ -14,7 +14,9 @@ from typing import Literal, Protocol
 
 import numpy as np
 
-MODULE_KINDS = frozenset({"players", "ball", "field", "tracking", "pose", "identity", "shot"})
+MODULE_KINDS = frozenset(
+    {"players", "ball", "field", "tracking", "pose", "identity", "marking", "shot"}
+)
 
 Color = Literal["rgb", "bgr", "gray", "ycrcb"]
 Normalize = Literal["none", "unit", "imagenet"]

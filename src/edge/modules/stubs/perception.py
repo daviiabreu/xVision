@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from edge.modules.base import PreprocessSpec
 from edge.modules.stubs.base import Record, StubModule, stub_spec
+from edge.participants.marking import MarkingCandidate, pair_markings
 from edge.testing.pitch import (
     GOAL_HALF_WIDTH_M,
     GOAL_LINE_X_M,
@@ -33,6 +34,8 @@ FINE = PreprocessSpec(width=192, height=192, color="rgb", letterbox=True, normal
 
 CONFIDENCE = 0.9
 REPROJECTION_ERROR_PX = 1.2
+REPROJECTION_ERROR_P95_PX = 1.8
+TEMPLATE_ID = "default"
 KEYPOINTS = (
     ("goal_post_left", GOAL_LINE_X_M, -GOAL_HALF_WIDTH_M),
     ("goal_post_right", GOAL_LINE_X_M, GOAL_HALF_WIDTH_M),
@@ -70,7 +73,7 @@ class StubField(StubModule):
             {
                 "homography": truth.homography,
                 "reprojection_error_px": REPROJECTION_ERROR_PX,
-                "reprojection_error_p95_px": REPROJECTION_ERROR_PX,
+                "reprojection_error_p95_px": REPROJECTION_ERROR_P95_PX,
                 "keypoints": tuple(
                     (nome, *project(truth.homography, x, y)) for nome, x, y in KEYPOINTS
                 ),
@@ -126,6 +129,29 @@ class StubIdentity(StubModule):
         )
 
 
+class StubMarking(StubModule):
+    spec = stub_spec("marking", COARSE)
+
+    def records(self, truth: ClipTruth, frame_index: int) -> tuple[Record, ...]:
+        candidates = tuple(
+            MarkingCandidate(
+                key=jogador.track_id,
+                team="team_a" if jogador.team == "home" else "team_b",
+                position=jogador.pitch_xy[frame_index],
+            )
+            for jogador in truth.players
+            if jogador.role == "outfield"
+        )
+        return tuple(
+            {
+                "team_a_track_id": par.team_a_key,
+                "team_b_track_id": par.team_b_key,
+                "distance": par.distance,
+            }
+            for par in pair_markings(candidates)
+        )
+
+
 class StubShot(StubModule):
     spec = stub_spec("shot", COARSE)
 
@@ -148,6 +174,7 @@ STUBS: tuple[type[StubModule], ...] = (
     StubTracking,
     StubPose,
     StubIdentity,
+    StubMarking,
     StubShot,
 )
 

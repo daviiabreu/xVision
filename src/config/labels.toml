@@ -46,6 +46,14 @@ domain = ["true", "false"]
 missing = [""]
 
 [[label]]
+name = "crowded"
+required = false
+table = "match_shots_xg"
+column = "crowded"
+type = "numeric"
+missing = [""]
+
+[[label]]
 name = "body_part_3"
 required = true
 table = "match_shots"
@@ -113,6 +121,10 @@ label = "looked_before"
 [[metric]]
 feature = "assist"
 label = "assist"
+
+[[metric]]
+feature = "crowded"
+label = "crowded"
 
 [[metric]]
 feature = "body_part"

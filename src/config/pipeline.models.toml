@@ -8,8 +8,9 @@
 #
 #   xvision run --all --config config/pipeline.models.toml
 #
-# `identity` continua stub e nao bloqueia nenhuma das sete metricas declaradas. `field` usa o peso
-# versionado de 29 keypoints e recusa por quadro qualquer homografia sem evidencia suficiente.
+# `identity` usa a implementacao real (`TeamIdentity`), que classifica equipes por cor de uniforme.
+# `field` usa o peso versionado de 29 keypoints e recusa por quadro qualquer homografia sem
+# evidencia suficiente.
 
 [frames.coarse]
 strategy = "uniform"
@@ -99,8 +100,13 @@ artifact = "models/manifests/pose/yolov8n-pose-8.4.0.toml"
 frames   = "dense"
 
 [modules.identity]
-impl   = "edge.modules.stubs:StubIdentity"
-frames   = "dense"
+impl   = "edge.modules.identity:TeamIdentity"
+frames = "dense"
+
+[modules.marking]
+impl  = "edge.modules.stubs:StubMarking"
+frames = "dense"
+needs = ["players", "tracking", "identity"]
 
 [features.body_part]
 impl = "edge.features.body_part:BodyPart"

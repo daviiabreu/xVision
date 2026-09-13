@@ -89,7 +89,9 @@ def _frame(
         field=FieldGeometry(
             homography=homography,
             reprojection_error_px=reprojection_error_px,
-            reprojection_error_p95_px=reprojection_error_px,
+            reprojection_error_p95_px=(
+                None if reprojection_error_px is None else reprojection_error_px
+            ),
             keypoints=(),
             observed_keypoint_count=6 if homography is not None else 0,
             inlier_count=6 if homography is not None else 0,

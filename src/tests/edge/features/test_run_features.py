@@ -255,7 +255,13 @@ def test_the_production_configuration_loads_every_feature_it_declares() -> None:
 
     selecao = load_extractors(read_feature_config(Path("config/pipeline.toml")))
 
-    assert {e.spec.name for e in selecao} == {"body_part", "type_of_play"}
+    assert {e.spec.name for e in selecao} == {
+        "assist",
+        "body_part",
+        "crowded",
+        "marked",
+        "type_of_play",
+    }
 
 
 def test_contract_error_is_what_the_platform_catches_for_bad_evidence() -> None:

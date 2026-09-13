@@ -124,7 +124,9 @@ def test_schema_file_has_no_copy_in_the_repository() -> None:
     repository = repository_root()
 
     copies = [
-        path for path in repository.rglob(SCHEMA_PATH.name) if IGNORED_DIRS.isdisjoint(path.parts)
+        path
+        for path in repository.rglob(SCHEMA_PATH.name)
+        if IGNORED_DIRS.isdisjoint(path.relative_to(repository).parts)
     ]
 
     assert copies == [SCHEMA_PATH]

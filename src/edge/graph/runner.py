@@ -348,13 +348,20 @@ def _frame(
         for r in por_quadro.get("identity", {}).get(indice, ())
         if "jersey_number" in r
     }
+    # `identity` so emite `team` depois de juntar amostras suficientes da trajetoria, entao a chave
+    # falta nos primeiros quadros e o time do detector segue valendo ate ela aparecer.
+    times = {
+        int(cast("Any", r["track_id"])): cast("Any", r["team"])
+        for r in por_quadro.get("identity", {}).get(indice, ())
+        if "team" in r
+    }
     poses = {
         int(cast("Any", r["track_id"])): _keypoints(r["keypoints"])
         for r in por_quadro.get("pose", {}).get(indice, ())
         if "keypoints" in r
     }
     jogadores = tuple(
-        _player(registro, trajetorias.get(posicao), camisas, poses, campo)
+        _player(registro, trajetorias.get(posicao), camisas, times, poses, campo)
         for posicao, registro in enumerate(por_quadro.get("players", {}).get(indice, ()))
     )
     return FramePerception(
@@ -370,15 +377,17 @@ def _player(
     registro: Mapping[str, object],
     track_id: int | None,
     camisas: Mapping[int, int],
+    times: Mapping[int, str],
     poses: Mapping[int, tuple[Keypoint, ...]],
     field: FieldGeometry | None,
 ) -> PlayerDetection:
+    time = times.get(track_id) if track_id is not None else None
     box = Box(*cast("Any", registro["box"]))
     return PlayerDetection(
         box=box,
         confidence=float(cast("Any", registro["confidence"])),
         track_id=track_id,
-        team=cast("Any", registro.get("team")),
+        team=cast("Any", time if time is not None else registro.get("team")),
         role=cast("Any", registro.get("role")),
         jersey_number=camisas.get(track_id) if track_id is not None else None,
         pitch_xy=_player_pitch(box, field),

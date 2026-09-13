@@ -29,7 +29,7 @@ def _field() -> FieldGeometry:
     return FieldGeometry(
         homography=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
         reprojection_error_px=0.5,
-        reprojection_error_p95_px=0.8,
+        reprojection_error_p95_px=0.6,
         keypoints=(),
         observed_keypoint_count=6,
         inlier_count=6,

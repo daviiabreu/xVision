@@ -45,8 +45,22 @@ frames   = "dense"
 impl   = "edge.modules.stubs:StubIdentity"
 frames   = "dense"
 
+[modules.marking]
+impl   = "edge.modules.stubs:StubMarking"
+frames = "dense"
+needs  = ["players", "tracking", "identity"]
+
 [features.body_part]
 impl = "edge.features.body_part:BodyPart"
 
 [features.type_of_play]
 impl = "edge.features.type_of_play:TypeOfPlay"
+
+[features.marked]
+impl = "edge.features.marked:Marked"
+
+[features.assist]
+impl = "edge.features.assist:Assist"
+
+[features.crowded]
+impl = "edge.features.crowded:Crowded"

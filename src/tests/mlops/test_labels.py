@@ -157,6 +157,7 @@ def test_the_versioned_table_carries_every_label_the_project_promised() -> None:
         "marked",
         "looked_before",
         "assist",
+        "crowded",
         "body_part_3",
         "body_part_2",
         "type_of_play",

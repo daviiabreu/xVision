@@ -68,8 +68,9 @@ def test_the_metrics_are_not_empty_in_this_scenario(cliente: TestClient, tmp_pat
     corpo = _resultado(cliente, tmp_path)
 
     metricas = [m for r in corpo["resultados"] for m in r["metricas"]]
-    assert len(metricas) == 5, f"o cenario nao produziu metrica: {corpo['resultados']}"
-    assert {"distancia_falsa", "sem_leitura"} <= {m["nome"] for m in metricas}
+    assert len(metricas) == 8, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    nomes = {m["nome"] for m in metricas}
+    assert {"distancia_falsa", "sem_leitura", "marked", "assist", "crowded"} <= nomes
 
 
 def test_a_metric_carries_the_unit_its_feature_declares(
@@ -131,7 +132,7 @@ def test_a_stage_that_failed_is_not_reported_to_the_frontend_as_successful(tmp_p
     por_etapa = {r["nome_processo"]: r["status"] for r in corpo["resultados"]}
     assert por_etapa["players"] is False, "a etapa que falhou chegou ao frontend como sucesso"
     assert por_etapa["ball"] is True, "as que rodaram continuam verdadeiras"
-    assert sum(1 for v in por_etapa.values() if v is False) == 1, (
+    assert sum(1 for v in por_etapa.values() if v is False) == 2, (
         "so a etapa quebrada devia falhar: nenhum modulo declara `needs` nesta configuracao"
     )
 
@@ -163,6 +164,9 @@ def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: 
     assert tipos == {
         "body_part": None,
         "type_of_play": "text",
+        "marked": None,
+        "assist": None,
+        "crowded": None,
         "distancia_falsa": "float",
         "sem_leitura": None,
         "parte_do_corpo": "text",

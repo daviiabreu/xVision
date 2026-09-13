@@ -22,6 +22,7 @@ from edge.modules.base import (
     PerceptionModule,
     PreprocessSpec,
     Temporal,
+    tensor_dtype,
 )
 from edge.modules.stubs import STUBS
 from edge.testing.pitch import SHOT_FRAME_INDEX, clip_truth
@@ -60,7 +61,9 @@ class ProviderFalso:
         if fora:
             raise MissingFrame(f"o clipe de teste nao entrega os quadros {fora}")
         self.pedidos.append((indices, spec.fingerprint[:8]))
-        tensor = np.zeros((len(indices), spec.height, spec.width, 3), dtype=np.uint8)
+        tensor = np.zeros(
+            (len(indices), spec.height, spec.width, 3), dtype=tensor_dtype(spec.normalize)
+        )
         return FrameBatch(indices=indices, tensor=tensor, preprocess=spec)
 
 
@@ -294,6 +297,26 @@ def test_the_perception_carries_what_the_stubs_saw_at_the_shot_frame() -> None:
     assert {jogador.track_id for jogador in quadro.players} == {
         jogador.track_id for jogador in gabarito.players
     }
+
+
+def test_marking_stub_runs_after_identity_and_keeps_auxiliary_output() -> None:
+    marking = _stub("marking")
+    marking.spec = replace(marking.spec, needs=("players", "tracking", "identity"))
+    resultado = roda(
+        {
+            **{kind: _stub(kind) for kind in ("players", "tracking", "shot", "identity")},
+            "marking": marking,
+        }
+    )
+
+    ordem = [etapa.kind for etapa in resultado.stages]
+    assert ordem.index("shot") < ordem.index("identity")
+    assert all(
+        ordem.index(kind) < ordem.index("marking") for kind in ("players", "tracking", "identity")
+    )
+    saida = resultado.outputs["marking"]
+    assert saida.kind == "marking"
+    assert any(registros for registros in saida.records)
 
 
 def test_pitch_coordinates_only_survive_where_the_field_module_ran() -> None:
