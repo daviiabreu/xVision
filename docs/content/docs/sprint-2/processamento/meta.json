@@ -2,6 +2,7 @@
   "title": "Processamento de vídeo",
   "pages": [
     "deteccao-do-instante-da-finalizacao",
+    "validacao-independente-do-instante",
     "rastreamento-da-bola",
     "keypoints-e-homografia",
     "jogadores",

@@ -1,0 +1,64 @@
+---
+title: Validação independente do instante
+description: A concordância entre anotadores como barra de erro do gabarito, e a fila de clipes que a revisão de piloto precisa reabrir
+---
+
+## Por que medir o anotador
+
+O erro do detector de instante é medido contra o gabarito manual. Só que o gabarito também erra, e a
+acurácia sozinha não separa as duas coisas: quando o modelo diverge num clipe, pode ser erro do
+modelo ou de quem anotou. Sem uma barra de erro própria do gabarito, todo número medido contra ele
+mistura os dois.
+
+Hoje os 38 clipes anotados têm um anotador só. A ferramenta de rótulo já grava quem anotou, então o
+que falta para medir a concordância é uma segunda leitura sobre um subconjunto. Este módulo é a
+régua que consome essas leituras.
+
+## O que ele mede
+
+Recebe as anotações de contato (clipe, quadro, anotador) que o instante já grava e responde três
+coisas:
+
+- Pares por clipe. Cada clipe lido por duas pessoas vira um par, e a distância em quadros entre as
+  duas leituras é o desacordo. Clipe com uma leitura só não entra. Clipe com três anotadores gera os
+  três pares, porque a concordância é entre pessoas e não uma média que esconde quem destoou.
+- Agregado. Mediana, média, p90 e máximo do desacordo, mais a fração de pares dentro da tolerância
+  de 30 quadros e dentro do limite de 90. As duas tolerâncias são as mesmas da janela do instante, e
+  não valores novos. Com a taxa do clipe, a mediana também sai em segundos.
+- Discordâncias. A lista de pares acima da tolerância, do pior para o melhor. É a fila de trabalho da
+  revisão: o clipe em que duas leituras honestas ficam longe é onde uma terceira decide.
+
+## Decisões
+
+Correção não é discordância. O arquivo de anotações é um log: quem volta a um clipe e muda de ideia
+acrescenta linha em vez de reescrever. Ler o log cru contaria a correção como segunda opinião e
+mediria a pessoa contra ela mesma. O módulo usa a última leitura de cada pessoa por clipe, então só
+conta gente diferente.
+
+Ausência não é zero. Sem nenhum clipe lido duas vezes não há concordância para medir, e o módulo
+devolve ausência em vez de um relatório de zeros. Zero aqui se confundiria com concordância
+perfeita, que é o oposto do que o dado diz.
+
+Par, e não amplitude. Um resumo por amplitude, o maior menos o menor, esconde qual anotador destoou
+quando há três. Medir por par preserva quem discordou de quem, que é o que a revisão precisa saber.
+
+## Como se usa
+
+```python
+from mlops.concordancia import discordancias, medir
+from mlops.instant import read
+
+anotacoes = read()
+relatorio = medir(anotacoes, fps=59.94)
+fila = discordancias(anotacoes)
+```
+
+O `medir` devolve o agregado, ou ausência quando ninguém foi lido duas vezes. O `discordancias`
+devolve os clipes a reabrir, do maior desacordo para o menor.
+
+## O que falta
+
+O módulo está pronto e a medida não. Ela depende de uma segunda passada de anotação sobre um
+subconjunto dos 38 clipes, que é trabalho de anotador e não de código. Enquanto essa passada não
+acontece, a concordância continua sem número, e o erro do instante ainda carrega, junto, o erro de
+quem anotou.
