@@ -4,7 +4,7 @@
     name: hashicorp/terraform:1.15
     entrypoint: [""]
   extends:
-    - .actions-rules:python
+    - .actions-rules:terraform
   before_script:
     - cd infra
     - terraform init -backend=false -input=false

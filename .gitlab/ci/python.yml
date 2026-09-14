@@ -65,7 +65,9 @@ python:test:
         path: src/coverage.xml
 
 python:arm64:
-  extends: .python
+  extends:
+    - .python
+    - .actions-rules:python:deps
   cache:
     key:
       files:
@@ -92,7 +94,7 @@ api:image:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_HOST: tcp://docker:2375
   extends:
-    - .actions-rules:python
+    - .actions-rules:image:api
   needs:
     - python:test
   script:

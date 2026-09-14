@@ -38,6 +38,7 @@ COMANDOS = {
     "python:arm64": ("uv export",),
 }
 MERGE_REQUEST = '$CI_PIPELINE_SOURCE == "merge_request_event"'
+CI_PROPRIO = [".gitlab-ci.yml", ".gitlab/ci/**/*"]
 
 
 INTEGRACAO_BRANCH = "develop"
@@ -65,19 +66,30 @@ def ci() -> dict[str, Any]:
 
 
 def resolved(job: str) -> dict[str, Any]:
+    """Resolve `extends` como o GitLab: todos os pais, e o ultimo da lista vence.
+
+    Seguir so o primeiro pai daria a resposta errada em `python:arm64`, que estende
+    `.python` e depois `.actions-rules:python:deps` justamente para trocar a regra que
+    veio de `.python`.
+    """
     definicoes = ci()
-    herdados: list[str] = []
-    atual = job
-    while atual in definicoes:
-        herdados.append(atual)
-        herdado = definicoes[atual].get("extends")
-        herdado = [herdado] if isinstance(herdado, str) else list(herdado or [])
-        atual = next((nome for nome in herdado if nome in definicoes), "")
-    efetivo: dict[str, Any] = {}
-    for nome in reversed(herdados):
-        efetivo.update(definicoes[nome])
-    efetivo["heranca"] = herdados
-    return efetivo
+    heranca: list[str] = []
+
+    def efetivo(nome: str) -> dict[str, Any]:
+        definicao = definicoes[nome]
+        pais = definicao.get("extends")
+        pais = [pais] if isinstance(pais, str) else list(pais or [])
+        acumulado: dict[str, Any] = {}
+        for pai in pais:
+            if pai in definicoes:
+                acumulado.update(efetivo(pai))
+        acumulado.update({k: v for k, v in definicao.items() if k != "extends"})
+        heranca.append(nome)
+        return acumulado
+
+    resultado = efetivo(job)
+    resultado["heranca"] = heranca
+    return resultado
 
 
 def scripts(job: str) -> list[str]:
@@ -97,12 +109,15 @@ def test_the_pipeline_includes_the_python_jobs() -> None:
 @pytest.mark.parametrize("job", sorted(COMANDOS))
 def test_every_declared_job_exists_and_runs_on_merge_request(job: str) -> None:
     definicao = resolved(job)
-    condicoes = [regra.get("if") for regra in ci()[".actions-rules:python"]["rules"]]
 
     assert definicao["stage"] == "test"
     assert ".python" in definicao["heranca"]
-    assert MERGE_REQUEST in condicoes
-    assert INTEGRACAO in condicoes, "o commit de merge da branch de integracao ficaria sem portao"
+    for regra in definicao["rules"]:
+        condicao = str(regra.get("if", ""))
+        assert MERGE_REQUEST in condicao
+        assert INTEGRACAO in condicao, (
+            "o commit de merge da branch de integracao ficaria sem portao"
+        )
 
 
 @pytest.mark.parametrize("job", sorted(COMANDOS))
@@ -113,8 +128,88 @@ def test_every_job_still_runs_the_command_it_exists_for(job: str) -> None:
         assert comando in linhas
 
 
-def test_the_python_rule_does_not_filter_by_changed_paths() -> None:
-    assert all("changes" not in regra for regra in ci()[".actions-rules:python"]["rules"])
+def _globs(regra_nomeada: str) -> list[str]:
+    return [
+        caminho for regra in ci()[regra_nomeada]["rules"] for caminho in regra.get("changes", [])
+    ]
+
+
+def _casa(glob: str, caminho: str) -> bool:
+    """`File.fnmatch` com `FNM_PATHNAME`: `**` cruza `/`, `*` nao."""
+    padrao = re.escape(glob.replace("/**/", "/\x00")).replace(re.escape("\x00"), "\x00")
+    padrao = padrao.replace("\x00", "(?:.*/)?").replace(r"\*", "[^/]*")
+    return re.fullmatch(padrao, caminho) is not None
+
+
+# Cada arquivo de fora de `src/` que a suite abre, com o teste que o abre. O gate de
+# Python precisa vigiar todos: sem isso a MR passa verde e a quebra aparece em `develop`.
+SUITE_LE = {
+    ".gitignore": "tests/test_write_hygiene.py",
+    "infra/main.tf": "tests/test_infra.py",
+    ".gitlab-ci.yml": "tests/test_ci_gates.py",
+    ".gitlab/ci/python.yml": "tests/test_ci_gates.py",
+    "src/interface/package.json": "tests/test_ci_gates.py",
+    "src/interface/vite.config.ts": "tests/test_ci_gates.py",
+}
+
+
+def test_the_python_gate_filters_by_changed_paths() -> None:
+    """Sem filtro, toda MR de documentacao pagava os quatro jobs de Python sem provar nada.
+
+    Medido na MR !86, de duas linhas em `slides.mdx`: rodaram `python:lint`, `python:types`,
+    `python:test`, `python:arm64`, `api:image` e os tres jobs de Terraform.
+    """
+    regras = ci()[".actions-rules:python"]["rules"]
+
+    assert regras
+    for regra in regras:
+        assert regra.get("changes"), f"regra sem filtro de caminho: {regra}"
+
+
+@pytest.mark.parametrize("caminho", sorted(SUITE_LE))
+def test_the_python_gate_watches_every_file_the_suite_reads(caminho: str) -> None:
+    """O filtro so e seguro enquanto cobre tudo que a suite le, inclusive fora de `src/`."""
+    globs = _globs(".actions-rules:python")
+
+    assert any(_casa(glob, caminho) for glob in globs), (
+        f"{SUITE_LE[caminho]} le {caminho}, que nenhum glob do gate de Python cobre"
+    )
+
+
+def test_the_image_gate_ignores_test_only_changes() -> None:
+    """Mexer so em teste nao muda a imagem, e `api:image` leva quarenta segundos."""
+    globs = _globs(".actions-rules:image:api")
+
+    assert any(_casa(glob, "src/api/rotas.py") for glob in globs)
+    assert not any(_casa(glob, "src/tests/api/test_api.py") for glob in globs)
+
+
+def test_the_arm64_gate_only_watches_the_lock() -> None:
+    """O job so resolve o lock para aarch64: codigo nenhum muda o resultado."""
+    globs = [
+        glob for glob in _globs(".actions-rules:python:deps") if not glob.startswith(".gitlab")
+    ]
+
+    assert sorted(globs) == ["src/pyproject.toml", "src/uv.lock"]
+
+
+def test_changing_the_ci_itself_runs_every_gate() -> None:
+    """A rede de seguranca: regra nova que filtre demais desliga um gate em silencio.
+
+    Este proprio arquivo e lido por `test_ci_gates.py`, entao sem esta regra uma mudanca
+    em `.gitlab/ci/` nao rodaria o teste que a conferiria.
+    """
+    for nomeada in (
+        ".actions-rules:docs",
+        ".actions-rules:frontend",
+        ".actions-rules:python",
+        ".actions-rules:python:deps",
+        ".actions-rules:image:api",
+        ".actions-rules:terraform",
+        ".actions-rules:e2e",
+    ):
+        globs = _globs(nomeada)
+        assert any(_casa(glob, ".gitlab/ci/python.yml") for glob in globs), nomeada
 
 
 def test_the_coverage_floor_is_declared_once_and_the_job_only_turns_measurement_on() -> None:
@@ -209,10 +304,14 @@ def test_the_pipeline_includes_the_terraform_jobs() -> None:
 
 @pytest.mark.parametrize("job", ["terraform:fmt", "terraform:validate", "terraform:plan"])
 def test_the_terraform_gate_runs_on_merge_request(job: str) -> None:
+    """Estes jobs herdavam a regra de Python, entao rodavam em MR que nao tocava `infra/`."""
     definicao = resolved(job)
 
     assert definicao["stage"] == "test"
-    assert MERGE_REQUEST in [regra.get("if") for regra in ci()[".actions-rules:python"]["rules"]]
+    for regra in definicao["rules"]:
+        assert MERGE_REQUEST in str(regra.get("if", ""))
+    assert any(_casa(glob, "infra/main.tf") for glob in _globs(".actions-rules:terraform"))
+    assert not any(_casa(glob, "src/api/rotas.py") for glob in _globs(".actions-rules:terraform"))
 
 
 def test_the_terraform_plan_runs_without_a_credential() -> None:
@@ -313,16 +412,19 @@ def test_every_frontend_job_only_runs_when_the_interface_changes(job: str) -> No
     """
     definicao = resolved(job)
     regras = ci()[".actions-rules:frontend"]["rules"]
-    condicoes = [regra.get("if") for regra in regras]
 
     assert definicao["stage"] == "test"
     assert ".frontend" in definicao["heranca"]
-    assert MERGE_REQUEST in condicoes
-    assert INTEGRACAO in condicoes, "o commit de merge da branch de integracao ficaria sem portao"
     for regra in regras:
-        assert regra.get("changes") == ["src/interface/**/*"], (
-            f"{job} nao filtra pela pasta da interface: {regra.get('changes')}"
+        condicao = str(regra.get("if", ""))
+        assert MERGE_REQUEST in condicao
+        assert INTEGRACAO in condicao, (
+            "o commit de merge da branch de integracao ficaria sem portao"
         )
+    proprios = [regra.get("changes") for regra in regras if regra.get("changes") != CI_PROPRIO]
+    assert proprios == [["src/interface/**/*"]], (
+        f"{job} nao filtra pela pasta da interface: {proprios}"
+    )
 
 
 @pytest.mark.parametrize("job", sorted(FRONTEND))

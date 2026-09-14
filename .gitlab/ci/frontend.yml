@@ -100,22 +100,12 @@ product:e2e:
       optional: true
     - job: frontend:test
       optional: true
-    - python:test
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - compose.yaml
-        - Dockerfile
-        - src/api/**/*
-        - src/edge/**/*
-        - src/interface/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - compose.yaml
-        - Dockerfile
-        - src/api/**/*
-        - src/edge/**/*
-        - src/interface/**/*
+    # Opcional porque o diff pode tocar so o frontend, e ai `python:test` nem entra
+    # no pipeline. Sem isso o GitLab recusa criar o pipeline inteiro.
+    - job: python:test
+      optional: true
+  extends:
+    - .actions-rules:e2e
   timeout: 20m
   script:
     - apk add --no-cache docker-cli-compose jq

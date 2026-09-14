@@ -1,41 +1,153 @@
+# Regras de execucao por area: cada job so roda quando o diff toca a area dele.
+#
+# `changes` compara com a base da MR nos pipelines de merge request e com o push
+# anterior nos pipelines de branch. Ao criar um diretorio novo em `src/`, acrescente
+# ele na lista da area correspondente, senao o gate para de rodar em silencio.
+
+.on-change: &on-change
+  if: >-
+    $CI_PIPELINE_SOURCE == "merge_request_event" ||
+    $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH ||
+    $CI_COMMIT_BRANCH == "develop"
+
+.on-mr-or-main: &on-mr-or-main
+  if: >-
+    $CI_PIPELINE_SOURCE == "merge_request_event" ||
+    $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.on-main: &on-main
+  if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.paths:
+  # Mudanca no proprio CI roda todos os gates. E a rede de seguranca contra regra
+  # nova que filtre demais e desligue um gate sem ninguem perceber.
+  ci: &paths-ci
+    - .gitlab-ci.yml
+    - .gitlab/ci/**/*
+
+  # Python que entra na imagem. Sem os testes de proposito: mexer so em teste nao
+  # muda a imagem, entao `api:image` nao precisa rodar.
+  runtime: &paths-runtime
+    - Dockerfile
+    - .dockerignore
+    - src/*.py
+    - src/pyproject.toml
+    - src/uv.lock
+    - src/api/**/*
+    - src/cli/**/*
+    - src/config/**/*
+    - src/contracts/**/*
+    - src/edge/**/*
+    - src/mlops/**/*
+    - src/models/**/*
+
+  tests: &paths-tests
+    - src/tests/**/*
+
+  # Arquivos de fora de `src/` que a suite Python le. Sem eles aqui, mudar `.gitignore`
+  # ou um `.tf` passa verde na MR e quebra no merge. Cada um com o teste que o abre:
+  #   .gitignore                     -> tests/test_write_hygiene.py
+  #   infra/**/*                     -> tests/test_infra.py
+  #   src/interface/package.json     -> tests/test_ci_gates.py
+  #   src/interface/vite.config.ts   -> tests/test_ci_gates.py
+  suite-externa: &paths-suite-externa
+    - .gitignore
+    - infra/**/*
+    - src/interface/package.json
+    - src/interface/vite.config.ts
+
+  # `python:arm64` so resolve o lock para aarch64: nenhum codigo influencia o resultado.
+  deps: &paths-deps
+    - src/pyproject.toml
+    - src/uv.lock
+
+  docs: &paths-docs
+    - docs/**/*
+
+  frontend: &paths-frontend
+    - src/interface/**/*
+
+  terraform: &paths-terraform
+    - infra/**/*
+
+  # O alcance original do job, mais `src/config`, que o compose monta dentro da API e
+  # da borda. De proposito mais estreito que `runtime`: `src/mlops` e `src/models` nao
+  # mudam o produto que sobe, e este e o job mais caro do pipeline.
+  produto: &paths-produto
+    - compose.yaml
+    - Dockerfile
+    - .dockerignore
+    - src/config/**/*
+    - src/api/**/*
+    - src/edge/**/*
+    - src/interface/**/*
+
+# Garante que todo pipeline tenha ao menos um job: uma MR que so mexe em `README.md`
+# nao casa com area nenhuma, e o GitLab recusa criar pipeline vazio.
 .actions-rules:always:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      when: always
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - <<: *on-change
       when: always
     - when: never
 
 .actions-rules:docs:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - docs/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - docs/**/*
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-docs
 
 .actions-rules:docs:deploy:
   rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - docs/**/*
+    - <<: *on-main
+      changes: *paths-docs
 
 .actions-rules:frontend:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes:
-        - src/interface/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - src/interface/**/*
-    - if: $CI_COMMIT_BRANCH == "develop"
-      changes:
-        - src/interface/**/*
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-frontend
 
 .actions-rules:python:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_COMMIT_BRANCH == "develop"
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-runtime
+    - <<: *on-change
+      changes: *paths-tests
+    - <<: *on-change
+      changes: *paths-suite-externa
 
+.actions-rules:python:deps:
+  rules:
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-deps
+
+# Subconjunto de `.actions-rules:python`, entao `python:test` sempre esta no pipeline
+# quando este job esta, e o `needs` dele continua valido.
+.actions-rules:image:api:
+  rules:
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-runtime
+
+.actions-rules:terraform:
+  rules:
+    - <<: *on-change
+      changes: *paths-ci
+    - <<: *on-change
+      changes: *paths-terraform
+
+# Fica fora de `develop` porque e o job mais caro do pipeline: sobe o compose inteiro
+# e roda Playwright nas duas metades do teste de reinicio.
+.actions-rules:e2e:
+  rules:
+    - <<: *on-mr-or-main
+      changes: *paths-ci
+    - <<: *on-mr-or-main
+      changes: *paths-produto
