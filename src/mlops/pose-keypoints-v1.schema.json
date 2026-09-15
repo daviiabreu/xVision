@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pose-keypoints-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clip_id",
+    "match_id",
+    "video_sha256",
+    "frame_index",
+    "frame_width",
+    "frame_height",
+    "shooter_box",
+    "keypoints",
+    "annotator",
+    "reviewed_by",
+    "created_at",
+    "quality_flags"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "clip_id": { "type": "string", "minLength": 1 },
+    "match_id": { "type": "string", "minLength": 1 },
+    "video_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "frame_index": { "type": "integer", "minimum": 0 },
+    "frame_width": { "type": "integer", "minimum": 1 },
+    "frame_height": { "type": "integer", "minimum": 1 },
+    "shooter_track_id": { "type": ["integer", "null"] },
+    "shooter_box": {
+      "type": "array",
+      "minItems": 4,
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "items": false
+    },
+    "keypoints": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "x", "y", "visibility"],
+        "properties": {
+          "name": {
+            "enum": [
+              "nose",
+              "eye_left",
+              "eye_right",
+              "ear_left",
+              "ear_right",
+              "shoulder_left",
+              "shoulder_right",
+              "elbow_left",
+              "elbow_right",
+              "wrist_left",
+              "wrist_right",
+              "hip_left",
+              "hip_right",
+              "knee_left",
+              "knee_right",
+              "ankle_left",
+              "ankle_right"
+            ]
+          },
+          "x": { "type": ["number", "null"] },
+          "y": { "type": ["number", "null"] },
+          "visibility": { "enum": ["visible", "occluded", "absent"] }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "visibility": { "enum": ["visible", "occluded"] } },
+              "required": ["visibility"]
+            },
+            "then": {
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": { "visibility": { "const": "absent" } },
+              "required": ["visibility"]
+            },
+            "then": {
+              "properties": {
+                "x": { "type": "null" },
+                "y": { "type": "null" }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "annotator": { "type": "string", "minLength": 1 },
+    "reviewed_by": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "quality_flags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    }
+  }
+}
