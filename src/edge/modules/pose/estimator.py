@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
 import numpy as np
 
@@ -97,6 +97,20 @@ class PoseEstimator(Protocol):
     """Um conjunto de keypoints por recorte, no espaco do recorte, ou `None` quando nao ha corpo."""
 
     def estimate_many(self, crops: Sequence[Any]) -> tuple[Keypoints | None, ...]: ...
+
+
+@runtime_checkable
+class PoseBoxes(Protocol):
+    """Quem sabe estimar keypoints de caixas dadas, sem escolher de quem e o corpo.
+
+    E o contrato que `xvision eval-pose` exige. Separado de `PerceptionModule` porque quem nao o
+    oferecer nao e mensuravel por aquele comando, e o comando recusa dizendo isso em vez de cair
+    num `AttributeError` no meio da primeira inferencia.
+    """
+
+    def estimate_boxes(
+        self, batch: FrameBatch, caixas: Mapping[int, Box]
+    ) -> dict[int, Keypoints]: ...
 
 
 @dataclass(frozen=True)
@@ -181,15 +195,10 @@ class YoloPose:
         if atirador is None:
             return vazio
 
-        recortes = _recortes(batch, jogadores, trajetorias, atirador)
-        if not recortes:
+        caixas = _caixas_do_atirador(batch, jogadores, trajetorias, atirador)
+        por_quadro = self.estimate_boxes(batch, caixas)
+        if not por_quadro:
             return vazio
-        medidos = self._medir(recortes)
-        por_quadro = {
-            recorte.frame_index: _no_quadro_original(pontos, recorte, batch)
-            for recorte, pontos in zip(recortes, medidos, strict=True)
-            if pontos is not None
-        }
         return ModuleOutput(
             kind=self.spec.kind,
             frames=batch.indices,
@@ -200,6 +209,30 @@ class YoloPose:
                 for indice in batch.indices
             ),
         )
+
+    def estimate_boxes(self, batch: FrameBatch, caixas: Mapping[int, Box]) -> dict[int, Keypoints]:
+        """Os keypoints de uma caixa por quadro, ja de volta ao pixel do quadro original.
+
+        E o caminho que `infer` percorre depois de decidir de quem e o corpo, separado dele para o
+        avaliador nao refazer recorte, margem e volta de coordenada por fora: duas copias da mesma
+        receita divergem caladas, e bastaria a margem mudar aqui para o relatorio medir um
+        enquadramento que a producao nao usa.
+
+        Quadro sem caixa, ou cuja caixa nao sobrevive ao recorte, nao aparece no resultado.
+        """
+        if not self._pronto:
+            raise ModuleNotLoaded(self.spec.name)
+        if self._estimator is None or not batch.indices or not caixas:
+            return {}
+        recortes = _recortes(batch, caixas)
+        if not recortes:
+            return {}
+        medidos = self._medir(recortes)
+        return {
+            recorte.frame_index: _no_quadro_original(pontos, recorte, batch)
+            for recorte, pontos in zip(recortes, medidos, strict=True)
+            if pontos is not None
+        }
 
     def _medir(self, recortes: Sequence[_Recorte]) -> tuple[Keypoints | None, ...]:
         estimador = cast("PoseEstimator", self._estimator)
@@ -287,15 +320,24 @@ def _quadro_mais_perto(
     return min(com_gente, key=lambda i: abs(i - contato)) if com_gente else None
 
 
-def _recortes(
+def _caixas_do_atirador(
     batch: FrameBatch,
     jogadores: Mapping[int, tuple[Mapping[str, object], ...]],
     trajetorias: Mapping[int, Mapping[int, int]],
     atirador: int,
-) -> tuple[_Recorte, ...]:
+) -> dict[int, Box]:
+    caixas: dict[int, Box] = {}
+    for indice in batch.indices:
+        caixa = _caixa_do_track(jogadores.get(indice, ()), trajetorias.get(indice, {}), atirador)
+        if caixa is not None:
+            caixas[indice] = caixa
+    return caixas
+
+
+def _recortes(batch: FrameBatch, caixas: Mapping[int, Box]) -> tuple[_Recorte, ...]:
     recortes: list[_Recorte] = []
     for posicao, indice in enumerate(batch.indices):
-        caixa = _caixa_do_track(jogadores.get(indice, ()), trajetorias.get(indice, {}), atirador)
+        caixa = caixas.get(indice)
         if caixa is None:
             continue
         pedaco = _cortar(batch, posicao, caixa)
