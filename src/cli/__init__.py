@@ -2209,6 +2209,108 @@ def eval_field(
         typer.echo(f"  {saida}")
 
 
+POSE_LABELS = typer.Option(..., help="JSONL validado pelo schema pose-keypoints-v1.")
+POSE_CONFIG = typer.Option(None, help="Configuracao com o modulo pose a medir.")
+POSE_JSON = typer.Option(None, help="Grava somente o relatorio agregado em JSON.")
+POSE_DOBRA = typer.Option("ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+POSE_PROPOSALS = typer.Option(False, help="Inclui propostas em diagnostico exploratorio explicito.")
+
+
+@app.command("eval-pose")
+def eval_pose(
+    labels: Path = POSE_LABELS,
+    config: Path | None = POSE_CONFIG,
+    saida: Path | None = POSE_JSON,
+    dobra: str = POSE_DOBRA,
+    include_proposals: bool = POSE_PROPOSALS,
+) -> None:
+    """Mede o estimador de pose sobre a caixa anotada do finalizador.
+
+    Entra pela caixa da anotacao e nao pela saida da especie inteira: `pose` escolhe o finalizador e
+    estima o corpo dele, e um numero que mistura as duas nao diz qual mudou. A escolha do
+    finalizador continua medida por `xvision eval` e por `xvision placar`.
+
+    O numero que importa e o `usable_rate`, e nao a OKS: uma troca de tornozelo esquerdo por direito
+    passa em OKS e em PCK e inverte a resposta de `body_part`.
+    """
+    from contracts import Box, Keypoint
+    from edge.modules.pose import PoseBoxes
+    from mlops.pose_quality import (
+        PoseLabelError,
+        evaluation_labels,
+        read_pose_labels,
+        validate_label_video,
+    )
+    from mlops.pose_quality import measure as measure_pose
+
+    path = _config(config)
+    folds = dobras_de(dobra)
+    try:
+        annotations = read_pose_labels(labels)
+        catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
+        modules = load_modules(read_config(path))
+    except ERROS_DE_USO + (PoseLabelError,) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    pose = modules.get("pose")
+    if pose is None:
+        typer.echo(f"{path} nao declara modules.pose", err=True)
+        raise typer.Exit(code=1)
+    if not isinstance(pose, PoseBoxes):
+        typer.echo(
+            f"{path} declara um modulo pose que nao expoe estimate_boxes, e a medida entra por ela",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    selected = tuple(
+        annotation
+        for annotation in annotations
+        if annotation.clip_id in catalog
+        and catalog[annotation.clip_id].fold in folds
+        and catalog[annotation.clip_id].match_id == annotation.match_id
+    )
+    if not selected:
+        typer.echo("nenhum quadro anotado pertence a dobra e ao catalogo selecionados", err=True)
+        raise typer.Exit(code=1)
+    grouped: dict[str, list[Any]] = {}
+    for annotation in evaluation_labels(selected, include_proposals=include_proposals):
+        grouped.setdefault(annotation.clip_id, []).append(annotation)
+    predictions: dict[tuple[str, int], tuple[Keypoint, ...]] = {}
+    pose.load()
+    try:
+        for clip_id, group in grouped.items():
+            record = catalog[clip_id]
+            clip = replace(probe(record.clip_path, clip_id=clip_id), match_id=record.match_id)
+            video_sha256 = sha256_of(record.clip_path)
+            for annotation in group:
+                validate_label_video(annotation, clip, video_sha256)
+            provider = FrameProvider(VideoSource(record.clip_path))
+            try:
+                indices = tuple(annotation.frame_index for annotation in group)
+                batch = provider.frames(indices, pose.spec.preprocess)
+                medido = pose.estimate_boxes(
+                    batch, {a.frame_index: Box(*a.shooter_box) for a in group}
+                )
+            finally:
+                provider.close()
+            predictions.update(
+                ((clip_id, indice), tuple(Keypoint(n, x, y, c) for n, x, y, c in pontos))
+                for indice, pontos in medido.items()
+            )
+    except (PoseLabelError, *ERROS_DE_USO) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    finally:
+        pose.close()
+    report = measure_pose(selected, predictions, include_proposals=include_proposals)
+    document = {"population": f"folds={sorted(folds)}", **report.to_dict()}
+    typer.echo(json.dumps(document, indent=2, ensure_ascii=False))
+    if saida is not None:
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        typer.echo(f"  {saida}")
+
+
 PLACAR_RUN = typer.Option(..., help="Execucao com --gabarito de onde ler as features.")
 PLACAR_BOLA = typer.Option(..., help="JSON gravado por eval-ball com --saida.")
 
