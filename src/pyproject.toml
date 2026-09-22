@@ -1,6 +1,6 @@
 [project]
 name = "xvision"
-version = "0.1.0"
+version = "0.3.0"
 description = "xVision: extrai features de finalizacao a partir de video, com processamento na borda"
 license = { text = "CC-BY-4.0" }
 authors = [{ name = "Inteli T12 G02" }]
