@@ -44,22 +44,22 @@ passada é recusada pelas mesmas regras que a primeira.
 
 | Medida                                  | Resultado                 | Critério da spec  |
 | --------------------------------------- | ------------------------- | ----------------- |
-| quadros comparados                      | 86 de 88, 7 de 8 contatos | todos os contatos |
+| quadros comparados                      | 88 de 88, 8 de 8 contatos | todos os contatos |
 | distância do centro, mediana            | 0,217 diâmetro            | até 0,5           |
 | distância do centro, p95                | 0,691 diâmetro            |                   |
 | distância do centro no contato, mediana | 0,327 diâmetro            |                   |
 | diferença relativa do diâmetro, mediana | 0,167                     |                   |
-| visibilidade igual                      | 0,884                     | pelo menos 0,80   |
-| kappa de visibilidade                   | 0,056                     |                   |
+| visibilidade igual                      | 0,864                     | pelo menos 0,80   |
+| kappa de visibilidade                   | 0,036                     |                   |
 
 Pelos dois critérios da spec, o protocolo não precisa ser revisto antes de ampliar a anotação. A
 metade das marcas cai a menos de um quarto de diâmetro da primeira passada, e a tolerância do PCK é
 um diâmetro inteiro.
 
-O kappa baixo não contradiz a concordância de 0,884. Quase todo quadro é `visible` nas duas
+O kappa baixo não contradiz a concordância de 0,864. Quase todo quadro é `visible` nas duas
 passadas, então concordar nessa classe é quase certo por acaso, e o kappa desconta exatamente isso.
-Entre `visible` e `occluded`, a segunda passada foi mais conservadora: quatro quadros fizeram esse
-caminho e um fez o contrário. As outras discordâncias vêm de quadros que a primeira passada deixou
+Entre `visible` e `occluded`, a segunda passada foi mais conservadora: cinco quadros fizeram esse
+caminho, um deles de contato, e um fez o contrário. As outras discordâncias vêm de quadros que a primeira passada deixou
 sem bola ou como `ambiguous` e a segunda marcou.
 
 ## O que a segunda passada encontrou
@@ -106,14 +106,13 @@ marcar o centro da mancha borrada e não o da bola, não aparece em nenhuma medi
 **O clipe incompatível ainda não foi resolvido.** Até alguém decidir qual passada está certa, as
 métricas de trajetória da Sprint 3 carregam esses quadros como estão.
 
-**São 86 quadros.** A mediana é estável com esse n, e o p95 não: ele é decidido por três ou quatro
-quadros.
+**São 88 quadros, 76 deles com centro nas duas passadas.** A mediana é estável com esse n, e o p95
+não: ele é decidido por três ou quatro quadros.
 
 ## Ainda não implementado
 
 | Pendência                                       | Próximo passo                                                                               |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| os dois quadros que faltam, um deles de contato | completar pela mesma página, que retoma de onde parou                                       |
 | clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
 | concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
 | paridade embarcada da bola                      | segue dependendo da Jetson, como na Sprint 3                                                |
