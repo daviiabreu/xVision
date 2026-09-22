@@ -1,0 +1,346 @@
+---
+title: Análise financeira
+description: Custos, cenários de benefício e critérios para avaliar a viabilidade econômica do xVision
+---
+
+Esta análise estima a viabilidade econômica do xVision sem transformar hipóteses em resultados. O
+projeto é uma prova de conceito acadêmica: a plataforma de borda é disponibilizada pelo Inteli, não
+há implantação na infraestrutura da Footstats e o tempo e o custo atuais da marcação humana ainda
+não foram informados. Portanto, o desembolso direto do parceiro durante a PoC pode ser baixo ou
+nulo, mas isso não significa que desenvolver, reproduzir e operar a solução tenha custo zero.
+
+O objeto analisado também precisa ser delimitado. O xVision recebe clipes de finalização, executa
+sete módulos de percepção, extrai características do lance e disponibiliza o resultado para revisão.
+Não existe, até esta entrega, um modelo final de xG validado e integrado. Assim, os benefícios desta
+página dizem respeito à automação da extração de características, e não a uma receita atribuída a um
+cálculo de xG já concluído.
+
+<Callout type="warn" title="O ROI calculado é um cenário, não uma medição">
+  A [matriz de risco](/docs/sprint-1/matriz-de-risco) já registra no R02 que faltam o tempo de
+  marcação por partida e o custo dessa atividade. Para permitir uma análise completa, esta página
+  fecha um cenário hipotético com essas e outras premissas declaradas. Os resultados permitem testar
+  a sensibilidade da decisão, mas não representam retorno observado pela Footstats.
+</Callout>
+
+## Base da análise
+
+Os números abaixo têm origens e graus de confiança diferentes. Valores observados vêm do projeto;
+valores de catálogo são referências para cotação; variáveis pendentes precisam ser medidas no
+piloto.
+
+| Dado | Valor usado | Natureza e limite |
+| --- | --- | --- |
+| Amostra de desenvolvimento | 604 clipes completos de 28 partidas, média de 21,6 clipes por partida | observado no conjunto usado pelo projeto; não é previsão do volume comercial |
+| Hardware de referência | Jetson Orin Nano Super Developer Kit, 8 GB | decisão inicial de engenharia, ainda sujeita ao benchmark completo na placa |
+| Potência configurável do módulo | 7 W a 25 W | especificação da NVIDIA; não equivale ao consumo medido na tomada com armazenamento e periféricos |
+| Preço de referência | US$ 249 a US$ 399 por kit | páginas oficiais da NVIDIA consultadas em 14/09/2026 publicavam valores diferentes; é uma faixa de cotação, sem impostos, frete ou câmbio |
+| Infraestrutura central | API, frontend e SQLite executáveis localmente; topologia futura com PostgreSQL apenas declarada | nenhum provedor foi escolhido e nenhum recurso de nuvem foi aplicado, portanto não há fatura real a extrapolar |
+| Trabalho manual atual | tempo por lance, custo-hora e taxa de retrabalho não informados | variável crítica para benefício e prazo de retorno |
+| Qualidade útil da automação | ainda incompleta | há módulos e características não finalizados, e parte das métricas ainda não foi validada em amostra representativa |
+
+A média de 21,6 clipes por partida serve somente para transformar tempo por lance em tempo por
+partida nos exemplos. O volume comercial deve vir da quantidade de partidas processadas pela
+Footstats, e não do tamanho do conjunto de desenvolvimento.
+
+## O que já foi construído
+
+O custo de reprodução não se limita aos pesos dos modelos. O projeto inclui ingestão e decode,
+detecção de jogadores, bola e campo, tracking, pose, identificação de equipes, homografia, regras de
+características, contrato de evento, API, autenticação, persistência, frontend, testes e integração
+contínua. O [estado da Sprint 3](/docs/sprint-3) mostra que as sete espécies de percepção já apontam
+para implementações reais, enquanto o módulo de marcação ainda é stub e a qualidade de algumas
+saídas permanece abaixo do necessário ou sem validação suficiente.
+
+A [execução e validação do produto](/docs/sprint-3/produto/execucao-e-validacao) comprova o fluxo de
+cadastro, envio, processamento, histórico e persistência em Docker Compose. Essa evidência reduz o
+risco de integração, mas não equivale a uma implantação de produção nem prova a qualidade de todos
+os modelos. Da mesma forma, a topologia em Terraform declara API, frontend e banco, porém usa
+`terraform_data`, sem provedor e sem `apply`. Não existe custo de nuvem medido hoje.
+
+## Custo de desenvolvimento
+
+O trabalho acadêmico não gera uma folha salarial paga pela Footstats, mas deve ser convertido em
+custo equivalente quando a pergunta for quanto custaria reproduzir ou continuar a solução. A forma
+correta é somar horas por função usando custo-hora carregado, que inclui salário, encargos,
+benefícios, gestão e estrutura da organização.
+
+```text
+C_desenvolvimento = pessoas x meses x salario_mensal x fator_de_encargos
+```
+
+Para manter a comparação com análises anteriores do Inteli, considera-se a equipe de sete pessoas
+durante cinco sprints, equivalentes a 2,5 meses. O fator 1,7 adiciona ao salário 70% de encargos,
+benefícios e estrutura. Como não há folha salarial do projeto, os dois salários são premissas de
+planejamento:
+
+| Composição | Cálculo | Custo equivalente |
+| --- | ---: | ---: |
+| Equipe júnior | 7 x 2,5 meses x R$ 4.500 x 1,7 | R$ 133.875 |
+| Equipe plena | 7 x 2,5 meses x R$ 7.400 x 1,7 | R$ 220.150 |
+
+O cenário-base de retorno usa R$ 220.150, correspondente à equipe plena. Esse valor não representa
+desembolso da Footstats durante o projeto acadêmico. Ele estima quanto uma organização precisaria
+reservar para reproduzir o trabalho com uma equipe remunerada. O cenário júnior aparece como
+sensibilidade e os dois devem ser substituídos por salários ou horas reais numa contratação.
+
+## Investimento em infraestrutura
+
+O investimento inicial, ou CAPEX, depende do cenário de implantação. Na PoC, o hardware é
+disponibilizado conforme o escopo acadêmico, então sua compra não é um desembolso incremental do
+parceiro. Em produção, a conta precisa considerar o conjunto completo e não somente o módulo.
+
+| Item | Como estimar | Situação atual |
+| --- | --- | --- |
+| Computação de borda | número de unidades x preço cotado do conjunto | Jetson Orin Nano é a referência; cotação oficial observada entre US$ 249 e US$ 399 por kit |
+| Armazenamento | NVMe por unidade, dimensionado pela retenção dos clipes | capacidade e prazo de retenção não foram acordados |
+| Captura e conectividade | interface de vídeo ou rede, cabos e adaptação à fonte | fora do protótipo atual; depende de onde a borda será instalada |
+| Proteção e operação | gabinete, refrigeração, fonte e eventual nobreak | cotar para o ambiente real, sobretudo se a unidade ficar em campo |
+| Unidade de reserva | política de reposição x custo do conjunto | necessária somente depois de definir disponibilidade exigida |
+| Serviço central | banco, API, frontend, domínio, observabilidade e backup | não há provedor nem dimensionamento de produção escolhido |
+
+O kit citado pela NVIDIA é destinado a desenvolvimento e prototipagem. Uma implantação comercial
+precisa confirmar disponibilidade, garantia, ciclo de vida e preço do módulo ou equipamento de
+produção equivalente. Também não se deve assumir uma unidade por partida. A quantidade de placas é
+determinada pela simultaneidade, pela vazão sustentada do pipeline e pela proximidade física das
+fontes de vídeo.
+
+```text
+unidades_de_borda = teto(carga_simultanea / capacidade_sustentada_por_unidade) + reserva
+```
+
+A [pesquisa de hardware](/docs/sprint-1/pesquisa/benchmarking) recomenda a Orin Nano por
+compatibilidade com TensorRT, memória e custo de engenharia. A alternativa RK3588 pode custar menos
+em aquisição, mas transfere custo para migração de runtime, kernel de fabricante e validação. Comprar
+uma Orin NX preventivamente também não é econômico: ela só passa a fazer sentido se as medições
+mostrarem limite de memória ou de vazão na Nano.
+
+## Custo recorrente
+
+O custo operacional, ou OPEX, reúne energia, manutenção, armazenamento, rede e serviços centrais.
+A revisão humana também é recorrente, mas nesta análise ela é descontada do tempo evitado para não
+ser contabilizada duas vezes. O modo de potência da placa permite apenas calcular um limite teórico.
+Em operação contínua durante 730 horas por mês, o módulo consumiria:
+
+| Modo de referência | Energia mensal teórica | Observação |
+| ---: | ---: | --- |
+| 7 W | 5,11 kWh | valor do módulo, sem perdas da fonte ou periféricos |
+| 15 W | 10,95 kWh | cenário intermediário |
+| 25 W | 18,25 kWh | limite superior configurável, se mantido continuamente |
+
+```text
+energia_mensal_kWh = potencia_media_W x horas_ligado / 1000
+custo_de_energia = energia_mensal_kWh x tarifa_total_R$_por_kWh
+```
+
+O xVision trabalha em rajadas de clipes. Por isso, multiplicar 25 W por todas as horas do mês tende
+a superestimar a carga de inferência, enquanto ignorar consumo ocioso, armazenamento e perdas da
+fonte tende a subestimá-la. A medida financeira útil é energia por clipe e por partida, obtida na
+tomada durante uma fila representativa, acompanhada do tempo ocioso entre partidas.
+
+Os demais custos recorrentes não podem ser tratados como zero:
+
+| Componente | Principal direcionador de custo | Medição necessária |
+| --- | --- | --- |
+| Revisão humana | minutos revisando saídas e corrigindo indisponibilidades ou erros | tempo médio por lance e taxa de retrabalho, descontados no benefício líquido |
+| Manutenção dos modelos | novas câmeras, campeonatos, uniformes, drift e regressões | horas mensais de curadoria, anotação, treino e validação |
+| Armazenamento local | volume de clipes retidos e prazo de retenção | GB por partida, dias retidos e política de exclusão |
+| Serviço central | usuários, partidas, histórico, disponibilidade e backup | perfil de uso e orçamento do provedor escolhido |
+| Rede | vídeo enviado até a borda e evento enviado ao backend | bytes de entrada e saída no arranjo real |
+| Reposição | falhas e vida útil do conjunto | prazo de garantia e política de reserva |
+
+O processamento na borda reduz tráfego somente quando o dispositivo está próximo da fonte e envia
+ao backend o evento estruturado. No protótipo, os clipes podem chegar pela rede já recortados. Nesse
+arranjo, não é correto contabilizar como economia todo o vídeo de uma partida, pois o descarte dos
+trechos sem finalização aconteceu antes do xVision.
+
+## Cenário-base assumido
+
+Para fechar a conta, esta análise adota um cenário de produção hipotético. Ele não descreve o
+contrato atual da Footstats e deve ser atualizado depois do piloto.
+
+| Premissa | Valor adotado | Como foi formada |
+| --- | ---: | --- |
+| Volume | 100 partidas por mês | hipótese intermediária para analisar escala |
+| Finalizações | 21,6 por partida | média observada nos 604 clipes completos de 28 partidas |
+| Tempo líquido evitado | 3 minutos por finalização | hipótese já descontando revisão e retrabalho |
+| Custo-hora operacional | R$ 50 | hipótese de custo carregado da atividade manual |
+| Desenvolvimento | R$ 220.150 | sete pessoas, 2,5 meses, salário de R$ 7.400 e fator 1,7 |
+| Unidade de borda instalada | R$ 3.500 | kit a US$ 399, câmbio de R$ 5,50 e reserva aproximada de 60% para NVMe, captura, proteção, impostos e frete |
+| Serviço central | R$ 600 por mês | US$ 20 para aplicação, US$ 60 para PostgreSQL e US$ 10 para armazenamento, logs e rede; câmbio de R$ 5,50 e reserva de 20% |
+| Manutenção | R$ 2.400 por mês | 20 horas mensais a R$ 120/h para dados, modelos, testes e atualização |
+| Energia | R$ 20 por mês | 18,25 kWh no limite de 25 W contínuos e tarifa arredondada de R$ 1/kWh |
+| OPEX mensal | R$ 3.020 | serviço central, manutenção e energia |
+| Horizonte | 36 meses | período comum para comparar investimento e operação |
+
+O orçamento do serviço central usa GCP apenas como referência financeira. A documentação oficial
+do Cloud Run confirma cobrança por uso e escala a zero; o Cloud SQL cobra CPU, memória,
+armazenamento e rede separadamente. Isso não altera a arquitetura atual nem afirma que o Terraform
+já implanta esses serviços. A região, disponibilidade e retenção escolhidas podem mudar a cotação.
+
+A reserva da unidade instalada é deliberadamente conservadora, porque o preço de catálogo não
+inclui todos os itens necessários no Brasil. Antes de uma compra, ela deve ser substituída por uma
+cotação de kit ou módulo de produção, NVMe, interface de captura, fonte, proteção, impostos, frete e
+garantia.
+
+## Benefício operacional
+
+O benefício direto é o tempo humano evitado na extração das características. Uma saída automática
+que precisa ser refeita não economiza o lance inteiro. Por isso, o cálculo desconta revisão e
+retrabalho:
+
+```text
+tempo_liquido_evitado_por_lance =
+  tempo_manual
+  - tempo_de_revisao
+  - (taxa_de_retrabalho x tempo_de_retrabalho)
+
+beneficio_por_partida =
+  lances_por_partida x tempo_liquido_evitado_por_lance / 60 x custo_hora_do_analista
+```
+
+A tabela abaixo é uma análise de sensibilidade, não uma promessa de economia. Ela usa a média
+observada de 21,6 clipes por partida e mostra o benefício bruto antes de energia, manutenção e
+infraestrutura. O "tempo evitado" já deve ser líquido da revisão e do retrabalho.
+
+| Tempo líquido evitado por lance | Analista a R$ 30/h | Analista a R$ 50/h | Analista a R$ 80/h |
+| ---: | ---: | ---: | ---: |
+| 1 minuto | R$ 10,80/partida | R$ 18,00/partida | R$ 28,80/partida |
+| 3 minutos | R$ 32,40/partida | R$ 54,00/partida | R$ 86,40/partida |
+| 5 minutos | R$ 54,00/partida | R$ 90,00/partida | R$ 144,00/partida |
+
+Mantendo apenas o cenário intermediário, com 3 minutos líquidos evitados por lance e custo-hora de
+R$ 50, o efeito do volume seria:
+
+| Partidas por mês | Horas humanas evitadas | Benefício bruto mensal | Benefício após OPEX de R$ 3.020 |
+| ---: | ---: | ---: | ---: |
+| 50 | 54 horas | R$ 2.700 | -R$ 320 |
+| 100 | 108 horas | R$ 5.400 | R$ 2.380 |
+| 300 | 324 horas | R$ 16.200 | R$ 13.180 |
+
+As três linhas são cenários ilustrativos, não o volume informado pela Footstats. A última coluna
+ainda não desconta o investimento inicial. Ela também supõe que uma unidade e a mesma equipe de
+manutenção suportam os três volumes. Se o benchmark exigir mais placas ou mais horas de operação, o
+OPEX e o investimento devem crescer junto com a carga.
+
+Consistência também pode gerar valor, mas ele não deve ser somado em reais sem uma consequência
+financeira observável. Para monetizá-la, seria necessário medir, por exemplo, o custo de corrigir
+uma marcação inconsistente, o atraso que ela causa na entrega ao cliente ou a receita associada a
+um nível de serviço mais rápido.
+
+## Custo total, retorno e ponto de equilíbrio
+
+Para comparar alternativas, recomenda-se um horizonte comum de 36 meses, ajustável à política da
+Footstats. O custo total de propriedade, ou TCO, deve incluir desenvolvimento e implantação, não
+somente a placa.
+
+```text
+TCO_36 =
+  desenvolvimento
+  + hardware_e_instalacao
+  + 36 x (energia + manutencao + armazenamento + servico_central + rede)
+
+ROI_36 = (beneficios_36 - TCO_36) / TCO_36
+
+payback_em_meses = investimento_inicial / beneficio_liquido_mensal
+```
+
+O prazo de retorno só existe quando o benefício líquido mensal é positivo. O ponto de equilíbrio
+em partidas pode ser calculado depois que o custo variável por partida e o investimento inicial
+forem conhecidos:
+
+```text
+partidas_para_equilibrio =
+  investimento_inicial / (beneficio_por_partida - custo_variavel_por_partida)
+```
+
+Aplicando as premissas do cenário-base, o benefício em 36 meses é R$ 194.400 e o OPEX acumulado é
+R$ 108.720:
+
+| Visão da decisão | Desenvolvimento | Hardware | OPEX em 36 meses | TCO em 36 meses | ROI em 36 meses | Payback |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Continuar o ativo acadêmico | R$ 0 incremental | R$ 3.500 | R$ 108.720 | R$ 112.220 | 73,2% | 1,5 mês |
+| Reproduzir com equipe júnior | R$ 133.875 | R$ 3.500 | R$ 108.720 | R$ 246.095 | -21,0% | 57,7 meses |
+| Reproduzir com equipe plena | R$ 220.150 | R$ 3.500 | R$ 108.720 | R$ 332.370 | -41,5% | 94,0 meses |
+
+O payback divide desenvolvimento e hardware pelo benefício mensal depois do OPEX, que é R$ 2.380
+no cenário de 100 partidas. A visão incremental se paga rapidamente porque recebe o software
+acadêmico como ativo já construído. A reprodução comercial completa não recupera o investimento
+dentro de 36 meses nesse volume.
+
+O volume muda a conclusão. Mantidas as demais premissas, 300 partidas por mês geram R$ 583.200 em
+benefícios durante 36 meses. Nesse caso, o cenário de equipe plena alcança ROI de 75,5% e payback de
+17 meses. Essa projeção só vale se uma unidade e o OPEX adotado sustentarem o volume, hipótese que o
+benchmark precisa confirmar.
+
+Há três pontos de equilíbrio úteis:
+
+- 56 partidas mensais cobrem apenas o OPEX de R$ 3.020;
+- 58 partidas mensais cobrem o OPEX e amortizam os R$ 3.500 de hardware em 36 meses;
+- 171 partidas mensais cobrem o OPEX e amortizam desenvolvimento pleno e hardware no mesmo prazo.
+
+O custo de desenvolvimento deve entrar quando a análise representar a decisão de construir a
+solução do zero. Se a decisão for somente continuar um ativo já desenvolvido no projeto acadêmico,
+é útil mostrar duas visões: custo econômico total, incluindo o trabalho já realizado, e desembolso
+incremental a partir do piloto. Misturar essas duas visões faz uma solução existente parecer
+gratuita ou, no extremo oposto, faz um custo já incorrido decidir uma compra futura.
+
+## Comparação dos cenários
+
+| Cenário | Investimento inicial | Custo recorrente | Evidência atual | Decisão recomendada |
+| --- | --- | --- | --- | --- |
+| Processo manual atual | sem novo hardware | cresce com partidas, lances e tempo por marcação | o processo existe, mas tempo e custo não foram medidos | medir como baseline do piloto |
+| PoC na Jetson disponível pelo Inteli | sem compra incremental do kit para o parceiro | energia, revisão e esforço da equipe durante o experimento | fluxo integrado existe; qualidade e execução completa na placa ainda têm lacunas | continuar para produzir as medidas faltantes |
+| Borda com Jetson adquirida | kit entre US$ 249 e US$ 399 como referência, mais NVMe, captura, proteção, impostos e frete | energia baixa, revisão, manutenção e serviço central | compatibilidade é favorável e o TCO de cenário foi calculado, mas os custos reais não foram medidos | cotar somente após benchmark e definição de simultaneidade |
+| GPU centralizada | servidor próprio ou instância com GPU, armazenamento e upload dos clipes | computação por tempo, armazenamento, rede e operação | não está implementada nem dimensionada no projeto | usar como comparação, não como arquitetura presumida |
+
+A melhor decisão para a fase atual é concluir o piloto sobre a Jetson já disponível. Isso preserva
+o investimento incremental baixo e produz as medidas que realmente decidem uma aquisição. Não há
+base para comprar hardware mais potente, contratar uma nuvem com GPU ou declarar retorno financeiro
+antes desse experimento.
+
+## Plano de validação financeira
+
+O piloto deve usar uma amostra representativa e registrar, para a mesma partida, o processo manual e
+o automático. Nenhum dado restrito precisa entrar na documentação; bastam resultados agregados.
+
+| Medida | Como coletar | Decisão que habilita |
+| --- | --- | --- |
+| Tempo manual por lance | cronometração de marcação e revisão por analistas da Footstats | custo atual por partida |
+| Tempo de revisão do xVision | cronometração da aceitação ou correção de cada saída | economia líquida de trabalho |
+| Taxa de aceitação sem retrabalho | saídas aceitas divididas pelas saídas revisadas, por característica | desconto de qualidade aplicado ao benefício |
+| Vazão sustentada | fila de clipes na Jetson, com p95 e estado térmico | quantidade de unidades para o volume simultâneo |
+| Energia por clipe e por partida | medidor na tomada e telemetria da placa durante carga e ociosidade | OPEX de energia |
+| Volume e retenção | partidas mensais, GB por partida e dias de armazenamento | NVMe, backup e serviço central |
+| Manutenção | horas mensais de anotação, treino, validação e atualização | OPEX de modelo |
+| Cotação instalada | kit ou módulo, NVMe, captura, fonte, proteção, impostos, frete e garantia | CAPEX real no Brasil |
+
+Com esses dados, a equipe consegue preencher o TCO, comparar borda e GPU centralizada sob a mesma
+carga e calcular retorno sem extrapolar o corpus de desenvolvimento. Até lá, a conclusão financeira
+é condicional: a arquitetura de borda é coerente para o piloto e tem baixo consumo nominal, mas a
+viabilidade de produção depende principalmente do tempo humano efetivamente economizado, da taxa de
+aceitação das características e do número de partidas simultâneas.
+
+## Referências
+
+- [Escopo e limites do produto](/docs/sprint-1/limites-do-produto), que define o caráter acadêmico,
+  a plataforma disponibilizada e a ausência de implantação na Footstats.
+- [Matriz de risco](/docs/sprint-1/matriz-de-risco), especialmente R02, R08 e R09, sobre baseline
+  operacional, retenção e disponibilidade do hardware.
+- [Benchmarking de hardware embarcado](/docs/sprint-1/pesquisa/benchmarking), origem da decisão
+  técnica e das ressalvas sobre energia, disponibilidade e proximidade da fonte.
+- [Estado dos modelos na Sprint 3](/docs/sprint-3), que separa implementação, medição e pendências.
+- [Execução e validação](/docs/sprint-3/produto/execucao-e-validacao), evidência do fluxo integrado e
+  limite da demonstração atual.
+- NVIDIA, [Jetson Orin Nano Developer Kit User Guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/),
+  referência oficial para a faixa de potência de 7 W a 25 W.
+- NVIDIA, [página de compra dos produtos Jetson](https://developer.nvidia.com/embedded/buy-jetson),
+  que publicava US$ 249 para o kit em 14/09/2026.
+- NVIDIA, [Jetson FAQ](https://developer.nvidia.com/embedded/faq) e
+  [NVIDIA Marketplace](https://marketplace.nvidia.com/en-us/enterprise/robotics-edge/jetson-orin-nano-super-developer-kit/),
+  que publicavam US$ 399 para o mesmo kit em 14/09/2026 e motivam o uso de cotação em faixa.
+- Google Cloud, [preços do Cloud Run](https://cloud.google.com/run/pricing), referência do modelo de
+  cobrança por uso e dos exemplos de custo da aplicação.
+- Google Cloud, [preços do Cloud SQL](https://cloud.google.com/sql/pricing), referência para CPU,
+  memória, armazenamento e rede do PostgreSQL gerenciado.
+- Google Cloud, [preços do Cloud Storage](https://cloud.google.com/storage/pricing), referência dos
+  componentes de armazenamento, operações e tráfego.
