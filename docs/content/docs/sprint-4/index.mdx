@@ -15,7 +15,7 @@ está em andamento, e a página descreve o estado de hoje, incluindo o que ainda
 
 | Página | O que traz |
 | --- | --- |
-| [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao) | por que a regra cinemática erra, oito hipóteses de refinamento medidas e um detector temporal publicado medido contra ela |
+| [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao) | por que a regra cinemática erra, oito hipóteses de refinamento medidas e o detector temporal publicado que passou a dar o instante do pipeline |
 | [Bola e trajetória](/docs/sprint-4/modelos/bola-e-trajetoria) | a segunda passada cega do gabarito da bola, que passou no critério da spec e achou um clipe com marcações incompatíveis |
 | [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
 | [Execução com os módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) | a evidência operacional da Sprint 3 repetida sem stub, com render e com as features declarando ausência |
@@ -48,13 +48,16 @@ meio do clipe.
 
 | Medida, 24 clipes de desenvolvimento | Dentro de 30 quadros |
 | --- | --- |
-| detector temporal publicado, sem treino local | 1,000 |
+| detector temporal publicado, sem treino local, pelo pipeline | 1,000 |
 | ponto médio fixo | 0,333 |
 | regra cinemática em vigor | 0,292 |
 | quadro ao acaso | 0,161 |
 
-O detector temporal não entra no produto: o código dele é GPL-3.0, os pesos não declaram licença, e
-o `src/` do projeto é CC-BY-4.0. A decisão de embarcá-lo é do grupo com o parceiro e a orientação.
+O detector temporal passou a ser a espécie `shot` das configurações de modelos reais. Ele roda em
+outro processo, por um executor com licença GPL-3.0 própria, porque importar o código dele levaria
+o `src/` inteiro para a mesma licença. O preço é o custo: uns 20 s por clipe em CPU, contra 145 ms
+da regra, e ainda sem medida na Jetson. O peso não declara licença, e o uso dele no produto precisa
+ser registrado com o parceiro e a orientação.
 
 A medida trouxe um limite que vale mais que ela. Com 24 clipes anotados, o conjunto não distingue
 mudança menor que 4,1 clipes, e as sete hipóteses de refinamento que falharam moviam um ou dois.
@@ -85,10 +88,10 @@ na estação; e a medição do pipeline completo em meia precisão.
 
 ## O que está bloqueado
 
-**Na Jetson.** A paridade embarcada da bola, o custo do módulo de bola na placa e as medições que a
-revisão cobrou. O `run.json` já está pronto para registrar essas execuções com procedência.
+**Na Jetson.** A paridade embarcada da bola, o custo do módulo de bola na placa, o custo do
+detector temporal na GPU e as medições que a revisão cobrou. O `run.json` já está pronto para registrar essas execuções com procedência.
 
-**Em anotação humana.** A segunda anotação cega do instante. Com o detector temporal em mediana de
-5 quadros, ela é o que separa um número legível de um número no grão do rótulo.
+**Com o parceiro e a orientação.** O uso de um peso sem licença declarada no produto entregue.
 
-**Em decisão do grupo.** A licença do detector temporal, antes de qualquer trabalho de embarque.
+A segunda anotação do instante não está bloqueada: ela não será feita, e a página do instante diz
+por que a medida em 30 quadros não depende dela.

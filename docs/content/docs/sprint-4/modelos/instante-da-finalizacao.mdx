@@ -8,11 +8,29 @@ apontar, e toda feature que precisa de um antes depende dele estar certo. Na Spr
 medido e reprovado. Esta sprint fez o que a página daquela sprint pedia, nomear a causa dos erros
 antes de escolher refinamento, e a resposta mudou a direção da frente inteira.
 
+Estado em 22/09/2026: o detector temporal medido nesta página passou a ser a espécie `shot` das
+configurações de modelos reais. Pelo pipeline, ele pôs os 24 instantes de desenvolvimento a até 30
+quadros do gabarito, contra 0,292 da regra cinemática. A regra continua no código e é a que roda na
+configuração de stubs.
+
 ## Onde se encaixa no fluxo
 
-A especie `shot` recebe a trajetória que a especie `ball` produziu e devolve um quadro. Ela não
-olha um pixel: toda a decisão sai de `edge.geometry.contact` sobre os centros das caixas de bola,
-filtrados pelos quadros em que a bola está perto de algum jogador.
+A espécie `shot` devolve um quadro e tem duas implementações. Nas configurações de modelos reais,
+`TdeedShot` recebe os quadros do clipe a 12 por segundo e chama o T-DEED em outro processo:
+
+```text
+quadros (frameset tdeed, 796x448 RGB) --> TdeedShot --> quadros.npy
+                                                             |
+                               external/tdeed/run.py, GPL-3.0, outro processo
+                                                             |
+                               probabilidade por passo <-----+
+                                        |
+                               máximo da classe SHOT --> instante --> ShotEvent 1.0
+```
+
+Na configuração de stubs, `BallBreakShot` recebe a trajetória que a espécie `ball` produziu. Ela
+não olha um pixel: toda a decisão sai de `edge.geometry.contact` sobre os centros das caixas de
+bola, filtrados pelos quadros em que a bola está perto de algum jogador.
 
 ```text
 ball (dense, 15 fps) --> rank_contacts --> lista ordenada de quebras
@@ -34,6 +52,8 @@ ball (dense, 15 fps) --> rank_contacts --> lista ordenada de quebras
 | `mlops.instant.baselines` | o acaso e o ponto médio fixo, ao lado de toda taxa publicada | não sabe se a diferença é grande o bastante para decidir |
 | `mlops.instant.resolution` | o menor efeito que a amostra distingue de ruído | não aumenta a amostra nem escolhe por você |
 | `mlops.instant.read_spots` | medir detector de fora do repositório pelo mesmo caminho | não executa o detector nem depende do código dele |
+| `edge.modules.shot.TdeedShot` | gravar os quadros, chamar o executor e escolher o máximo da classe `SHOT` | não importa o T-DEED e não decide se houve chute |
+| `external/tdeed/run.py` | carregar o checkpoint publicado e devolver a probabilidade de cada classe por passo | não escolhe instante e não conhece o contrato do evento |
 
 ## Fluxo de dados
 
@@ -59,6 +79,9 @@ trocados:
 é a amostra que originou a quebra. `candidate_pool` é o quadro de toda quebra pontuada, sem score,
 e é o que torna a linha de base exata em vez de estimada. São 54 quebras por clipe na mediana, com
 mínimo de 9 e máximo de 133.
+
+Com o T-DEED, `shot_source` é `tdeed`, `candidates` são os cinco maiores picos da classe `SHOT`
+separados por meio segundo, e `candidate_pool` sai vazio, porque não há conjunto de quebras.
 
 O `ShotEvent` continua em 1.0. Acrescentar campo de diagnóstico no schema público obrigaria a
 versionar um contrato que tem consumidor em API, frontend e persistência para resolver um problema
@@ -198,6 +221,39 @@ O comando usa o mesmo gabarito, a mesma tolerância e os mesmos nulos do `eval-i
 dele é `--dobra ajuste` e não `tudo`, porque alternativa externa é o caso em que o holdout se perde
 por descuido.
 
+## O detector dentro do pipeline
+
+A medida acima rodou fora da árvore, sobre quadros extraídos a 25 fps. Depois da decisão de
+integrar, o mesmo checkpoint rodou como espécie `shot`, pelo `xvision run` com a configuração de
+modelos reais para máquina sem CUDA, nos mesmos 24 clipes. É o número que vale para o produto.
+
+| Medida, 24 clipes de ajuste | Pelo pipeline | Fora da árvore |
+| --- | --- | --- |
+| dentro de 30 quadros | **1,000**, IC95 de 0,862 a 1,000 | 1,000 |
+| dentro de 20 quadros | 0,958 | 1,000 |
+| dentro de 10 quadros | 0,750 | 0,792 |
+| dentro de 5 quadros | 0,542 | 0,542 |
+| mediana do erro | 5 quadros | 5 quadros |
+| pior erro | 23 quadros | 19 quadros |
+| falhas | 0 de 24 | 0 de 24 |
+
+As duas execuções diferem por 2 quadros por clipe na mediana, e por 12 no pior caso. A diferença
+tem causa conhecida: o conjunto de quadros do pipeline só amostra em passo inteiro, e a 59,94 fps o
+passo 5 dá 11,99 quadros por segundo, 4% abaixo dos 12,5 do treino. O experimento reamostrava a 25
+fps e gravava JPEG. Nenhuma das duas mudanças moveu um clipe para fora dos 30 quadros.
+
+**O modelo adianta o instante.** Em 19 dos 24 clipes ele marca antes do gabarito, em média 6
+quadros, cerca de 100 ms. O viés aparece igual fora da árvore, então é do modelo e não da
+integração. Ele não foi corrigido: calibrar um deslocamento nos mesmos 24 clipes seria ajustar no
+conjunto que mede.
+
+**O custo é o preço da troca.** Medido isolado em CPU nesta máquina, cada janela de 100 passos, uns
+8,3 s de vídeo, custa de 17 a 20 s, e a carga do modelo fica abaixo de 0,2 s. Clipe de até 100
+passos sai em uns 20 s, e o mais longo do conjunto, com 108 passos, paga duas janelas e sai em 35 a
+45 s. A regra cinemática custa 145 ms. Na GPU da Jetson o T-DEED ainda não foi medido. A evidência
+agregada, sem identificador de clipe, está em
+[`instante-tdeed-pipeline-20260922.json`](/sprint-4/modelos/evidencias/instante-tdeed-pipeline-20260922.json).
+
 ## O que este conjunto consegue enxergar
 
 Oito hipóteses foram medidas nesta sprint e sete caíram. Duas delas, o corte por confiança da
@@ -242,9 +298,26 @@ página publicou o teto de 0,833 sem o acaso ao lado, e ele lia como 54 pontos p
 quando são 27. Número sem nulo é o mesmo defeito que a rubrica cobra em acurácia sem linha de base
 de maioria, e a correção é o avaliador imprimir os dois juntos, sempre.
 
-**O detector externo é medido sem entrar no repositório.** `mlops.instant.read_spots` lê
-`clip_id` e `frame_index` de um arquivo. A alternativa descartada era importar o T-DEED em `src/`,
-o que obrigaria o produto inteiro a virar GPL-3.0 para responder a uma pergunta de avaliação.
+**O T-DEED entra no pipeline por outro processo, e não por import.** `TdeedShot` grava os quadros
+num `.npy`, chama `external/tdeed/run.py` e lê as probabilidades em JSON. O executor tem licença
+própria, GPL-3.0, e nenhum tipo ou objeto atravessa a fronteira. A alternativa descartada era
+importar o T-DEED em `src/`, o que tornaria o produto inteiro obra derivada de código GPL-3.0. O
+custo da fronteira é gravar e ler um arquivo por clipe, que é pequeno perto da inferência.
+
+**A decisão de integrar veio do número, e não da mudança de spec.** A spec autorizava o T-DEED se a
+regra falhasse o gate de desenvolvimento. Ela falhou, o T-DEED mediu 1,000 contra 0,292, e Davi,
+dono desta frente, decidiu levá-lo ao pipeline em 22/09. A regra foi mantida como alternativa na configuração de stubs,
+que não depende de peso.
+
+**A segunda anotação do instante não será feita.** Davi, que fez a primeira, decidiu isso em 22/09. A leitura em
+30 quadros não depende dela: a diferença entre 1,000 e 0,292 é grande demais para vir do grão do
+rótulo. As tolerâncias de 10 e 5 quadros continuam sem barra de erro, e nada nesta página é
+decidido por elas. A alternativa descartada era segurar a integração até alguém anotar os clipes
+de novo.
+
+**O detector externo continua medível sem entrar no pipeline.** `mlops.instant.read_spots` lê
+`clip_id` e `frame_index` de um arquivo, e `xvision eval-spots` mede pelo mesmo caminho. É por onde
+passa a próxima alternativa antes de virar módulo.
 
 **O diagnóstico separa ausência de registro de ausência de quebra.** Execução anterior ao campo sai
 `nao-declarado`, e não `trajetoria`. Sem essa distinção, medir uma execução velha produziria uma
@@ -255,10 +328,10 @@ taxonomia inteira apontando para a detecção da bola sem nenhuma evidência.
 O ganho é que a frente parou de andar no escuro. Seis hipóteses foram descartadas por medida em vez
 de por impressão, e a sétima foi medida contra o mesmo nulo que derrubou as outras.
 
-A desvantagem principal é que o resultado bom é o que este projeto não pode usar como está. A regra
-cinemática é nossa, roda em 145 ms e mede 0,292. O T-DEED mede 1,000, custa de 8 a 18 segundos por
-clipe em CPU nesta máquina, tem 12,3M parâmetros e traz uma licença incompatível. A entrega desta
-sprint é saber disso com número, e não uma substituição pronta.
+A desvantagem principal é o custo. A regra cinemática é nossa, roda em 145 ms e mede 0,292. O
+T-DEED mede 1,000, custa uns 20 s por clipe em CPU nesta máquina, tem 12,3M parâmetros e ainda não
+foi medido na Jetson. Se o custo na placa não couber no orçamento da borda, a troca volta a ser
+decisão, e não conclusão.
 
 A segunda é que a resolução publicada ao lado da taxa vai tornar boa parte do trabalho futuro
 desta frente indefensável até o conjunto crescer. É desconfortável e é o ponto: sem ela, o mesmo
@@ -270,10 +343,11 @@ descrever uma execução que não é a que roda.
 
 ## Riscos e incertezas
 
-**Licença.** O código do T-DEED é GPL-3.0 e o `src/` deste projeto é CC-BY-4.0. Os pesos publicados
-não declaram licença em lugar nenhum, que é a mesma situação já levantada para o PnLCalib na Sprint
-3, e silêncio não é permissão. Medir fora da árvore e publicar o número é seguro. Embarcar no
-produto não é, e a decisão é do grupo com o parceiro e com a orientação, não de implementação.
+**Licença do peso.** O código do T-DEED é GPL-3.0 e fica isolado no executor, com licença
+própria. O peso publicado não declara licença em lugar nenhum, que é a mesma situação já levantada
+para o PnLCalib na Sprint 3, e silêncio não é permissão. O peso não é versionado: cada instalação
+baixa da fonte original, conferida pelo sha256 do manifesto. Usá-lo no produto entregue ao parceiro
+foi decidido dentro do grupo e ainda precisa ser registrado com o parceiro e com a orientação.
 
 **Domínio.** O `Shot` do SoccerNet é anotado em transmissão completa e avaliado com tolerância de
 um segundo, e ninguém demonstrou que esse timestamp equivale ao quadro do contato. O resultado
@@ -283,8 +357,8 @@ acima é evidência empírica no nosso conjunto, não equivalência demonstrada.
 máquina de desenvolvimento não tem CUDA, e a configuração de produção declara fp16 com letterbox no
 device. A diferença contra os 0,375 registrados na Sprint 3 não foi isolada.
 
-**Gabarito sem barra de erro.** Nenhum dos 38 clipes tem segunda anotação, e a taxonomia herda essa
-incerteza inteira.
+**Gabarito sem barra de erro.** Nenhum dos 38 clipes tem segunda anotação, e isso foi decidido e não
+esquecido. A taxonomia da regra e as tolerâncias apertadas do T-DEED herdam essa incerteza inteira.
 
 **Cache.** A chave do cache de percepção inclui o hash do arquivo do módulo, lido do disco no
 momento da chamada. Editar `kinematics.py` com uma execução em andamento grava saída do código
@@ -295,8 +369,10 @@ antigo sob a chave do código novo. Aconteceu nesta sprint e apareceu como 16 cl
 
 | Pendência | Próximo experimento |
 | --- | --- |
-| decisão de licença do T-DEED | levar código GPL-3.0 e pesos sem licença ao parceiro e à orientação, com o número desta página, antes de qualquer trabalho de embarque |
-| concordância entre anotadores | segunda anotação cega de 8 dos 24 clipes, que é o que permite ler 0,792 e 0,542 nas tolerâncias apertadas |
+| custo na Jetson | rodar o executor na GPU da placa com o `run.json` de procedência, antes de ligar o T-DEED na borda |
+| licença do peso | registrar com o parceiro e a orientação o uso de um peso sem licença declarada, com o número desta página |
+| efeito nas features | medir `type_of_play` e `body_part` no catálogo com o instante novo, porque 24 clipes não bastam para macro-F1 |
+| adiantamento de 6 quadros | testar um deslocamento fixo uma única vez no pacote reservado, depois do congelamento, e não nos 24 de ajuste |
 | tamanho do conjunto de desenvolvimento | anotar de 24 para 60 clipes, que é o mínimo para o teste de sinal pareado resolver uma mudança do tamanho das que esta sprint produziu |
 | custo na Jetson | 8 a 18 s por clipe em CPU aqui não diz nada sobre a placa; medir latência, memória e energia antes de considerar embarque |
 | conjunto reservado | uma única execução depois do congelamento, sem recalibrar nos mesmos 14 clipes |

@@ -32,6 +32,13 @@ fps = 5
 strategy = "uniform"
 fps = 15
 
+[frames.tdeed]
+strategy = "uniform"
+fps = 12.5
+# O checkpoint do T-DEED foi treinado a 25 fps com passo 2. A 59,94 fps nativos o passo inteiro
+# mais proximo e 5, o que da 11,99 por segundo, 4% abaixo do treino. O numero medido no pipeline
+# sai com essa amostragem, e nao com a do experimento fora da arvore.
+
 [frames.window]
 strategy = "around"
 anchor   = "shot"
@@ -77,8 +84,12 @@ min_inliers                   = 6
 max_reprojection_p95_px       = 10.0
 
 [modules.shot]
-impl   = "edge.modules.shot:BallBreakShot"
-frames = "dense"
+impl     = "edge.modules.shot:TdeedShot"
+artifact = "models/manifests/shot/tdeed-soccernetball-test-1.0.0.toml"
+frames   = "tdeed"
+# O instante sai do T-DEED, que roda em processo separado por external/tdeed/run.py porque o codigo
+# dele e GPL-3.0. A regra cinematica, `edge.modules.shot:BallBreakShot` com frames = "dense", segue
+# disponivel e e a que o pipeline de stubs usa.
 
 [modules.tracking]
 impl   = "edge.participants.module:TrackingModule"

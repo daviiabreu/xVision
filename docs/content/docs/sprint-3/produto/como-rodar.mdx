@@ -174,9 +174,11 @@ Encerre os dois processos com `Ctrl+C`.
 
 ## Modelos e render
 
-Em `pipeline.models.toml`, `players`, `ball`, `field` e `pose` usam modelos com pesos;
-`tracking`, `shot` e `identity` usam regras sem peso próprio, e `identity` classifica equipes por
-cor de uniforme com `TeamIdentity`. São sete módulos com implementação não stub, e `marking` é o
+Em `pipeline.models.toml`, `players`, `ball`, `field`, `pose` e `shot` usam modelos com pesos;
+`tracking` e `identity` usam regras sem peso próprio, e `identity` classifica equipes por cor de
+uniforme com `TeamIdentity`. O `shot` é o T-DEED, que roda em outro processo por
+`external/tdeed/run.py` porque o código dele é GPL-3.0, como explica a página do
+[instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao). São sete módulos com implementação não stub, e `marking` é o
 único que continua stub, mas não são sete modelos treinados. Quatro features estão declaradas
 nessa configuração: `body_part`, `type_of_play`, `looked_before` e `goalkeeper_position`. As limitações estão nas páginas de
 [campo](/docs/sprint-3/modelos/campo-e-homografia) e [bola](/docs/sprint-3/modelos/bola-e-trajetoria).
@@ -184,11 +186,27 @@ nessa configuração: `body_part`, `type_of_play`, `looked_before` e `goalkeeper
 Para preparar inferência local, pare a API e execute em `src/`:
 
 ```bash
-uv sync --frozen --extra api --extra players --extra ball --extra topview
-uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/players/football-player-detection-1.0.0.toml
-uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/ball/yolo-football-ball-detection-0.1.0.toml
-uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml
-uv run --frozen --extra api --extra players --extra ball --extra topview xvision artifact get models/manifests/pose/yolov8n-pose-8.4.0.toml
+uv sync --frozen --extra api --extra players --extra ball --extra topview --extra shot
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/players/football-player-detection-1.0.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/ball/yolo-football-ball-detection-0.1.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/pose/yolov8n-pose-8.4.0.toml
+```
+
+O `shot` precisa ainda do código do T-DEED numa revisão fixa e do peso publicado pelos autores.
+Na raiz do repositório:
+
+```bash
+git clone https://github.com/arturxe2/T-DEED.git var/external/T-DEED
+git -C var/external/T-DEED checkout d953b4de8a2ad941c565e1683c5b07255cbe644e
+```
+
+O peso vem da pasta indicada no manifesto `models/manifests/shot/tdeed-soccernetball-test-1.0.0.toml`,
+e `external/tdeed/README.md` diz em que diretório de `var/models` ele entra. A conferência é a mesma
+dos outros pesos:
+
+```bash
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/shot/tdeed-soccernetball-test-1.0.0.toml
 ```
 
 `artifact get` confere os arquivos contra o manifesto e imprime o caminho do peso válido. Ele
@@ -200,14 +218,14 @@ o mesmo peso. Clipes, anotações e pesos privados não vêm no clone.
 Somente depois de todas as conferências passarem, inicie a API com a configuração de modelos:
 
 ```bash
-XVISION_PIPELINE=pipeline.models.toml uv run --frozen --extra api --extra players --extra ball --extra topview uvicorn api:create_app --factory --host 127.0.0.1 --port 8080
+XVISION_PIPELINE=pipeline.models.toml uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot uvicorn api:create_app --factory --host 127.0.0.1 --port 8080
 ```
 
 O frontend local continua apontando para a mesma API. Para gerar o vídeo pela CLI, no mesmo
 ambiente preparado, o comando é:
 
 ```bash
-uv run --frozen --extra api --extra players --extra ball --extra topview xvision run --clip ../var/entrada.mp4 --config config/pipeline.models.toml --render
+uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision run --clip ../var/entrada.mp4 --config config/pipeline.models.toml --render
 ```
 
 `entrada.mp4` representa um clipe autorizado colocado pelo operador. A CLI informa o diretório da

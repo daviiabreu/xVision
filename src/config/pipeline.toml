@@ -10,6 +10,13 @@ fps = 5
 strategy = "uniform"
 fps = 15
 
+[frames.tdeed]
+strategy = "uniform"
+fps = 12.5
+# O checkpoint do T-DEED foi treinado a 25 fps com passo 2. A 59,94 fps nativos o passo inteiro
+# mais proximo e 5, o que da 11,99 por segundo, 4% abaixo do treino. O numero medido no pipeline
+# sai com essa amostragem, e nao com a do experimento fora da arvore.
+
 [frames.window]
 strategy = "around"
 anchor   = "shot"

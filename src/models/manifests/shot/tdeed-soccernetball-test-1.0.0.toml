@@ -1,0 +1,19 @@
+schema_version = "1.0"
+kind = "shot"
+name = "tdeed-soccernetball-test"
+version = "1.0.0"
+entrypoint = "checkpoint_best.pt"
+
+[[files]]
+path = "checkpoint_best.pt"
+sha256 = "a15f2f24ad4ce62a7141b0ee1ac6e16421cfb7f17cf3decb2a1dfcf9f24a3e8a"
+bytes = 49579286
+
+[source]
+repository = "https://github.com/arturxe2/T-DEED"
+revision = "d953b4de8a2ad941c565e1683c5b07255cbe644e"
+weights = "https://drive.google.com/drive/folders/1Aou1Ji5CRzwnFjE51ZyT-hHNaVMzZjFV"
+checkpoint = "SoccerNetBall_test/checkpoint_best.pt"
+code_license = "GPL-3.0"
+weights_license = "nao declarada pelos autores"
+purpose = "instante da finalizacao, sem treino local; roda por external/tdeed/run.py"

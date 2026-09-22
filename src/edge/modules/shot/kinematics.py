@@ -174,7 +174,7 @@ class BallBreakShot:
             return ModuleOutput(kind=self.spec.kind, frames=(), records=())
 
         registro = self._registro(batch, ctx)
-        return _saida(self.spec.kind, batch.indices, registro)
+        return saida_unica(self.spec.kind, batch.indices, registro)
 
     def _registro(self, batch: FrameBatch, ctx: ModuleInputs) -> Mapping[str, object] | None:
         """`ctx.get` e nao `ctx[...]`: a suite de conformidade chama `infer` com o contexto vazio.
@@ -291,7 +291,7 @@ def _medido(
         else round(contato.speed_ratio, 3),
         "candidates": _candidatos(ordenados),
         "candidate_pool": _pool(ordenados),
-        **_suporte(contato.frame_index, procedencia),
+        **suporte(contato.frame_index, procedencia),
     }
 
 
@@ -312,7 +312,7 @@ def _estimado(
         "reason": "a trajetoria da bola nao sustentou uma quebra, e o instante e o meio do trecho",
         "candidates": _candidatos(ordenados),
         "candidate_pool": _pool(ordenados),
-        **_suporte(escolhido, procedencia),
+        **suporte(escolhido, procedencia),
     }
 
 
@@ -342,7 +342,7 @@ def _candidatos(ordenados: Sequence[Candidate]) -> list[dict[str, object]]:
     ]
 
 
-def _suporte(quadro: int, procedencia: Mapping[int, str]) -> dict[str, object]:
+def suporte(quadro: int, procedencia: Mapping[int, str]) -> dict[str, object]:
     """Se a posicao da bola no quadro escolhido foi medida ou inventada, e quantas de cada
     no trecho.
 
@@ -387,7 +387,7 @@ def _apoio(quadro: int, procedencia: Mapping[int, str]) -> str:
     return fontes.pop() if len(fontes) == 1 else MISTA
 
 
-def _saida(
+def saida_unica(
     kind: str, indices: Sequence[int], registro: Mapping[str, object] | None
 ) -> ModuleOutput:
     """Um registro so, no quadro amostrado mais proximo do instante, e vazio nos outros.

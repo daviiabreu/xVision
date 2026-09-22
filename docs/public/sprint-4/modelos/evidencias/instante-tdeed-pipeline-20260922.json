@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "data": "2026-09-22",
+  "descricao": "instante da finalizacao pelo T-DEED como especie shot do pipeline, 24 clipes das dobras 0 a 2",
+  "comando": "xvision run --all --gabarito --dobra ajuste --config config/pipeline.models.cpu.toml; xvision eval-instant <execucao> --dobra ajuste",
+  "config_sha256": "2e0d3b882c1b2f287919ecc3bf5987dd74d029c4e73fcbcfa65b6deea3a81255",
+  "codigo": {
+    "git_sha": "25dd343",
+    "arvore_com_mudancas": true,
+    "nota": "as mudancas nao commitadas sao as desta MR; configuracao, executor e modulo conferidos pelo sha256 e pelo tuning"
+  },
+  "hardware": {
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_count": 10,
+    "release": "27.0.0"
+  },
+  "shot": {
+    "name": "tdeed",
+    "version": "0.1.0",
+    "tuning": "runner=f4c651e2f687b128;source=a680ddf053647743;device=auto",
+    "duration_ms": {
+      "n": 24,
+      "min": 22227.262,
+      "max": 79182.347,
+      "mean": 36215.816333333336,
+      "median": 30649.691,
+      "p95": 60243.113
+    },
+    "failed_clips": 0,
+    "nota_do_custo": "duration_ms medido com a suite de testes e o build da documentacao rodando ao mesmo tempo; o custo isolado esta em custo_isolado"
+  },
+  "n": 24,
+  "dentro_de": {
+    "30": 1.0,
+    "20": 0.958,
+    "10": 0.75,
+    "5": 0.542
+  },
+  "ic95_dentro_de_30": [
+    0.862,
+    1.0
+  ],
+  "mediana_erro_quadros": 5,
+  "pior_erro_quadros": 23,
+  "antes_do_gabarito": 19,
+  "depois_do_gabarito": 3,
+  "no_gabarito": 2,
+  "deslocamento_medio_quadros": -6.1,
+  "linhas_de_base": {
+    "quadro_ao_acaso": 0.161,
+    "ponto_medio_fixo": 0.333,
+    "regra_cinematica": 0.292
+  },
+  "runtime": {
+    "torch": "2.13.0",
+    "torchvision": "0.28.0",
+    "ultralytics": "8.4.123",
+    "opencv-python-headless": "5.0.0.93",
+    "numpy": "2.2.6"
+  },
+  "python": "3.10.20",
+  "platform": "darwin-arm64",
+  "custo_isolado": {
+    "dispositivo": "cpu",
+    "segundos_por_janela_de_100_passos": [
+      16.7,
+      19.8
+    ],
+    "clipes_ate_100_passos_s": [
+      19.5,
+      22.9
+    ],
+    "clipe_de_108_passos_s": [
+      34.5,
+      44.7
+    ],
+    "nota": "tres clipes, duas repeticoes cada, maquina sem outra carga; carga do modelo abaixo de 0,2 s"
+  },
+  "dados_privados_copiados": false
+}
