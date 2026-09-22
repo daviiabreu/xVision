@@ -22,6 +22,7 @@ construcao.
 from __future__ import annotations
 
 import json
+import os
 import platform as plataforma
 import secrets
 import subprocess
@@ -29,10 +30,11 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import metadata
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 RUN_FILE = "run.json"
 EVENTS_FILE = "events.jsonl"
 
@@ -50,6 +52,8 @@ class RunRecord:
     host: str
     python: str
     platform: str
+    hardware: Mapping[str, object]
+    runtime: Mapping[str, str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +69,8 @@ class RunRecord:
             "host": self.host,
             "python": self.python,
             "platform": self.platform,
+            "hardware": dict(self.hardware),
+            "runtime": dict(self.runtime),
         }
 
 
@@ -105,3 +111,88 @@ def environment() -> tuple[str, str, str]:
         ".".join(str(p) for p in sys.version_info[:3]),
         f"{plataforma.system().lower()}-{plataforma.machine()}",
     )
+
+
+PACOTES = (
+    "torch",
+    "torchvision",
+    "ultralytics",
+    "opencv-python-headless",
+    "numpy",
+    "onnxruntime",
+    "onnxruntime-gpu",
+    "tensorrt",
+)
+"""Os pacotes cujo numero de versao muda o resultado ou o tempo, e nenhum a mais."""
+
+TEGRA = Path("/etc/nv_tegra_release")
+"""Onde o L4T declara a propria versao na Jetson. Ausente em qualquer outra maquina."""
+
+
+def runtimes() -> dict[str, str]:
+    """A versao de cada pacote que decide o numero, lida do metadado sem importar nada.
+
+    `importlib.metadata.version` le o `.dist-info` do ambiente, entao ela custa um stat e nao
+    carrega torch. Isso importa numa execucao de stubs, que hoje nunca paga o import e nao deve
+    passar a pagar so para preencher um relatorio.
+
+    Pacote ausente fica de fora em vez de entrar vazio: nao ter TensorRT instalado e informacao, e
+    string vazia ao lado das outras parece versao que ninguem leu.
+
+    CUDA e cuDNN so entram quando `torch` JA esta carregado. Importa-lo aqui custaria segundos numa
+    execucao que nunca precisou dele, e a versao de CUDA nao existe fora do torch.
+    """
+    achadas: dict[str, str] = {}
+    for nome in PACOTES:
+        try:
+            achadas[nome] = metadata.version(nome)
+        except metadata.PackageNotFoundError:
+            continue
+    torch = cast("Any", sys.modules.get("torch"))
+    if torch is None:
+        return achadas
+    cuda = getattr(getattr(torch, "version", None), "cuda", None)
+    if isinstance(cuda, str):
+        achadas["cuda"] = cuda
+    try:
+        cudnn = torch.backends.cudnn.version()
+    except (AttributeError, OSError, RuntimeError):
+        cudnn = None
+    if isinstance(cudnn, int):
+        achadas["cudnn"] = str(cudnn)
+    return achadas
+
+
+def hardware() -> dict[str, object]:
+    """A maquina que produziu o numero, no detalhe que permite outra pessoa repetir.
+
+    `platform` sozinho devolve `linux-aarch64` numa Jetson, que e indistinguivel de qualquer ARM
+    com Linux. Um tempo por etapa sem a placa ao lado nao e reproduzivel, e foi exatamente o que
+    faltou nas medicoes da Sprint 3: o numero existe, a maquina que o produziu nao esta escrita em
+    lugar nenhum.
+
+    A GPU so e consultada quando `torch` ja esta carregado, pelo mesmo motivo de `runtimes`.
+    """
+    dados: dict[str, object] = {
+        "machine": plataforma.machine(),
+        "processor": plataforma.processor(),
+        "cpu_count": os.cpu_count(),
+        "release": plataforma.release(),
+    }
+    try:
+        if TEGRA.is_file():
+            dados["tegra_release"] = TEGRA.read_text(encoding="utf-8").strip().splitlines()[0]
+    except (OSError, IndexError):
+        pass
+    torch = cast("Any", sys.modules.get("torch"))
+    if torch is None:
+        return dados
+    try:
+        if torch.cuda.is_available():
+            dados["gpu"] = str(torch.cuda.get_device_name(0))
+            dados["gpu_memory_mb"] = round(
+                float(torch.cuda.get_device_properties(0).total_memory) / 1e6
+            )
+    except (AttributeError, AssertionError, OSError, RuntimeError):
+        pass
+    return dados

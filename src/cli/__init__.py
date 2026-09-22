@@ -83,7 +83,9 @@ from mlops.run import (
     RunRecord,
     environment,
     git_state,
+    hardware,
     new_run_id,
+    runtimes,
     write_run,
 )
 from mlops.run_lock import exclusive_run
@@ -346,6 +348,7 @@ def _run_selected_catalog(
         for k, v in estado.falhas.items()
         if len(v) == 2
     }
+    ajustes: dict[str, str] = {}
     origens: dict[str, int] = dict(estado.origens)
     fontes: dict[str, str] = dict(estado.fontes)
     apoios: dict[str, str] = dict(estado.apoios)
@@ -390,6 +393,7 @@ def _run_selected_catalog(
             apoios[registro.shot_id] = resultado.ball_support or "sem-apoio"
             candidatos[registro.shot_id] = [dict(c) for c in resultado.shot_candidates]
             pools[registro.shot_id] = list(resultado.shot_candidate_pool)
+            ajustes.update(resultado.tunings)
             for etapa in resultado.stages:
                 tempos.setdefault(etapa.kind, []).append(etapa.duration_ms)
                 identidade[etapa.kind] = (etapa.name, etapa.version)
@@ -400,7 +404,7 @@ def _run_selected_catalog(
         arquivo.flush()
         checkpoint()
     _escreve_procedencia(destino, fontes, apoios, candidatos, pools)
-    modulos = resumo_dos_modulos(tempos, identidade, falhas)
+    modulos = resumo_dos_modulos(tempos, identidade, falhas, ajustes)
     sha, sujo = git_state()
     host, python, plataforma = environment()
     write_run(
@@ -425,6 +429,8 @@ def _run_selected_catalog(
             host=host,
             python=python,
             platform=plataforma,
+            hardware=hardware(),
+            runtime=runtimes(),
         ),
     )
     parcial.replace(eventos)
@@ -585,31 +591,59 @@ def _progresso(feitos: int, total: int, comeco: float, nesta_sessao: int) -> str
     )
 
 
+def _mediana(ordenado: Sequence[float]) -> float:
+    """A mesma convencao de `mlops.instant`, que resolve n par pelo elemento de cima.
+
+    Duas definicoes de mediana no mesmo repositorio produziriam numeros diferentes para a mesma
+    amostra dependendo de qual relatorio a pessoa leu, que e a classe de defeito que este projeto
+    persegue em todo lugar.
+    """
+    return ordenado[len(ordenado) // 2]
+
+
+def _p95(ordenado: Sequence[float]) -> float:
+    return ordenado[min(len(ordenado) - 1, int(0.95 * (len(ordenado) - 1)))]
+
+
 def resumo_dos_modulos(
     tempos: dict[str, list[float]],
     identidade: dict[str, tuple[str, str]],
     falhas: dict[str, tuple[int, str | None]],
+    ajustes: Mapping[str, str] | None = None,
 ) -> dict[str, dict[str, object]]:
     """Uma amostra de um clipe nao serve num projeto cujo numero de manchete e ms por clipe.
 
     E guardar so o ultimo faz uma execucao em que a etapa falhou em metade dos clipes aparecer
     como `ok`, porque o ultimo passou.
+
+    A mediana e o p95 entram ao lado da media porque a media e o estatistico errado aqui, e o
+    proprio projeto ja argumenta isso no teste de meia precisao: o primeiro clipe paga carga de
+    peso e compilacao de kernel, entao ele estica a media de uma amostra pequena sem dizer nada
+    sobre o custo em regime.
+
+    `tuning` e o ajuste em vigor da especie. Sem ele, dois tempos de execucoes com precisao
+    diferente chegam ao relatorio com a mesma cara, e foi o que impediu de reproduzir as medicoes
+    da Sprint 3 sem a apresentacao oral do lado.
     """
     resumo: dict[str, dict[str, object]] = {}
     for especie, amostras in sorted(tempos.items()):
         nome, versao = identidade[especie]
         quantas, motivo = falhas.get(especie, (0, None))
+        ordenado = sorted(amostras)
         resumo[especie] = {
             "name": nome,
             "version": versao,
             "status": "ok" if quantas == 0 else "failed",
             "failed_clips": quantas,
             "reason": motivo,
+            "tuning": (ajustes or {}).get(especie),
             "duration_ms": {
                 "n": len(amostras),
-                "min": min(amostras),
-                "max": max(amostras),
+                "min": ordenado[0],
+                "max": ordenado[-1],
                 "mean": sum(amostras) / len(amostras),
+                "median": _mediana(ordenado),
+                "p95": _p95(ordenado),
             },
         }
     return resumo

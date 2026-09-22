@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +60,7 @@ class _Resultado:
     ball_support: str | None = "detected"
     shot_candidates: tuple[Mapping[str, object], ...] = ()
     shot_candidate_pool: tuple[int, ...] = ()
+    tunings: Mapping[str, str] = field(default_factory=lambda: {"ball": "quantize='fp16'"})
 
 
 def _prepara(

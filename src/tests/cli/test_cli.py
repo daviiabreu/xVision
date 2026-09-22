@@ -441,7 +441,14 @@ def test_run_all_summarises_every_stage_instead_of_keeping_the_last_clip(
     (registro,) = list(saida.rglob("run.json"))
     modulos = json.loads(registro.read_text(encoding="utf-8"))["modules"]
     assert modulos["players"]["duration_ms"]["n"] == 3
-    assert set(modulos["players"]["duration_ms"]) == {"n", "min", "max", "mean"}
+    assert set(modulos["players"]["duration_ms"]) == {
+        "n",
+        "min",
+        "max",
+        "mean",
+        "median",
+        "p95",
+    }
     assert modulos["players"]["failed_clips"] == 0
 
 

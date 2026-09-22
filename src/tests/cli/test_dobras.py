@@ -455,6 +455,7 @@ def test_all_sem_gabarito_continua_valendo_o_catalogo_inteiro(
             self.ball_support = "detected"
             self.shot_candidates: tuple[Mapping[str, object], ...] = ()
             self.shot_candidate_pool: tuple[int, ...] = ()
+            self.tunings: Mapping[str, str] = {}
 
     vistos: list[str] = []
 

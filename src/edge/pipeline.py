@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from contracts import Clip, Perception, ShotEvent
 from contracts.events import make_shot_id
 from contracts.schema import SCHEMA_VERSION
-from edge.cache.perception import PerceptionCache
+from edge.cache.perception import PerceptionCache, tuning_of
 from edge.features.base import FeatureExtractor, run_features
 from edge.graph.framesets import FrameSet
 from edge.graph.runner import FrameSource, RunResult, StageRun, run_pipeline
@@ -76,6 +76,17 @@ class ClipResult:
     Separado de `shot_candidates` porque responde outra pergunta: com ele, quem mede calcula quanto
     do acerto vem do criterio e quanto vem da largura da tolerancia. Sem ele, o teto de reordenar
     sai sem linha de base.
+    """
+    tunings: Mapping[str, str] = field(default_factory=dict[str, str])
+    """O ajuste em vigor de cada especie, na mesma leitura que a chave do cache faz.
+
+    E o que transforma um tempo por etapa em medida auditavel. Ate aqui o `run.json` dizia que
+    `ball` levou 176,6 ms e nao dizia em que precisao, com que `imgsz`, com letterbox onde, nem se
+    havia plano TensorRT declarado: dois numeros de execucoes diferentes tinham a mesma cara.
+
+    Lido por `tuning_of`, que ja e como o cache decide se pode servir saida guardada. Usar a mesma
+    leitura importa: se o ajuste mudasse a chave do cache e nao aparecesse aqui, o relatorio
+    descreveria uma execucao e o cache outra.
     """
 
 
@@ -163,6 +174,11 @@ def process_clip(
         perception=execucao.perception,
         shot_candidates=_candidates(execucao),
         shot_candidate_pool=_candidate_pool(execucao),
+        tunings={
+            kind: ajuste
+            for kind, modulo in sorted(modules.items())
+            if (ajuste := tuning_of(modulo)) is not None
+        },
     )
 
 

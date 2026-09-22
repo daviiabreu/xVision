@@ -1,0 +1,137 @@
+---
+title: Procedência de execução
+description: O que o run.json passou a gravar para uma medição poder ser repetida por outra pessoa
+---
+
+Toda execução do catálogo escreve um `run.json` ao lado dos eventos. Ele existe para responder uma
+pergunta só: o que produziu estes números. A revisão da Sprint 3 mostrou que ele não respondia, e
+esta página registra o que mudou.
+
+## O problema, com nome
+
+Os ganhos de meia precisão da Sprint 3 foram medidos e publicados: `players` entre 25% e 35%,
+letterbox no dispositivo de 260,0 para 232,9 ms por quadro, bola de 237,4 para 176,6 ms por quadro.
+Os três números moram em comentário de TOML e em tabela de página. Não existe ao lado deles nenhum
+arquivo que diga em que máquina, com que CUDA, com que precisão ou com que runtime eles saíram.
+
+O `run.json` também não dizia. Ele gravava `platform` como `darwin-arm64`, que numa Jetson viraria
+`linux-aarch64`, indistinguível de qualquer ARM com Linux. E gravava `duration_ms` por espécie sem
+declarar em que precisão aquela espécie rodou, então dois tempos de execuções com configuração
+diferente chegavam ao relatório com a mesma cara.
+
+O efeito prático é o que a revisão apontou: os resultados continuam válidos, e outra pessoa não
+consegue repetir a execução e chegar aos mesmos valores sem a apresentação oral do lado.
+
+## O que passou a ser gravado
+
+O `schema_version` subiu para `1.1`. Três acréscimos, e nenhum campo antigo saiu.
+
+### A máquina
+
+```json
+{
+  "hardware": {
+    "machine": "aarch64",
+    "processor": "",
+    "cpu_count": 6,
+    "release": "5.15.148-tegra",
+    "tegra_release": "# R36 (release), REVISION: 3.0",
+    "gpu": "Orin",
+    "gpu_memory_mb": 7620
+  }
+}
+```
+
+`tegra_release` sai de `/etc/nv_tegra_release`, que só existe na Jetson, então a presença do campo
+já separa uma execução na placa de uma execução na estação de desenvolvimento. A GPU só é
+consultada quando `torch` já está carregado: importá-lo para preencher relatório custaria segundos
+numa execução de stubs que nunca precisou dele.
+
+### O runtime
+
+```json
+{
+  "runtime": {
+    "torch": "2.3.0",
+    "torchvision": "0.18.0",
+    "ultralytics": "8.3.0",
+    "tensorrt": "10.3.0",
+    "cuda": "12.2",
+    "cudnn": "8904"
+  }
+}
+```
+
+As versões saem de `importlib.metadata`, que lê o `.dist-info` do ambiente e custa um `stat`, sem
+importar nada. Pacote ausente fica de fora em vez de entrar vazio: não ter TensorRT instalado é
+informação, e string vazia ao lado das outras parece versão que ninguém leu.
+
+### O ajuste de cada espécie
+
+```json
+{
+  "modules": {
+    "ball": {
+      "name": "yolo-ball",
+      "tuning": "conf=0.1;imgsz=1600;ladrilhos=2;letterbox='cuda';quantize='fp16'",
+      "duration_ms": { "n": 24, "min": 541.0, "max": 2283.8, "mean": 1139.3, "median": 593.1, "p95": 1902.4 }
+    }
+  }
+}
+```
+
+`tuning` é lido por `tuning_of`, a mesma função que decide se o cache de percepção pode servir uma
+saída guardada. Usar a mesma leitura não é economia de código, é a garantia de que o relatório e o
+cache descrevem a mesma execução: se um ajuste mudasse a chave do cache e não aparecesse aqui, o
+`run.json` descreveria uma configuração e o cache outra.
+
+`median` e `p95` entram ao lado de `mean`. A média é o estatístico errado aqui e a execução acima
+mostra por quê: 1139,3 ms de média contra 593,1 de mediana, porque o primeiro clipe paga carga de
+peso e compilação de kernel. Quem publicar a média de uma amostra pequena publica o aquecimento.
+
+A mediana usa a mesma convenção de `mlops.instant`, que resolve n par pelo elemento de cima. Duas
+definições de mediana no mesmo repositório dariam números diferentes para a mesma amostra
+dependendo de qual relatório a pessoa leu.
+
+## O que ele continua não gravando
+
+| Ausência | Por quê |
+| --- | --- |
+| temperatura, energia e potência | exige `tegrastats` ou `jtop` rodando ao lado, que é um coletor separado e não um campo |
+| `throttling` do dispositivo | mesma razão, e sem ele a energia sozinha engana |
+| backend efetivo por espécie | `RuntimeInfo` existe em `edge/runtime.py` e é preenchido, mas nenhum módulo o expõe para fora do detector; `tuning` diz o que foi **declarado**, não o que o carregador acabou usando quando caiu para o padrão |
+| amostras individuais de tempo | o registro é agregado de propósito, e um arquivo com uma linha por clipe é outro artefato |
+
+A terceira linha é a mais importante para quem for medir TensorRT: uma configuração que declara
+`engine` e cai para PyTorch por falta do plano produz hoje o mesmo `tuning` de uma que carregou o
+plano. Enquanto isso não fechar, medição de TensorRT precisa declarar o backend à mão.
+
+## Como auditar uma medição agora
+
+```bash
+cd src
+uv run xvision run --all --config config/pipeline.models.toml --out ../var/runs
+cat ../var/runs/<run-id>/run.json
+```
+
+O arquivo responde, sem depender de ninguém: qual commit, se a árvore estava suja, qual o sha256 da
+configuração, quais clipes entraram, que máquina, que CUDA, que precisão por espécie, e a mediana e
+o p95 por etapa. É o conjunto mínimo para outra pessoa repetir e comparar.
+
+Nada disso entra no git: `var/` é ignorado, então predição sobre clipe do parceiro não chega ao
+repositório por construção. Quem quiser publicar uma medição copia os campos agregados, que não
+carregam identificador de clipe.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| coletor de energia e temperatura | rodar `tegrastats` em paralelo à execução e casar por timestamp, medindo o custo do próprio coletor antes de confiar nele |
+| backend efetivo por espécie | expor `RuntimeInfo` do detector para o módulo e gravar `backend`, `provider` e `fallback_reason` ao lado de `tuning` |
+| configuração versionada com TensorRT | hoje nenhum TOML declara `engine`, e `players` e `pose` sequer têm o campo; sem isso não existe pipeline completo em TensorRT para medir |
+| pipeline completo em meia precisão | `field` fica em fp32 por medida própria, então o número de ponta a ponta precisa declarar quais espécies estão em fp16 |
+
+## Referências
+
+1. Inteli T12 G02. Página de desempenho e paralelismo da Sprint 3, com os números que originaram esta pendência.
+2. NVIDIA. [Jetson Orin Nano Developer Kit](https://developer.nvidia.com/embedded/jetson-orin-nano-devkit).

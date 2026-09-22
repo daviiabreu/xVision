@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from mlops.run import RunRecord, write_run
+import pytest
+
+from mlops.run import RunRecord, hardware, runtimes, write_run
 
 
 def _registro() -> RunRecord:
@@ -29,6 +31,13 @@ def _registro() -> RunRecord:
         host="orin-nano-01",
         python="3.10.14",
         platform="linux-aarch64",
+        hardware={
+            "machine": "aarch64",
+            "cpu_count": 6,
+            "tegra_release": "# R36 (release), REVISION: 3.0",
+            "gpu": "Orin",
+        },
+        runtime={"torch": "2.3.0", "tensorrt": "10.3.0", "cuda": "12.2"},
     )
 
 
@@ -81,3 +90,49 @@ def test_the_run_id_matches_the_shape_the_record_documents() -> None:
     from mlops.run import new_run_id
 
     assert re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", new_run_id())
+
+
+def test_a_maquina_que_produziu_o_numero_fica_escrita(tmp_path: Path) -> None:
+    """`platform` sozinho devolve `linux-aarch64` numa Jetson, igual a qualquer ARM com Linux.
+
+    O defeito replantado nao levanta nada e foi apontado na revisao da Sprint 3: os tempos por
+    etapa existiam e a maquina que os produziu nao estava escrita em lugar nenhum, entao ninguem
+    conseguia repetir a medicao sem a apresentacao oral do lado.
+    """
+    dados = json.loads(write_run(tmp_path, _registro()).read_text(encoding="utf-8"))
+
+    assert dados["hardware"]["gpu"] == "Orin"
+    assert dados["hardware"]["tegra_release"].startswith("# R36")
+    assert dados["runtime"]["tensorrt"] == "10.3.0"
+    assert dados["runtime"]["cuda"] == "12.2"
+
+
+def test_o_schema_sobe_quando_o_registro_cresce(tmp_path: Path) -> None:
+    """Consumidor que le `run.json` precisa saber que os campos novos existem a partir de quando."""
+    dados = json.loads(write_run(tmp_path, _registro()).read_text(encoding="utf-8"))
+
+    assert dados["schema_version"] == "1.1"
+
+
+def test_runtimes_le_versao_sem_importar_o_pacote() -> None:
+    """Ler metadado custa um stat; importar torch custa segundos numa execucao de stubs."""
+    import sys
+
+    antes = set(sys.modules)
+
+    achadas = runtimes()
+
+    assert "numpy" in achadas
+    assert not {m for m in set(sys.modules) - antes if m.split(".")[0] in {"torch", "tensorrt"}}
+
+
+def test_hardware_nao_inventa_gpu_quando_nao_ha_torch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ausencia de GPU e informacao; campo vazio ao lado dos outros parece dado que ninguem leu."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+    medido = hardware()
+
+    assert "gpu" not in medido
+    assert medido["machine"]
