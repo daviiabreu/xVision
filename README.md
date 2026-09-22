@@ -8,14 +8,7 @@
   <table>
     <tr>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/readme/Lucas Nepomuceno.png) -->
-        <a href="#">
-          <img src="docs/public/readme/Lucas Nepomuceno.png" style="border-radius: 10%; width: 150px;" alt="Lucas Nepomuceno"/><br>
-          <sub><b>Lucas Nepomuceno dos Santos</b></sub>
-        </a>
-      </td>
-      <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/readme/Yasmim Marly.png) -->
+        <!-- TODO: LinkedIn -->
         <a href="#">
           <img src="docs/public/readme/Yasmim Marly.png" style="border-radius: 10%; width: 150px;" alt="Yasmim Marly"/><br>
           <sub><b>Yasmim Marly Passos</b></sub>
@@ -34,24 +27,24 @@
           <sub><b>Davi Abreu da Silveira</b></sub>
         </a>
       </td>
-    </tr>
-    <tr>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/readme/Gabriel Henrique.png) -->
+        <!-- TODO: LinkedIn -->
         <a href="#">
           <img src="docs/public/readme/Gabriel Henrique.png" style="border-radius: 10%; width: 150px;" alt="Gabriel Henrique"/><br>
           <sub><b>Gabriel Henrique Martins Alves</b></sub>
         </a>
       </td>
+    </tr>
+    <tr>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/readme/Roberto Diniz.png) -->
+        <!-- TODO: LinkedIn -->
         <a href="#">
           <img src="docs/public/readme/Roberto Diniz.png" style="border-radius: 10%; width: 150px;" alt="Roberto Diniz"/><br>
           <sub><b>Roberto Diniz Branco Filho</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn e foto (docs/public/readme/Daniel Parente.png) -->
+        <!-- TODO: LinkedIn -->
         <a href="#">
           <img src="docs/public/readme/Daniel Parente.png" style="border-radius: 10%; width: 150px;" alt="Daniel Parente"/><br>
           <sub><b>Daniel Parente Pessoa Dias</b></sub>
@@ -71,14 +64,12 @@
 
 ### Orientador(a)
 
-<!-- TODO: LinkedIn -->
-- Rodrigo Mangoni Nicola
+- [Rodrigo Mangoni Nicola](https://br.linkedin.com/in/rodrigo-mangoni-nicola-537027158)
 
 ### Instrutores
 
 - [Fabiana Naomi Iegawa](https://www.linkedin.com/in/fabiana-iegawa/)
-<!-- TODO: LinkedIn -->
-- Bruno Grandchamp Rodilha
+- [Bruno Grandchamp Rodilha](https://www.linkedin.com/in/bruno-grandchamp-rodilha/)
 - [Marcelo de Paula do Desterro Gorini](https://www.linkedin.com/in/marcelodesterro/)
 - [Marcelo Luiz do Amaral Gonçalves](https://www.linkedin.com/in/marcelo-gon%C3%A7alves-phd/)
 
@@ -211,16 +202,29 @@ continua de onde parou.
 
 ## Histórico de Lançamentos
 
+As notas completas de cada versão estão em `releases/`.
+
 ### 0.5.0 - Sprint 5
 
 ### 0.4.0 - Sprint 4
 
+Em andamento. Integração da borda com os serviços centrais e refinamento dos modelos.
+
 ### 0.3.0 - Sprint 3
+
+13/09/2026. Inferência sobre vídeo real no lugar do gabarito sintético, modelos adaptados à Jetson
+Orin Nano e o efeito da adaptação medido.
 
 ### 0.2.0 - Sprint 2
 
+31/08/2026. Primeiro fluxo de ponta a ponta: a interface envia o clipe, a borda processa e o
+resultado volta com vídeo anotado.
+
 ### 0.1.0 - Sprint 1
+
+18/08/2026. Proposta documentada, com pesquisa técnica, arquitetura e requisitos. Sem código de
+produto.
 
 ## Licença
 
-<img style="height:22px!important;margin-left:3px;vertical-align:text-bottom;" src="https://mirrors.creativecommons.org/presskit/icons/cc.svg?ref=chooser-v1"><img style="height:22px!important;margin-left:3px;vertical-align:text-bottom;" src="https://mirrors.creativecommons.org/presskit/icons/by.svg?ref=chooser-v1"><p xmlns:cc="http://creativecommons.org/ns#" xmlns:dct="http://purl.org/dc/terms/"><a property="dct:title" rel="cc:attributionURL" href="#">[Nome do Projeto]</a> por <a rel="cc:attributionURL dct:creator" property="cc:attributionName" href="https://www.inteli.edu.br/">Inteli</a>, Lucas Nepomuceno dos Santos, Yasmim Marly Passos, Matheus Jorge Rosa, Davi Abreu da Silveira, Gabriel Henrique Martins Alves, Roberto Diniz Branco Filho, Daniel Parente Pessoa Dias, Danilo Martins Merlo é licenciado sob a <a href="http://creativecommons.org/licenses/by/4.0/?ref=chooser-v1" target="_blank" rel="license noopener noreferrer" style="display:inline-block;">Attribution 4.0 International</a>.</p>
+<img style="height:22px!important;margin-left:3px;vertical-align:text-bottom;" src="https://mirrors.creativecommons.org/presskit/icons/cc.svg?ref=chooser-v1"><img style="height:22px!important;margin-left:3px;vertical-align:text-bottom;" src="https://mirrors.creativecommons.org/presskit/icons/by.svg?ref=chooser-v1"><p xmlns:cc="http://creativecommons.org/ns#" xmlns:dct="http://purl.org/dc/terms/"><a property="dct:title" rel="cc:attributionURL" href="#">xVision</a> por <a rel="cc:attributionURL dct:creator" property="cc:attributionName" href="https://www.inteli.edu.br/">Inteli</a>, Yasmim Marly Passos, Matheus Jorge Rosa, Davi Abreu da Silveira, Gabriel Henrique Martins Alves, Roberto Diniz Branco Filho, Daniel Parente Pessoa Dias, Danilo Martins Merlo é licenciado sob a <a href="http://creativecommons.org/licenses/by/4.0/?ref=chooser-v1" target="_blank" rel="license noopener noreferrer" style="display:inline-block;">Attribution 4.0 International</a>.</p>
