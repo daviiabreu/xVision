@@ -413,3 +413,66 @@ def test_the_run_can_tell_a_measured_instant_from_an_estimated_one(clipe: Clip) 
 
 def test_a_shot_record_without_source_does_not_invent_one(clipe: Clip) -> None:
     assert _roda_com_shot(clipe, {"frame_index": SHOT_FRAME_INDEX}).shot_source is None
+
+
+def test_a_lista_de_candidatos_do_instante_chega_ao_resultado(clipe: Clip) -> None:
+    """A execucao escreve a lista por clipe, e ela nasce no registro da especie `shot`."""
+    resultado = _roda_com_shot(
+        clipe,
+        {
+            "frame_index": SHOT_FRAME_INDEX,
+            "source": "ball-break",
+            "candidates": [{"frame_index": 10, "sample_index": 12, "score": 0.5}],
+        },
+    )
+
+    assert resultado.shot_candidates == ({"frame_index": 10, "sample_index": 12, "score": 0.5},)
+
+
+def test_candidatos_fora_da_forma_declarada_saem_como_ausentes(clipe: Clip) -> None:
+    """Lista inventada aqui viraria diagnostico inventado la na frente.
+
+    Ausencia significa "esta execucao nao declarou", e a taxonomia responde `nao-declarado`. Um
+    `str` convertido para lista de caracteres, ou um numero embrulhado em lista, produziria
+    candidato com quadro plausivel que nenhum modulo chegou a calcular.
+    """
+    resultado = _roda_com_shot(
+        clipe,
+        {"frame_index": SHOT_FRAME_INDEX, "source": "ball-break", "candidates": "duas"},
+    )
+
+    assert resultado.shot_candidates == ()
+
+
+def test_registro_de_instante_sem_candidato_nao_inventa_lista(clipe: Clip) -> None:
+    resultado = _roda_com_shot(clipe, {"frame_index": SHOT_FRAME_INDEX, "source": "ball-break"})
+
+    assert resultado.shot_candidates == ()
+
+
+def test_o_conjunto_de_quebras_chega_ao_resultado(clipe: Clip) -> None:
+    """Sem ele, o teto de reordenar sai sem linha de base."""
+    resultado = _roda_com_shot(
+        clipe,
+        {
+            "frame_index": SHOT_FRAME_INDEX,
+            "source": "ball-break",
+            "candidate_pool": [10, 40, 70],
+        },
+    )
+
+    assert resultado.shot_candidate_pool == (10, 40, 70)
+
+
+def test_booleano_no_conjunto_de_quebras_nao_vira_quadro(clipe: Clip) -> None:
+    """`bool` e subclasse de `int`, entao `True` entraria como quadro 1 e sujaria o acaso."""
+    resultado = _roda_com_shot(
+        clipe,
+        {
+            "frame_index": SHOT_FRAME_INDEX,
+            "source": "ball-break",
+            "candidate_pool": [10, True, "40", 70],
+        },
+    )
+
+    assert resultado.shot_candidate_pool == (10, 70)

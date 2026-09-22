@@ -1,0 +1,312 @@
+---
+title: Instante da finalização
+description: Por que a regra cinemática erra, e o que um detector temporal publicado mede no mesmo conjunto
+---
+
+O instante do contato é a âncora do pipeline: a janela de contexto abre em volta do quadro que ele
+apontar, e toda feature que precisa de um antes depende dele estar certo. Na Sprint 3 ele foi
+medido e reprovado. Esta sprint fez o que a página daquela sprint pedia, nomear a causa dos erros
+antes de escolher refinamento, e a resposta mudou a direção da frente inteira.
+
+## Onde se encaixa no fluxo
+
+A especie `shot` recebe a trajetória que a especie `ball` produziu e devolve um quadro. Ela não
+olha um pixel: toda a decisão sai de `edge.geometry.contact` sobre os centros das caixas de bola,
+filtrados pelos quadros em que a bola está perto de algum jogador.
+
+```text
+ball (dense, 15 fps) --> rank_contacts --> lista ordenada de quebras
+                                            |
+                              best_contact -+-> instante  --> ShotEvent 1.0
+                                            |
+                                            +-> 5 maiores  --> instant-observations.jsonl
+                                            +-> conjunto   --> linha de base do acaso
+```
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que ele não faz |
+| --- | --- | --- |
+| `edge.geometry.contact.rank_contacts` | pontuar toda quebra interior da trajetória e devolvê-las ordenadas | não aplica limiar, não escolhe e não sabe o que é um chute |
+| `edge.geometry.contact.best_contact` | escolher a primeira da lista, se ela passar de `MIN_SCORE` | não recalcula score, e por isso não pode divergir do que foi registrado |
+| `edge.modules.shot.BallBreakShot` | filtrar por proximidade de jogador e registrar as cinco maiores quebras e o conjunto inteiro | não lê quadro e não promete que a escolhida é a certa |
+| `mlops.instant.diagnose` | nomear a causa do erro de cada clipe contra o gabarito | não corrige nada e não propõe refinamento |
+| `mlops.instant.baselines` | o acaso e o ponto médio fixo, ao lado de toda taxa publicada | não sabe se a diferença é grande o bastante para decidir |
+| `mlops.instant.resolution` | o menor efeito que a amostra distingue de ruído | não aumenta a amostra nem escolhe por você |
+| `mlops.instant.read_spots` | medir detector de fora do repositório pelo mesmo caminho | não executa o detector nem depende do código dele |
+
+## Fluxo de dados
+
+Cada clipe processado escreve uma linha em `instant-observations.jsonl`, ao lado do `events.jsonl`
+da execução. O arquivo mora em `var/`, que é ignorado pelo git, e carrega identificador de clipe,
+então ele não entra em documentação nem em página pública. A forma da linha é esta, com os valores
+trocados:
+
+```json
+{
+  "clip_id": "0000000",
+  "shot_source": "ball-break",
+  "ball_support": "detected",
+  "candidates": [
+    { "frame_index": 200, "sample_index": 200, "score": 0.933 },
+    { "frame_index": 349, "sample_index": 348, "score": 0.774 }
+  ],
+  "candidate_pool": [200, 349, 96, 412, 55, 288]
+}
+```
+
+`frame_index` é o instante já refinado pela interseção das duas retas ajustadas, e `sample_index`
+é a amostra que originou a quebra. `candidate_pool` é o quadro de toda quebra pontuada, sem score,
+e é o que torna a linha de base exata em vez de estimada. São 54 quebras por clipe na mediana, com
+mínimo de 9 e máximo de 133.
+
+O `ShotEvent` continua em 1.0. Acrescentar campo de diagnóstico no schema público obrigaria a
+versionar um contrato que tem consumidor em API, frontend e persistência para resolver um problema
+de avaliação, e o arquivo ao lado resolve o mesmo problema sem isso.
+
+## Nenhuma taxa sem linha de base
+
+Toda medida de instante sai com dois nulos. O `quadro ao acaso` é exato, a fração dos quadros do
+clipe que caem dentro da tolerância, que é a chance de um quadro sorteado acertar. O
+`ponto médio fixo` é o preditor constante, e é a linha de base de maioria deste problema: os cortes
+do parceiro contêm a finalização, então chutar o meio do clipe não é absurdo.
+
+| Linha de base, 24 clipes de ajuste | Dentro de 30 quadros |
+| --- | --- |
+| quadro ao acaso | 0,161 |
+| ponto médio fixo | 0,333 |
+
+Isso já diz uma coisa desconfortável e é por isso que os nulos existem: **a regra em vigor fica
+abaixo do ponto médio fixo.**
+
+## A regra cinemática, medida
+
+Execução de 22/09/2026 sobre os 24 clipes anotados das dobras 0 a 2. Os 14 clipes das dobras 3 e 4
+continuam fechados.
+
+| Medida | Valor |
+| --- | --- |
+| dentro de 30 quadros | 0,292 (7 de 24), IC95 de 0,149 a 0,492 |
+| dentro de 90 quadros | 0,708 |
+| mediana do erro | 46 quadros |
+| p95 do erro | 182 quadros |
+| procedência | 23 `ball-break`, 1 `midpoint` |
+
+A taxonomia nomeia a causa de todos os 17 erros, contra os 80% que o critério pedia:
+
+| Causa | Clipes | O que ela significa |
+| --- | --- | --- |
+| `acerto` | 7 | erro dentro da tolerância, sem causa a nomear |
+| `escolha` | 13 | a quebra certa estava entre as cinco e perdeu no score |
+| `trajetoria` | 3 | nenhuma das cinco caiu perto do gabarito |
+| `estimado` | 1 | nenhuma quebra passou do limiar, e o instante é o meio do trecho |
+
+O teto de reordenar, com o acaso ao lado:
+
+| Profundidade | Medido | Acaso | Ganho |
+| --- | --- | --- | --- |
+| top 1 | 0,292 | 0,204 | +0,088 |
+| top 2 | 0,458 | 0,357 | +0,101 |
+| top 3 | 0,583 | 0,474 | +0,109 |
+| top 4 | 0,833 | 0,564 | +0,269 |
+| top 5 | 0,833 | 0,635 | +0,198 |
+
+O teto de 0,833 não são 54 pontos percentuais de ganho disponível. Com 54 quebras por clipe e
+tolerância de meio segundo, sortear quatro já cai dentro em 56% dos clipes. E o critério em vigor
+ganha do acaso por 0,088 no topo da lista: ele escolhe a quebra certa quase tão mal quanto um
+sorteio entre as quebras próximas de um jogador.
+
+## O que foi tentado e falhou
+
+Seis hipóteses foram medidas e descartadas. Elas estão aqui para ninguém repetir.
+
+| Hipótese | Resultado |
+| --- | --- |
+| dilatar a proximidade do jogador em 1, 2 ou 3 amostras densas (H2 da spec) | 0,250, pior que 0,292 |
+| `exigir_bola_medida` ligada | muda o instante de zero clipes |
+| subamostrar a trajetória antes de pontuar | pior, monotonicamente, até 0,167 |
+| varrer peso da virada e janelas do score | melhor ponto 0,333, um clipe em 24 |
+| direção para o gol pela homografia | separa 1 de 4, e a homografia só existe em 4 dos 13 casos |
+| fim de episódio de posse como candidato | 0,625 a 10 quadros, contra teto de acaso de 0,850 |
+| deslocamento contínuo do T-DEED em vez do arredondado | 0,750 a 10 quadros, contra 0,792 do arredondado |
+| T-DEED nas duas fases da amostragem | move 2 clipes a 5 quadros, sinal pareado com p de 0,250 |
+
+As duas últimas merecem nota porque a hipótese era boa e mesmo assim caiu. Com passo 2 sobre 25 fps
+o modelo só pode apontar múltiplos de 80 ms, que são 4,8 quadros nativos, e a mediana do erro é 5:
+parecia que a quantização era todo o resíduo. Não é. Usar `displ_feat` sem arredondar piora, e
+rodar as duas fases move dois clipes e dobra o custo. O resíduo é erro de localização do modelo, e
+não da grade de amostragem.
+
+O padrão é o mesmo nas seis primeiras. O gerador de candidatos é denso demais para a tolerância: são 54
+quebras cinemáticas ou 21 fins de episódio num clipe de 420 quadros, e um conjunto assim cobre de
+78% a 93% dos quadros do clipe dentro da tolerância. Encontrar o instante entre eles é quase de
+graça, e escolher entre eles é sorteio com viés pequeno. **Não existe critério de seleção sobre a
+percepção atual que resolva, porque o problema não está na seleção.**
+
+## O detector temporal publicado, medido no mesmo conjunto
+
+A spec autorizava T-DEED apenas se a regra refinada falhasse o gate de desenvolvimento. Ela falhou,
+medida, então o checkpoint publicado `SoccerNetBall_test` foi executado nos mesmos 24 clipes, com a
+configuração publicada, sem treino local e sem abrir o reservado.
+
+| Medida | T-DEED zero-shot | Regra em vigor |
+| --- | --- | --- |
+| dentro de 30 quadros | **1,000** (24 de 24), IC95 de 0,862 a 1,000 | 0,292 |
+| mediana do erro | 5 quadros | 46 quadros |
+| p95 do erro | 15 quadros | 182 quadros |
+| pior erro | 19 quadros | 273 quadros |
+
+E ele continua de pé quando a tolerância aperta, que é exatamente onde a regra desmoronava:
+
+| Tolerância | T-DEED | Regra em vigor |
+| --- | --- | --- |
+| 30 quadros | 1,000 | 0,292 |
+| 20 quadros | 1,000 | |
+| 10 quadros | 0,792 | 0,250 |
+| 5 quadros | 0,542 | |
+
+Contra os nulos da tabela acima, 0,161 e 0,333, a diferença não é atribuível à largura da
+tolerância. Foi a primeira das sete hipóteses desta sprint a sobreviver a um nulo.
+
+### O que esse número não diz
+
+**O modelo localiza um chute que sabemos existir, ele não detecta que houve um chute.** Em 14 dos
+24 clipes outra classe pontua mais alto em algum quadro, e a medida toma o máximo da coluna `SHOT`.
+Isso é legítimo para esta tarefa, que recebe um corte contendo a finalização, e não sustenta a
+afirmação mais forte.
+
+**Com mediana de 5 quadros, 83 ms, é possível que a medida já esteja no grão do gabarito e não no
+do modelo.** Nenhum dos 38 clipes tem segunda anotação. A diferença entre 0,292 e 1,000 é grande
+demais para ser explicada assim, mas a diferença entre 0,792 e 0,542 nas tolerâncias apertadas não
+é, e essas duas não devem ser citadas sem a concordância entre anotadores.
+
+**São 24 clipes, só desenvolvimento.** O limite inferior de Wilson é 0,862. O número não é 1,000,
+é "não erramos nenhum dos 24".
+
+### Como reproduzir
+
+O T-DEED é GPL-3.0 e não entra nesta árvore, então ele roda fora e escreve um arquivo que o
+avaliador deste repositório lê:
+
+```bash
+# fora da arvore: extrair quadros a 25 fps e 796x448, rodar o checkpoint publicado
+# e escrever uma linha por clipe com clip_id e frame_index em quadro nativo
+xvision eval-spots var/spots/<arquivo>.jsonl --dobra ajuste
+```
+
+O comando usa o mesmo gabarito, a mesma tolerância e os mesmos nulos do `eval-instant`, e o padrão
+dele é `--dobra ajuste` e não `tudo`, porque alternativa externa é o caso em que o holdout se perde
+por descuido.
+
+## O que este conjunto consegue enxergar
+
+Oito hipóteses foram medidas nesta sprint e sete caíram. Duas delas, o corte por confiança da
+quebra e as duas fases do T-DEED, mexeram a taxa para cima e mesmo assim foram descartadas. O
+motivo é o mesmo e vale mais que qualquer uma delas.
+
+| n do conjunto | Intervalo de Wilson em 0,30 | Meia largura |
+| --- | --- | --- |
+| 24 (hoje, desenvolvimento) | 0,149 a 0,492 | 4,1 clipes |
+| 38 (todo o gabarito) | 0,170 a 0,448 | 5,3 clipes |
+| 60 | 0,199 a 0,425 | 6,8 clipes |
+| 100 | 0,219 a 0,396 | 8,8 clipes |
+| 200 | 0,241 a 0,367 | 12,6 clipes |
+
+Com 24 clipes, a meia largura na faixa em que a regra opera é de **4,1 clipes**. Toda candidata a
+melhoria desta sprint moveu um ou dois. Elas estão dentro do ruído por construção, e nenhuma
+quantidade de cuidado no experimento resolve isso.
+
+A comparação pareada é mais eficiente que a taxa solta, e ainda assim não fecha: o teste de sinal
+precisa de **5 pares discordantes** do mesmo lado para chegar a p abaixo de 0,05, porque `0,5` na
+quinta dá 0,031 e na quarta dá 0,063. A mudança das duas fases discorda em 2 dos 24 clipes, ou
+8,3%. Para chegar aos 5 pares seriam **60 clipes anotados de desenvolvimento**; para 10 pares,
+120.
+
+O `eval-instant` e o `eval-spots` passaram a imprimir essa resolução junto da taxa, pelo mesmo
+motivo dos nulos: transformar "melhorou de 0,292 para 0,333" em "moveu um clipe num conjunto que só
+enxerga quatro", que é a mesma frase dita de forma honesta.
+
+**O gargalo desta frente deixou de ser o modelo e passou a ser o conjunto de avaliação.** O
+catálogo do parceiro tem 633 clipes completos e o gabarito tem 38. Anotar até 60 de desenvolvimento
+é o que devolve ao time a capacidade de decidir entre duas alternativas próximas.
+
+## Decisões
+
+**A lista ordenada sai da mesma função que decide.** `find_contact` passou a ser
+`best_contact(rank_contacts(...))`. A alternativa descartada era recalcular o score no lado do
+diagnóstico, o que deixaria qualquer divergência entre as duas implementações ser lida como
+conclusão sobre o modelo.
+
+**A linha de base entra na ferramenta, e não numa planilha à parte.** A primeira versão desta
+página publicou o teto de 0,833 sem o acaso ao lado, e ele lia como 54 pontos percentuais de ganho
+quando são 27. Número sem nulo é o mesmo defeito que a rubrica cobra em acurácia sem linha de base
+de maioria, e a correção é o avaliador imprimir os dois juntos, sempre.
+
+**O detector externo é medido sem entrar no repositório.** `mlops.instant.read_spots` lê
+`clip_id` e `frame_index` de um arquivo. A alternativa descartada era importar o T-DEED em `src/`,
+o que obrigaria o produto inteiro a virar GPL-3.0 para responder a uma pergunta de avaliação.
+
+**O diagnóstico separa ausência de registro de ausência de quebra.** Execução anterior ao campo sai
+`nao-declarado`, e não `trajetoria`. Sem essa distinção, medir uma execução velha produziria uma
+taxonomia inteira apontando para a detecção da bola sem nenhuma evidência.
+
+## Trade-offs
+
+O ganho é que a frente parou de andar no escuro. Seis hipóteses foram descartadas por medida em vez
+de por impressão, e a sétima foi medida contra o mesmo nulo que derrubou as outras.
+
+A desvantagem principal é que o resultado bom é o que este projeto não pode usar como está. A regra
+cinemática é nossa, roda em 145 ms e mede 0,292. O T-DEED mede 1,000, custa de 8 a 18 segundos por
+clipe em CPU nesta máquina, tem 12,3M parâmetros e traz uma licença incompatível. A entrega desta
+sprint é saber disso com número, e não uma substituição pronta.
+
+A segunda é que a resolução publicada ao lado da taxa vai tornar boa parte do trabalho futuro
+desta frente indefensável até o conjunto crescer. É desconfortável e é o ponto: sem ela, o mesmo
+trabalho seria publicado como ganho.
+
+A terceira é que o campo de candidatos é de medição e ninguém no pipeline o consome. Campo assim
+tende a apodrecer: quem mudar o critério de escolha sem atualizar o registro faz o diagnóstico
+descrever uma execução que não é a que roda.
+
+## Riscos e incertezas
+
+**Licença.** O código do T-DEED é GPL-3.0 e o `src/` deste projeto é CC-BY-4.0. Os pesos publicados
+não declaram licença em lugar nenhum, que é a mesma situação já levantada para o PnLCalib na Sprint
+3, e silêncio não é permissão. Medir fora da árvore e publicar o número é seguro. Embarcar no
+produto não é, e a decisão é do grupo com o parceiro e com a orientação, não de implementação.
+
+**Domínio.** O `Shot` do SoccerNet é anotado em transmissão completa e avaliado com tolerância de
+um segundo, e ninguém demonstrou que esse timestamp equivale ao quadro do contato. O resultado
+acima é evidência empírica no nosso conjunto, não equivalência demonstrada.
+
+**Comparabilidade.** A execução da regra cinemática rodou em fp32 com letterbox no `cv2`, porque a
+máquina de desenvolvimento não tem CUDA, e a configuração de produção declara fp16 com letterbox no
+device. A diferença contra os 0,375 registrados na Sprint 3 não foi isolada.
+
+**Gabarito sem barra de erro.** Nenhum dos 38 clipes tem segunda anotação, e a taxonomia herda essa
+incerteza inteira.
+
+**Cache.** A chave do cache de percepção inclui o hash do arquivo do módulo, lido do disco no
+momento da chamada. Editar `kinematics.py` com uma execução em andamento grava saída do código
+antigo sob a chave do código novo. Aconteceu nesta sprint e apareceu como 16 clipes
+`nao-declarado`. Quem reproduzir precisa apagar as entradas de `shot` do cache antes de medir.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| decisão de licença do T-DEED | levar código GPL-3.0 e pesos sem licença ao parceiro e à orientação, com o número desta página, antes de qualquer trabalho de embarque |
+| concordância entre anotadores | segunda anotação cega de 8 dos 24 clipes, que é o que permite ler 0,792 e 0,542 nas tolerâncias apertadas |
+| tamanho do conjunto de desenvolvimento | anotar de 24 para 60 clipes, que é o mínimo para o teste de sinal pareado resolver uma mudança do tamanho das que esta sprint produziu |
+| custo na Jetson | 8 a 18 s por clipe em CPU aqui não diz nada sobre a placa; medir latência, memória e energia antes de considerar embarque |
+| conjunto reservado | uma única execução depois do congelamento, sem recalibrar nos mesmos 14 clipes |
+| detecção, e não localização | o resultado atual assume que o clipe contém uma finalização; medir o comportamento em corte sem chute é outro experimento |
+| medida que ordene as quebras | descartada por ora: seis hipóteses falharam contra o nulo e o T-DEED resolve o mesmo problema por outro caminho |
+
+## Referências
+
+1. Xarles et al. [T-DEED, Temporal-Discriminability Enhancer Encoder-Decoder](https://openaccess.thecvf.com/content/CVPR2024W/CVsports/papers/Xarles_T-DEED_Temporal-Discriminability_Enhancer_Encoder-Decoder_for_Precise_Event_Spotting_in_Sports_CVPRW_2024_paper.pdf).
+2. Cioppa et al. [SoccerNet 2024 Challenges Results](https://arxiv.org/abs/2409.10587).
+3. SoccerNet. [Ball Action Spotting](https://www.soccer-net.org/tasks/ball-action-spotting).
+4. Anzer, G.; Bauer, P. [A goal scoring probability model for shots](https://www.frontiersin.org/articles/10.3389/fspor.2021.624475/full).
+5. Wilson, E. B. [Probable inference, the law of succession, and statistical inference](https://www.jstor.org/stable/2276774).

@@ -26,8 +26,10 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from math import comb
 from pathlib import Path
 
+from edge.modules.shot.kinematics import ESTIMADO
 from edge.paths import var_dir
 
 ARQUIVO = "instants.jsonl"
@@ -196,6 +198,303 @@ def measure(
     )
 
 
+ACERTO = "acerto"
+"""Erro dentro da tolerancia. Nao e causa de nada: entra na tabela so para o resto ter
+denominador."""
+
+ESCOLHA = "escolha"
+"""A quebra certa existia na lista e perdeu no score.
+
+E o unico tipo em que reordenar candidatos resolve. Quantos clipes caem aqui e o teto de qualquer
+refinamento que mexa so no criterio de escolha, e medir esse teto antes de escrever o criterio e o
+que separa refinamento de tentativa.
+"""
+
+TRAJETORIA = "trajetoria"
+"""Nenhuma das quebras registradas caiu perto do gabarito.
+
+Aqui reordenar nao muda nada: a quebra do contato nao chegou a existir, seja porque a bola nao foi
+detectada naquele trecho, seja porque a trajetoria interpolada passou reto por cima da virada. O
+trabalho e na deteccao da bola, e nao no instante.
+"""
+
+ESTIMATIVA = "estimado"
+"""O instante e o ponto medio, porque nenhuma quebra passou de `MIN_SCORE`.
+
+Separado de `trajetoria` de proposito: aqui pode haver candidato bom abaixo do limiar, e o ajuste
+e de limiar. La nao ha candidato bom nenhum.
+"""
+
+NAO_DECLARADO = "nao-declarado"
+"""A execucao nao registrou candidatos para este clipe, entao a causa nao e conhecida.
+
+Execucao anterior a este campo cai toda aqui, e e por isso que `cobertura` existe: uma taxonomia
+medida sobre execucao velha diria `trajetoria` para tudo se a ausencia fosse lida como lista vazia.
+"""
+
+
+@dataclass(frozen=True)
+class Diagnostico:
+    """O erro de um clipe com a causa nomeada, e o que a lista de candidatos sabia sobre ele."""
+
+    clip_id: str
+    erro: int
+    tipo: str
+    melhor_rank: int | None
+    """Posicao do primeiro candidato dentro da tolerancia, contada a partir de 1, ou `None`."""
+    melhor_erro: int | None
+    """Erro do candidato mais proximo do gabarito, mesmo que nenhum esteja dentro da tolerancia."""
+
+
+def _quadro(documento: Mapping[str, object]) -> int | None:
+    valor = documento.get("frame_index")
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return None
+    return int(valor)
+
+
+def diagnose(
+    previsto: Mapping[str, int],
+    gabarito: Mapping[str, int],
+    *,
+    fontes: Mapping[str, str] | None = None,
+    candidatos: Mapping[str, Sequence[Mapping[str, object]]] | None = None,
+    tolerancia: int = TOLERANCIA_ALVO,
+) -> tuple[Diagnostico, ...]:
+    """A causa do erro de cada clipe, lida da lista de quebras que a execucao registrou.
+
+    Sem isto o relatorio do instante para na mediana, e mediana nao diz o que fazer: 60 quadros de
+    erro pedem trabalho diferente se a quebra certa estava em segundo lugar ou se ela nunca
+    existiu. A taxonomia separa exatamente essas duas populacoes.
+
+    Clipe sem candidato registrado sai `nao-declarado` em vez de entrar em `trajetoria`, porque
+    ausencia de registro nao e ausencia de quebra.
+    """
+    comuns = sorted(set(previsto) & set(gabarito))
+    achados: list[Diagnostico] = []
+    for clip in comuns:
+        verdade = gabarito[clip]
+        erro = abs(previsto[clip] - verdade)
+        lista = list((candidatos or {}).get(clip) or ())
+        medidos = [
+            (posicao, abs(quadro - verdade))
+            for posicao, documento in enumerate(lista, start=1)
+            if (quadro := _quadro(documento)) is not None
+        ]
+        dentro = [posicao for posicao, distancia in medidos if distancia <= tolerancia]
+        achados.append(
+            Diagnostico(
+                clip_id=clip,
+                erro=erro,
+                tipo=_tipo(erro, (fontes or {}).get(clip), medidos, dentro, tolerancia),
+                melhor_rank=dentro[0] if dentro else None,
+                melhor_erro=min(d for _, d in medidos) if medidos else None,
+            )
+        )
+    return tuple(achados)
+
+
+def _tipo(
+    erro: int,
+    fonte: str | None,
+    medidos: Sequence[tuple[int, int]],
+    dentro: Sequence[int],
+    tolerancia: int,
+) -> str:
+    if erro <= tolerancia:
+        return ACERTO
+    if fonte == ESTIMADO:
+        return ESTIMATIVA
+    if not medidos:
+        return NAO_DECLARADO
+    return ESCOLHA if dentro else TRAJETORIA
+
+
+@dataclass(frozen=True)
+class TaxonomyReport:
+    n: int
+    erros: int
+    tipos: Mapping[str, int]
+    cobertura: float
+    recall: Mapping[str, float]
+    acaso: Mapping[str, float]
+    n_com_conjunto: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "n": self.n,
+            "erros": self.erros,
+            "tipos": dict(self.tipos),
+            "cobertura_das_causas": self.cobertura,
+            "recall_em_k": dict(self.recall),
+            "recall_ao_acaso": dict(self.acaso),
+            "clipes_com_conjunto_de_quebras": self.n_com_conjunto,
+        }
+
+
+def _acaso_do_clipe(quadros: Sequence[int], verdade: int, k: int, tolerancia: int) -> float:
+    """A chance de `k` quebras sorteadas cairem dentro da tolerancia, sorteadas sem reposicao.
+
+    Exata, e nao simulada: sao `n` quebras das quais `dentro` servem, entao a chance de nenhuma
+    das `k` servir e `C(n - dentro, k) / C(n, k)`. Simular daria o mesmo numero com ruido, e uma
+    semente para alguem discutir.
+    """
+    n = len(quadros)
+    if n == 0 or k <= 0:
+        return 0.0
+    dentro = sum(1 for quadro in quadros if abs(quadro - verdade) <= tolerancia)
+    if dentro == 0:
+        return 0.0
+    if k >= n:
+        return 1.0
+    return 1.0 - comb(n - dentro, k) / comb(n, k)
+
+
+def taxonomy(
+    diagnosticos: Sequence[Diagnostico],
+    *,
+    profundidade: int = 5,
+    gabarito: Mapping[str, int] | None = None,
+    pools: Mapping[str, Sequence[int]] | None = None,
+    tolerancia: int = TOLERANCIA_ALVO,
+) -> TaxonomyReport:
+    """Agrega os diagnosticos, mede o teto de reordenar e poe o acaso ao lado dele.
+
+    `recall_em_k` e a fracao de clipes em que algum dos `k` primeiros candidatos esta dentro da
+    tolerancia. Em `k = 1` ele e o proprio acerto do modelo, com uma excecao: clipe que caiu no
+    ponto medio tem candidato de primeira posicao que foi rejeitado pelo limiar, entao ele pode
+    contar aqui sem ter contado na medida.
+
+    `recall_ao_acaso` e o mesmo numero para `k` quebras sorteadas do conjunto inteiro daquele
+    clipe, e sem ele o teto engana. Com 54 quebras por clipe na mediana e tolerancia de 30 quadros,
+    sortear quatro ja cai dentro em mais da metade dos clipes. O que um criterio de escolha tem
+    para ganhar e a diferenca entre os dois, e nao o `recall_em_k` sozinho.
+
+    `cobertura` e a fracao dos erros com causa nomeada, e e ela que responde ao criterio de
+    classificar ao menos 80% deles. Acerto nao entra no denominador porque acerto nao tem causa
+    para nomear.
+    """
+    contagem: dict[str, int] = {}
+    for diagnostico in diagnosticos:
+        contagem[diagnostico.tipo] = contagem.get(diagnostico.tipo, 0) + 1
+    erros = sum(quantos for tipo, quantos in contagem.items() if tipo != ACERTO)
+    nomeados = erros - contagem.get(NAO_DECLARADO, 0)
+    recall = {
+        f"top{k}": sum(1 for d in diagnosticos if d.melhor_rank is not None and d.melhor_rank <= k)
+        / len(diagnosticos)
+        for k in range(1, profundidade + 1)
+    }
+    com_conjunto = [
+        (d.clip_id, tuple((pools or {}).get(d.clip_id) or ()))
+        for d in diagnosticos
+        if (pools or {}).get(d.clip_id) and d.clip_id in (gabarito or {})
+    ]
+    acaso = (
+        {
+            f"top{k}": sum(
+                _acaso_do_clipe(quadros, (gabarito or {})[clip], k, tolerancia)
+                for clip, quadros in com_conjunto
+            )
+            / len(com_conjunto)
+            for k in range(1, profundidade + 1)
+        }
+        if com_conjunto
+        else {}
+    )
+    return TaxonomyReport(
+        n=len(diagnosticos),
+        erros=erros,
+        tipos=dict(sorted(contagem.items())),
+        cobertura=1.0 if erros == 0 else nomeados / erros,
+        recall=recall if diagnosticos else {},
+        acaso=acaso,
+        n_com_conjunto=len(com_conjunto),
+    )
+
+
+SPOTS_FILE = "spots.jsonl"
+"""Instante por clipe produzido por um detector de fora deste repositorio.
+
+Existe para medir alternativa externa sem trazer o codigo dela para dentro. O T-DEED, que e a
+alternativa em avaliacao, e GPL-3.0 e o `src/` deste projeto e CC-BY-4.0: importa-lo obrigaria o
+produto inteiro a mudar de licenca para responder a uma pergunta de avaliacao. O detector roda
+fora, escreve `clip_id` e `frame_index`, e a medida acontece aqui, com os mesmos nulos.
+"""
+
+
+def read_spots(caminho: Path) -> dict[str, int]:
+    """Um instante por clipe, recusando duplicata em vez de deixar a ultima linha vencer.
+
+    Duplicata silenciosa e como um detector com duas saidas para o mesmo clipe passa por um
+    detector com uma, e a medida sai sobre um conjunto que ninguem escolheu.
+    """
+    if not caminho.is_file():
+        raise InstantError(f"{caminho} nao existe")
+    spots: dict[str, int] = {}
+    for numero, linha in enumerate(caminho.read_text(encoding="utf-8").splitlines(), start=1):
+        if not linha.strip():
+            continue
+        try:
+            documento = json.loads(linha)
+            clip = str(documento["clip_id"])
+            quadro = documento["frame_index"]
+        except (json.JSONDecodeError, KeyError, TypeError) as erro:
+            raise InstantError(f"{caminho}:{numero} nao e um spot valido: {erro}") from erro
+        if isinstance(quadro, bool) or not isinstance(quadro, int | float):
+            raise InstantError(f"{caminho}:{numero}: frame_index precisa ser numero")
+        if clip in spots:
+            raise InstantError(f"{caminho}:{numero}: {clip} aparece duas vezes")
+        spots[clip] = int(quadro)
+    if not spots:
+        raise InstantError(f"{caminho} nao tem nenhum spot")
+    return spots
+
+
+@dataclass(frozen=True)
+class BaselineReport:
+    n: int
+    acaso: float
+    ponto_medio: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "n": self.n,
+            "quadro_ao_acaso": self.acaso,
+            "ponto_medio_fixo": self.ponto_medio,
+        }
+
+
+def baselines(
+    gabarito: Mapping[str, int],
+    comprimentos: Mapping[str, int],
+    *,
+    tolerancia: int = TOLERANCIA_ALVO,
+) -> BaselineReport:
+    """As duas linhas de base que toda taxa de instante precisa ter ao lado.
+
+    `quadro_ao_acaso` e exato e nao simulado: e a fracao dos quadros do clipe que caem dentro da
+    tolerancia do gabarito, que e a chance de um quadro sorteado acertar. Com tolerancia de 30
+    quadros num clipe de 420 ele ja da 0,145, e uma taxa publicada sem esse numero ao lado parece
+    melhor do que e.
+
+    `ponto_medio_fixo` e o preditor constante, que e a linha de base de maioria deste problema: os
+    cortes do parceiro contem a finalizacao, entao chutar o meio do clipe nao e absurdo e precisa
+    ser batido explicitamente.
+    """
+    comuns = sorted(set(gabarito) & set(comprimentos))
+    if not comuns:
+        return BaselineReport(0, 0.0, 0.0)
+    acaso = 0.0
+    meio = 0
+    for clip in comuns:
+        total = comprimentos[clip]
+        verdade = gabarito[clip]
+        dentro = min(total - 1, verdade + tolerancia) - max(0, verdade - tolerancia) + 1
+        acaso += max(0, dentro) / total if total else 0.0
+        meio += 1 if abs(total // 2 - verdade) <= tolerancia else 0
+    return BaselineReport(len(comuns), acaso / len(comuns), meio / len(comuns))
+
+
 def wilson(acertos: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """O intervalo da taxa observada, porque uma fracao sobre 40 clipes nao e um numero exato."""
     if n <= 0:
@@ -205,6 +504,50 @@ def wilson(acertos: int, n: int, z: float = 1.96) -> tuple[float, float]:
     centro = (p + z * z / (2 * n)) / denominador
     meia = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / denominador
     return (max(0.0, centro - meia), min(1.0, centro + meia))
+
+
+@dataclass(frozen=True)
+class Resolucao:
+    """O menor efeito que esta amostra consegue distinguir de ruido."""
+
+    n: int
+    clipes: float
+    fracao: float
+    discordantes_para_sinal: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "n": self.n,
+            "menor_efeito_visivel_em_clipes": round(self.clipes, 1),
+            "menor_efeito_visivel_em_fracao": round(self.fracao, 3),
+            "pares_discordantes_para_p_005": self.discordantes_para_sinal,
+        }
+
+
+DISCORDANTES_PARA_SINAL = 5
+"""Pares discordantes, todos do mesmo lado, para o teste de sinal pareado dar p < 0,05.
+
+Sao `0,5 ** k`, entao quatro dao 0,0625 e cinco dao 0,0312. Abaixo disso a comparacao pareada nao
+sustenta conclusao, por mais que a taxa tenha subido.
+"""
+
+
+def resolution(acertos: int, n: int) -> Resolucao:
+    """Quanta melhoria este conjunto consegue enxergar, ao lado da taxa que ele mede.
+
+    Existe pelo mesmo motivo dos nulos, e por uma experiencia desta sprint: varias mudancas foram
+    medidas, cada uma moveu um ou dois clipes, e cada uma pareceu ganho. Com 24 clipes a meia
+    largura do intervalo de Wilson e de quatro clipes, entao mudanca de um ou dois esta dentro do
+    ruido por construcao e nenhuma quantidade de cuidado no experimento resolve isso.
+
+    Publicar a resolucao junto da taxa transforma "melhorou de 0,292 para 0,333" em "moveu um clipe
+    num conjunto que so enxerga quatro", que e a mesma frase dita de forma honesta.
+    """
+    if n <= 0:
+        return Resolucao(0, 0.0, 0.0, DISCORDANTES_PARA_SINAL)
+    baixo, alto = wilson(acertos, n)
+    meia = (alto - baixo) / 2
+    return Resolucao(n, meia * n, meia, DISCORDANTES_PARA_SINAL)
 
 
 def sample(clipes: Sequence[tuple[str, str]], quantos: int, seed: int) -> tuple[str, ...]:

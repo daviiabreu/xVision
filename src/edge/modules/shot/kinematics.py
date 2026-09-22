@@ -41,7 +41,13 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from edge.geometry.contact import Contact, Observation, find_contact
+from edge.geometry.contact import (
+    Candidate,
+    Contact,
+    Observation,
+    best_contact,
+    rank_contacts,
+)
 from edge.modules.base import (
     FrameBatch,
     ModuleInputs,
@@ -83,6 +89,19 @@ criaria um atributo novo com o nome antigo, `infer` leria o renomeado, e a opcao
 exatamente o silencio que este conjunto existe para impedir. O pyright nao ve atraves de `setattr`.
 """
 FALLBACK_CONFIDENCE = 0.05
+
+CANDIDATOS_REGISTRADOS = 5
+"""Quantas quebras o registro guarda com score, contando a escolhida.
+
+Cinco responde a pergunta que o erro medido deixa em aberto, se o contato certo estava entre as
+quebras descartadas, sem guardar score de coisa nenhuma: toda amostra interior da trajetoria e uma
+quebra de algum tamanho, e a mediana por clipe e 54.
+
+Nada no pipeline le este campo. Ele existe para o diagnostico de `mlops.instant` poder separar
+erro de escolha, em que a quebra certa estava na lista e perdeu no score, de erro de trajetoria,
+em que ela nunca chegou a existir. As duas causas pedem trabalho diferente e ate aqui saiam com a
+mesma cara na mediana.
+"""
 
 MARGEM_LARGURA = 0.6
 MARGEM_ALTURA = 0.35
@@ -170,12 +189,13 @@ class BallBreakShot:
         if self._exigir_medida:
             bola = tuple(o for o in bola if procedencia.get(o.frame_index) == DETECTADA)
         candidatos = _com_jogador_perto(bola, ctx.get(PLAYERS)) if self._exigir_jogador else None
-        contato = find_contact(bola, frame_count=limite, candidates=candidatos)
+        ordenados = rank_contacts(bola, frame_count=limite, candidates=candidatos)
+        contato = best_contact(ordenados)
         if contato is not None:
-            return _medido(contato, procedencia)
+            return _medido(contato, procedencia, ordenados)
         if not self._estimar:
             return None
-        return _estimado(batch.indices, procedencia)
+        return _estimado(batch.indices, procedencia, ordenados)
 
 
 def _com_jogador_perto(
@@ -258,7 +278,9 @@ def observacoes(saida: ModuleOutput | None) -> tuple[Observation, ...]:
     return tuple(observacoes)
 
 
-def _medido(contato: Contact, procedencia: Mapping[int, str]) -> dict[str, object]:
+def _medido(
+    contato: Contact, procedencia: Mapping[int, str], ordenados: Sequence[Candidate]
+) -> dict[str, object]:
     return {
         "frame_index": contato.frame_index,
         "confidence": round(contato.confidence, 6),
@@ -267,19 +289,57 @@ def _medido(contato: Contact, procedencia: Mapping[int, str]) -> dict[str, objec
         "speed_ratio": None
         if contato.speed_ratio == float("inf")
         else round(contato.speed_ratio, 3),
+        "candidates": _candidatos(ordenados),
+        "candidate_pool": _pool(ordenados),
         **_suporte(contato.frame_index, procedencia),
     }
 
 
-def _estimado(indices: Sequence[int], procedencia: Mapping[int, str]) -> dict[str, object]:
+def _estimado(
+    indices: Sequence[int], procedencia: Mapping[int, str], ordenados: Sequence[Candidate]
+) -> dict[str, object]:
+    """O ponto medio tambem registra o que foi considerado, e por isso a lista pode vir cheia.
+
+    Cair no ponto medio nao quer dizer que nao havia quebra nenhuma: quer dizer que nenhuma passou
+    de `MIN_SCORE`. A diferenca importa no diagnostico, porque clipe sem candidato e problema de
+    deteccao da bola e clipe com quatro candidatos fracos e problema de limiar.
+    """
     escolhido = indices[len(indices) // 2]
     return {
         "frame_index": escolhido,
         "confidence": FALLBACK_CONFIDENCE,
         "source": ESTIMADO,
         "reason": "a trajetoria da bola nao sustentou uma quebra, e o instante e o meio do trecho",
+        "candidates": _candidatos(ordenados),
+        "candidate_pool": _pool(ordenados),
         **_suporte(escolhido, procedencia),
     }
+
+
+def _pool(ordenados: Sequence[Candidate]) -> list[int]:
+    """O quadro de TODA quebra pontuada, sem score, ordenado como a escolha as viu.
+
+    Serve a uma pergunta que a lista de cinco nao responde: quanto do acerto e criterio e quanto e
+    a largura da tolerancia. Com 54 quebras por clipe na mediana e uma tolerancia de 30 quadros,
+    sortear quatro delas ao acaso ja cai dentro da tolerancia na maioria dos clipes, e um teto
+    apresentado sem essa conta parece maior do que e.
+
+    So o quadro, e nao o registro inteiro: o score das descartadas nao entra em nenhuma conta, e
+    guardar os tres campos de 133 quebras seria guardar a trajetoria de novo com outro nome.
+    """
+    return [candidato.frame_index for candidato in ordenados]
+
+
+def _candidatos(ordenados: Sequence[Candidate]) -> list[dict[str, object]]:
+    """As `CANDIDATOS_REGISTRADOS` maiores quebras, na ordem em que a escolha as viu."""
+    return [
+        {
+            "frame_index": candidato.frame_index,
+            "sample_index": candidato.sample_index,
+            "score": round(candidato.score, 6),
+        }
+        for candidato in ordenados[:CANDIDATOS_REGISTRADOS]
+    ]
 
 
 def _suporte(quadro: int, procedencia: Mapping[int, str]) -> dict[str, object]:

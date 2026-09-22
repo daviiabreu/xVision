@@ -63,6 +63,20 @@ class ClipResult:
     shot_source: str | None
     ball_support: str | None
     perception: Perception
+    shot_candidates: tuple[Mapping[str, object], ...] = ()
+    """As quebras que a especie `shot` considerou, da maior para a menor.
+
+    Vazio quando o modulo de instante nao registra candidato, que e o caso dos stubs e de qualquer
+    implementacao futura que decida por outro caminho. Vazio significa nao declarado, e nao
+    ausencia de candidato: quem mede precisa distinguir os dois.
+    """
+    shot_candidate_pool: tuple[int, ...] = ()
+    """O quadro de toda quebra pontuada, e nao so das cinco registradas com score.
+
+    Separado de `shot_candidates` porque responde outra pergunta: com ele, quem mede calcula quanto
+    do acerto vem do criterio e quanto vem da largura da tolerancia. Sem ele, o teto de reordenar
+    sai sem linha de base.
+    """
 
 
 class _Shot:
@@ -147,6 +161,8 @@ def process_clip(
         shot_source=_source(execucao, "source"),
         ball_support=_source(execucao, "ball_support"),
         perception=execucao.perception,
+        shot_candidates=_candidates(execucao),
+        shot_candidate_pool=_candidate_pool(execucao),
     )
 
 
@@ -167,6 +183,50 @@ def _source(execucao: RunResult, campo: str) -> str | None:
             if isinstance(valor, str):
                 return valor
     return None
+
+
+def _candidates(execucao: RunResult) -> tuple[Mapping[str, object], ...]:
+    """A lista de quebras do registro de instante, quando o modulo declara uma.
+
+    Lida por chave e nao por atributo pelo mesmo motivo de `_source`: o registro e um mapa que cada
+    implementacao de `shot` preenche como quiser, e exigir o campo no protocolo obrigaria os stubs
+    a fingir que tem candidato. Registro com `candidates` de outro tipo e tratado como ausente, em
+    vez de convertido: uma lista inventada aqui viraria diagnostico inventado la na frente.
+    """
+    saida = execucao.outputs.get(SHOT)
+    if saida is None:
+        return ()
+    for registros in saida.records:
+        for registro in registros:
+            valor = registro.get("candidates")
+            if isinstance(valor, list):
+                return tuple(
+                    cast("Mapping[str, object]", item)
+                    for item in cast("list[object]", valor)
+                    if isinstance(item, Mapping)
+                )
+    return ()
+
+
+def _candidate_pool(execucao: RunResult) -> tuple[int, ...]:
+    """Os quadros de toda quebra pontuada, recusando o que nao for inteiro.
+
+    Booleano fica de fora junto com o resto: `bool` e subclasse de `int`, entao um `true` na lista
+    entraria como quadro 1 e a linha de base sairia contaminada por um erro de tipo.
+    """
+    saida = execucao.outputs.get(SHOT)
+    if saida is None:
+        return ()
+    for registros in saida.records:
+        for registro in registros:
+            valor = registro.get("candidate_pool")
+            if isinstance(valor, list):
+                return tuple(
+                    item
+                    for item in cast("list[object]", valor)
+                    if isinstance(item, int) and not isinstance(item, bool)
+                )
+    return ()
 
 
 def _check_assembly(execucao: RunResult) -> None:

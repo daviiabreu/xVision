@@ -12,16 +12,29 @@ from pathlib import Path
 import pytest
 
 from mlops.instant import (
+    ACERTO,
+    DISCORDANTES_PARA_SINAL,
+    ESCOLHA,
+    ESTIMATIVA,
+    NAO_DECLARADO,
     TOLERANCIA_ALVO,
     TOLERANCIA_LIMITE,
+    TRAJETORIA,
     Anotacao,
+    BaselineReport,
     InstantError,
+    Resolucao,
     agreement,
+    baselines,
     consensus,
+    diagnose,
     latest,
     measure,
     read,
+    read_spots,
+    resolution,
     sample,
+    taxonomy,
     wilson,
     write,
 )
@@ -195,3 +208,255 @@ def test_latest_guarda_a_ultima_de_cada_pessoa() -> None:
         ("c1", 99, "claude"),
         ("c2", 20, "davi"),
     ]
+
+
+def _candidato(quadro: int) -> dict[str, object]:
+    return {"frame_index": quadro, "sample_index": quadro, "score": 0.5}
+
+
+def test_erro_dentro_da_tolerancia_e_acerto_e_nao_tem_causa() -> None:
+    (achado,) = diagnose({"c": 100}, {"c": 100 + TOLERANCIA_ALVO})
+
+    assert achado.tipo == ACERTO
+    assert achado.erro == TOLERANCIA_ALVO
+
+
+def test_quebra_certa_em_segundo_lugar_e_erro_de_escolha() -> None:
+    """O unico tipo em que reordenar candidatos resolve, e por isso ele existe separado."""
+    (achado,) = diagnose(
+        {"c": 400},
+        {"c": 100},
+        fontes={"c": "ball-break"},
+        candidatos={"c": [_candidato(400), _candidato(105)]},
+    )
+
+    assert achado.tipo == ESCOLHA
+    assert achado.melhor_rank == 2
+    assert achado.melhor_erro == 5
+
+
+def test_nenhuma_quebra_perto_do_gabarito_e_erro_de_trajetoria() -> None:
+    """Aqui reordenar nao compra nada: a quebra do contato nunca chegou a existir."""
+    (achado,) = diagnose(
+        {"c": 400},
+        {"c": 100},
+        fontes={"c": "ball-break"},
+        candidatos={"c": [_candidato(400), _candidato(380)]},
+    )
+
+    assert achado.tipo == TRAJETORIA
+    assert achado.melhor_rank is None
+    assert achado.melhor_erro == 280
+
+
+def test_ponto_medio_e_estimativa_mesmo_com_candidato_bom_na_lista() -> None:
+    """Candidato bom abaixo do limiar e problema de limiar, nao de ordenacao."""
+    (achado,) = diagnose(
+        {"c": 400},
+        {"c": 100},
+        fontes={"c": "midpoint"},
+        candidatos={"c": [_candidato(102)]},
+    )
+
+    assert achado.tipo == ESTIMATIVA
+
+
+def test_execucao_sem_candidato_registrado_nao_vira_erro_de_trajetoria() -> None:
+    """O defeito replantado: ausencia de registro lida como ausencia de quebra.
+
+    Execucao anterior ao campo nao sabe nada sobre candidato, e chamar isso de `trajetoria`
+    produziria uma taxonomia inteira apontando para a deteccao da bola sem nenhuma evidencia.
+    """
+    (achado,) = diagnose({"c": 400}, {"c": 100}, fontes={"c": "ball-break"})
+
+    assert achado.tipo == NAO_DECLARADO
+    assert achado.melhor_erro is None
+
+
+def test_taxonomy_mede_a_cobertura_das_causas_sobre_os_erros() -> None:
+    achados = diagnose(
+        {"ok": 100, "escolheu": 400, "sem_registro": 400},
+        {"ok": 100, "escolheu": 100, "sem_registro": 100},
+        fontes={"ok": "ball-break", "escolheu": "ball-break", "sem_registro": "ball-break"},
+        candidatos={"escolheu": [_candidato(400), _candidato(100)]},
+    )
+
+    relatorio = taxonomy(achados)
+
+    assert relatorio.n == 3
+    assert relatorio.erros == 2
+    assert relatorio.cobertura == 0.5
+    assert relatorio.tipos[ACERTO] == 1
+
+
+def test_recall_em_k_mede_o_teto_de_reordenar() -> None:
+    """A distancia entre `top1` e `top5` e o que um criterio de escolha melhor teria para ganhar."""
+    achados = diagnose(
+        {"a": 400, "b": 400},
+        {"a": 100, "b": 100},
+        fontes={"a": "ball-break", "b": "ball-break"},
+        candidatos={
+            "a": [_candidato(100)],
+            "b": [_candidato(400), _candidato(390), _candidato(100)],
+        },
+    )
+
+    relatorio = taxonomy(achados)
+
+    assert relatorio.recall["top1"] == 0.5
+    assert relatorio.recall["top2"] == 0.5
+    assert relatorio.recall["top3"] == 1.0
+
+
+def test_taxonomy_sem_erro_declara_cobertura_cheia() -> None:
+    relatorio = taxonomy(diagnose({"c": 100}, {"c": 100}))
+
+    assert relatorio.erros == 0
+    assert relatorio.cobertura == 1.0
+
+
+def test_o_acaso_sai_ao_lado_do_teto_de_reordenar() -> None:
+    """O defeito replantado nao levanta nada: um teto sem linha de base parece maior do que e.
+
+    Com 50 quebras no clipe e uma so dentro da tolerancia, sortear uma acerta 1 em 50. O
+    `recall_em_k` sozinho nao diz isso, e foi assim que o primeiro relatorio desta sprint
+    apresentou 0,833 como se fossem 54 pontos percentuais de ganho disponivel.
+    """
+    quadros = [1000 + 100 * i for i in range(49)] + [100]
+    achados = diagnose(
+        {"c": 5000},
+        {"c": 100},
+        fontes={"c": "ball-break"},
+        candidatos={"c": [_candidato(5000), _candidato(100)]},
+    )
+
+    relatorio = taxonomy(achados, gabarito={"c": 100}, pools={"c": quadros})
+
+    assert relatorio.n_com_conjunto == 1
+    assert relatorio.recall["top2"] == 1.0
+    assert relatorio.acaso["top1"] == pytest.approx(1 / 50)
+    assert relatorio.acaso["top2"] == pytest.approx(1 - (49 * 48) / (50 * 49))
+
+
+def test_sem_conjunto_de_quebras_nao_ha_linha_de_base() -> None:
+    """Execucao que nao declarou o conjunto nao pode produzir acaso inventado."""
+    relatorio = taxonomy(diagnose({"c": 100}, {"c": 400}), gabarito={"c": 400})
+
+    assert relatorio.acaso == {}
+    assert relatorio.n_com_conjunto == 0
+
+
+def test_conjunto_menor_que_k_acerta_sempre_quando_ha_quebra_boa() -> None:
+    """Sortear 5 de 3 e pegar as 3, e ai o acaso e 1 se alguma serve e 0 se nenhuma serve."""
+    boa = taxonomy(
+        diagnose({"c": 400}, {"c": 100}),
+        gabarito={"c": 100},
+        pools={"c": [100, 900, 1800]},
+    )
+    ruim = taxonomy(
+        diagnose({"c": 400}, {"c": 100}),
+        gabarito={"c": 100},
+        pools={"c": [900, 1500, 1800]},
+    )
+
+    assert boa.acaso["top5"] == 1.0
+    assert ruim.acaso["top5"] == 0.0
+
+
+def test_read_spots_recusa_o_mesmo_clipe_duas_vezes(tmp_path: Path) -> None:
+    """Duplicata silenciosa faz um detector com duas saidas passar por um com uma."""
+    caminho = tmp_path / "spots.jsonl"
+    caminho.write_text(
+        '{"clip_id": "a", "frame_index": 10}\n{"clip_id": "a", "frame_index": 90}\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InstantError, match="duas vezes"):
+        read_spots(caminho)
+
+
+def test_read_spots_recusa_booleano_como_quadro(tmp_path: Path) -> None:
+    """`bool` e `int` em Python, entao `true` entraria como quadro 1 sem a guarda."""
+    caminho = tmp_path / "spots.jsonl"
+    caminho.write_text('{"clip_id": "a", "frame_index": true}\n', encoding="utf-8")
+
+    with pytest.raises(InstantError, match="frame_index"):
+        read_spots(caminho)
+
+
+def test_read_spots_recusa_arquivo_sem_spot(tmp_path: Path) -> None:
+    caminho = tmp_path / "spots.jsonl"
+    caminho.write_text("\n\n", encoding="utf-8")
+
+    with pytest.raises(InstantError, match="nenhum spot"):
+        read_spots(caminho)
+
+
+def test_read_spots_le_um_instante_por_clipe(tmp_path: Path) -> None:
+    caminho = tmp_path / "spots.jsonl"
+    caminho.write_text(
+        '{"clip_id": "a", "frame_index": 10, "score": 0.9}\n{"clip_id": "b", "frame_index": 20}\n',
+        encoding="utf-8",
+    )
+
+    assert read_spots(caminho) == {"a": 10, "b": 20}
+
+
+def test_o_acaso_e_a_fatia_do_clipe_coberta_pela_tolerancia() -> None:
+    """Exato e nao simulado: 61 quadros de janela num clipe de 400 sao 0,1525."""
+    relatorio = baselines({"c": 200}, {"c": 400}, tolerancia=30)
+
+    assert relatorio.acaso == pytest.approx(61 / 400)
+    assert relatorio.n == 1
+
+
+def test_o_acaso_conta_so_a_parte_da_janela_dentro_do_clipe() -> None:
+    """Gabarito na borda tem meia janela, e contar a janela inteira inflaria o nulo."""
+    relatorio = baselines({"c": 5}, {"c": 400}, tolerancia=30)
+
+    assert relatorio.acaso == pytest.approx(36 / 400)
+
+
+def test_o_ponto_medio_fixo_e_a_linha_de_base_de_maioria() -> None:
+    """Os cortes do parceiro contem a finalizacao, entao chutar o meio precisa ser batido."""
+    relatorio = baselines({"perto": 200, "longe": 10}, {"perto": 400, "longe": 400}, tolerancia=30)
+
+    assert relatorio.ponto_medio == 0.5
+
+
+def test_baselines_sem_clipe_em_comum_nao_inventa_numero() -> None:
+    relatorio = baselines({"a": 10}, {"b": 400})
+
+    assert relatorio == BaselineReport(0, 0.0, 0.0)
+
+
+def test_resolucao_diz_quantos_clipes_a_amostra_enxerga() -> None:
+    """A taxa de 0,292 em 24 clipes tem meia largura de 4,1 clipes.
+
+    O defeito que isto replanta nao levanta nada e aconteceu varias vezes nesta sprint: uma
+    mudanca move um clipe, a taxa sobe, e o relatorio nao diz que um clipe esta dentro do ruido
+    por construcao.
+    """
+    medido = resolution(7, 24)
+
+    assert medido.n == 24
+    assert medido.clipes == pytest.approx(4.1, abs=0.1)
+    assert medido.fracao == pytest.approx(0.171, abs=0.001)
+
+
+def test_amostra_maior_enxerga_efeito_menor_em_fracao() -> None:
+    pequena = resolution(30, 100)
+    grande = resolution(90, 300)
+
+    assert grande.fracao < pequena.fracao
+    assert grande.clipes > pequena.clipes
+
+
+def test_resolucao_de_amostra_vazia_nao_inventa_numero() -> None:
+    assert resolution(0, 0) == Resolucao(0, 0.0, 0.0, DISCORDANTES_PARA_SINAL)
+
+
+def test_cinco_discordantes_e_o_primeiro_que_sustenta_conclusao() -> None:
+    """`0,5 ** 4` da 0,0625 e `0,5 ** 5` da 0,0312, entao quatro nao serve e cinco serve."""
+    assert 0.5**DISCORDANTES_PARA_SINAL < 0.05
+    assert 0.5 ** (DISCORDANTES_PARA_SINAL - 1) >= 0.05

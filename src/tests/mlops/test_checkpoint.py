@@ -269,6 +269,8 @@ def test_todo_campo_do_checkpoint_sobrevive_ao_disco(tmp_path: Path) -> None:
         origens={"ball-break": 2},
         fontes={"a": "ball-break", "b": "ball-break"},
         apoios={"a": "detected", "b": "detected"},
+        candidatos={"a": [{"frame_index": 10, "sample_index": 12, "score": 0.5}]},
+        pools={"a": [10, 40, 70]},
         tempos={"ball": [1.0, 2.0]},
         identidade={"ball": ["yolo-ball", "0.1.0"]},
         falhas={"ball": [1, "motivo"]},
@@ -282,3 +284,40 @@ def test_todo_campo_do_checkpoint_sobrevive_ao_disco(tmp_path: Path) -> None:
         esperado = getattr(povoado, campo)
         obtido = getattr(de_volta, campo)
         assert obtido == esperado, f"{campo} nao sobreviveu: {obtido!r} em vez de {esperado!r}"
+
+
+def test_checkpoint_anterior_ao_campo_de_candidatos_continua_legivel(tmp_path: Path) -> None:
+    """Retomar execucao comecada antes do campo nao pode falhar, e nem inventar lista vazia.
+
+    Dicionario vazio aqui significa "esta execucao nao sabe", e e isso que a taxonomia le como
+    `nao-declarado`. O erro que isto evita e uma execucao velha produzir diagnostico novo.
+    """
+    write_checkpoint(tmp_path, _estado(ok=0, done=[]))
+    caminho = tmp_path / CHECKPOINT_FILE
+    documento = json.loads(caminho.read_text(encoding="utf-8"))
+    del documento["candidatos"]
+    caminho.write_text(json.dumps(documento), encoding="utf-8")
+
+    assert read_checkpoint(tmp_path).candidatos == {}
+
+
+def test_candidatos_fora_da_forma_de_registro_sao_recusados(tmp_path: Path) -> None:
+    write_checkpoint(tmp_path, _estado(ok=0, done=[]))
+    caminho = tmp_path / CHECKPOINT_FILE
+    documento = json.loads(caminho.read_text(encoding="utf-8"))
+    documento["candidatos"] = {"a": [42]}
+    caminho.write_text(json.dumps(documento), encoding="utf-8")
+
+    with pytest.raises(CheckpointError, match="candidatos"):
+        read_checkpoint(tmp_path)
+
+
+def test_conjunto_de_quebras_fora_da_forma_e_recusado(tmp_path: Path) -> None:
+    write_checkpoint(tmp_path, _estado(ok=0, done=[]))
+    caminho = tmp_path / CHECKPOINT_FILE
+    documento = json.loads(caminho.read_text(encoding="utf-8"))
+    documento["pools"] = {"a": [10, True]}
+    caminho.write_text(json.dumps(documento), encoding="utf-8")
+
+    with pytest.raises(CheckpointError, match="pools"):
+        read_checkpoint(tmp_path)

@@ -38,6 +38,8 @@ def test_resume_refuses_an_active_run_without_truncating_its_events(
             stages=(),
             shot_source="ball-break",
             ball_support="detected",
+            shot_candidates=(),
+            shot_candidate_pool=(),
         )
 
     monkeypatch.setattr(cli, "_processa_registro", process)

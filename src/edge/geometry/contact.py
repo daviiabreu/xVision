@@ -52,6 +52,24 @@ class Contact:
     speed_ratio: float
 
 
+@dataclass(frozen=True)
+class Candidate:
+    """Uma quebra da trajetoria antes de escolher, com o quadro refinado e o amostrado lado a lado.
+
+    Os dois quadros respondem perguntas diferentes. `frame_index` e o instante que o consumidor
+    usa, ja refinado pela intersecao das retas. `sample_index` e a amostra que gerou a quebra, e e
+    por ela que se confere se dois candidatos sao a mesma quebra vista duas vezes: o refino move o
+    quadro para dentro do intervalo vizinho, entao duas amostras seguidas podem cair perto uma da
+    outra depois de refinadas sem serem a mesma coisa.
+    """
+
+    frame_index: int
+    sample_index: int
+    score: float
+    turn_deg: float
+    speed_ratio: float
+
+
 def find_contact(
     ball: Sequence[Observation],
     *,
@@ -64,24 +82,66 @@ def find_contact(
     movimento sem quebra nenhuma. Quem chama decide o que fazer com isso, e a resposta certa nunca
     e inventar um quadro sem dizer que inventou.
     """
+    return best_contact(rank_contacts(ball, frame_count=frame_count, candidates=candidates))
+
+
+def rank_contacts(
+    ball: Sequence[Observation],
+    *,
+    frame_count: int,
+    candidates: Collection[int] | None = None,
+) -> tuple[Candidate, ...]:
+    """Todas as quebras da trajetoria, da maior para a menor, antes do corte de `MIN_SCORE`.
+
+    Existe separada de `find_contact` porque "qual quadro e o contato" e "o contato estava entre
+    as quebras descartadas" sao perguntas diferentes sobre o mesmo score. Medir a segunda
+    recalculando o score em outro lugar transformaria qualquer divergencia entre as duas
+    implementacoes em conclusao sobre o modelo, que e o erro que esta funcao existe para nao
+    cometer.
+
+    Devolve vazio em vez de levantar quando a trajetoria e curta demais: bola mal detectada e o
+    caso normal de um clipe ruim, nao uso errado da funcao.
+    """
     pontos = _ordenados(ball, frame_count)
     if len(pontos) < MIN_OBSERVATIONS:
-        return None
+        return ()
+    achados: list[Candidate] = []
+    for posicao in range(1, len(pontos) - 1):
+        if candidates is not None and pontos[posicao].frame_index not in candidates:
+            continue
+        score, turn_deg, speed_ratio = _score(pontos, posicao)
+        achados.append(
+            Candidate(
+                frame_index=_refinado(pontos, posicao, frame_count),
+                sample_index=pontos[posicao].frame_index,
+                score=score,
+                turn_deg=turn_deg,
+                speed_ratio=speed_ratio,
+            )
+        )
+    return tuple(sorted(achados, key=lambda candidato: -candidato.score))
 
-    melhor = _melhor_quebra(pontos, candidates)
-    if melhor is None:
-        return None
 
-    posicao, score, turn_deg, speed_ratio = melhor
-    if score < MIN_SCORE:
-        return None
+def best_contact(ordenados: Sequence[Candidate]) -> Contact | None:
+    """A quebra escolhida de uma lista ja ordenada, ou `None` quando nenhuma se sustenta.
 
-    quadro = _refinado(pontos, posicao, frame_count)
+    Recebe a lista pronta em vez de recalcula-la para quem precisa registrar o que considerou
+    pagar o score uma vez so, e para o registro ser exatamente aquilo sobre o que a escolha caiu.
+
+    Empate vai para a quebra mais cedo, porque `rank_contacts` ordena de forma estavel sobre
+    posicoes crescentes. E arbitrario, e o importante e ser o mesmo criterio sempre: empate
+    resolvido por ordem de dicionario mudaria o instante entre duas execucoes iguais.
+    """
+    if not ordenados:
+        return None
+    melhor = ordenados[0]
+    if melhor.score < MIN_SCORE:
+        return None
     return Contact(
-        frame_index=quadro,
-        confidence=_confianca(pontos, candidates, score),
-        turn_deg=turn_deg,
-        speed_ratio=speed_ratio,
+        frame_index=melhor.frame_index,
+        confidence=_confianca(ordenados, melhor.score),
+        turn_deg=melhor.turn_deg,
+        speed_ratio=melhor.speed_ratio,
     )
 
 
@@ -96,19 +156,6 @@ def _ordenados(ball: Sequence[Observation], frame_count: int) -> tuple[Observati
     for o in sorted(dentro, key=lambda o: o.frame_index):
         unicos.setdefault(o.frame_index, o)
     return tuple(unicos.values())
-
-
-def _melhor_quebra(
-    pontos: tuple[Observation, ...], candidates: Collection[int] | None
-) -> tuple[int, float, float, float] | None:
-    melhor: tuple[int, float, float, float] | None = None
-    for posicao in range(1, len(pontos) - 1):
-        if candidates is not None and pontos[posicao].frame_index not in candidates:
-            continue
-        score, turn_deg, speed_ratio = _score(pontos, posicao)
-        if melhor is None or score > melhor[1]:
-            melhor = (posicao, score, turn_deg, speed_ratio)
-    return melhor
 
 
 def _score(pontos: tuple[Observation, ...], posicao: int) -> tuple[float, float, float]:
@@ -193,21 +240,14 @@ def _ajuste(pontos: Sequence[Observation], eixo: int) -> tuple[float, float]:
     return media_v - inclinacao * media_t, inclinacao
 
 
-def _confianca(
-    pontos: tuple[Observation, ...], candidates: Collection[int] | None, score: float
-) -> float:
+def _confianca(ordenados: Sequence[Candidate], score: float) -> float:
     """O quanto a quebra escolhida se destaca das outras, e nao o quanto ela e grande.
 
     Score alto num clipe onde todo quadro tem score alto e ruido de deteccao, nao finalizacao. A
     mediana das concorrentes e a referencia porque ela nao se move quando um unico quadro estoura.
     """
-    outros = [
-        _score(pontos, posicao)[0]
-        for posicao in range(1, len(pontos) - 1)
-        if candidates is None or pontos[posicao].frame_index in candidates
-    ]
-    if len(outros) < 2:
+    if len(ordenados) < 2:
         return min(1.0, score)
-    ordenados = sorted(outros)
-    mediana = ordenados[len(ordenados) // 2]
+    scores = sorted(candidato.score for candidato in ordenados)
+    mediana = scores[len(scores) // 2]
     return max(0.0, min(1.0, (score - mediana) / (score + mediana + EPS)))

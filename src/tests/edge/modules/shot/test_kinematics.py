@@ -8,6 +8,8 @@ continua derrubando todo clipe.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -16,7 +18,13 @@ from edge.modules.base import FrameBatch, ModuleNotLoaded, ModuleOutput, Percept
 from edge.modules.conformance import ModuleConformance
 from edge.modules.records import check_records
 from edge.modules.shot import BallBreakShot
-from edge.modules.shot.kinematics import ESTIMADO, MEDIDO, PREPROCESS, observacoes
+from edge.modules.shot.kinematics import (
+    CANDIDATOS_REGISTRADOS,
+    ESTIMADO,
+    MEDIDO,
+    PREPROCESS,
+    observacoes,
+)
 
 PASSO = 12
 QUEBRA = 48
@@ -52,6 +60,12 @@ def _indices(pontos: list[tuple[int, float, float]]) -> tuple[int, ...]:
 
 def _registros(saida: ModuleOutput) -> list[dict[str, object]]:
     return [dict(r) for registros in saida.records for r in registros]
+
+
+def _candidatos(saida: ModuleOutput) -> list[dict[str, object]]:
+    bruto = _registros(saida)[0]["candidates"]
+    assert isinstance(bruto, list)
+    return [dict(cast("dict[str, object]", c)) for c in cast("list[object]", bruto)]
 
 
 class TestBallBreakShot(ModuleConformance):
@@ -465,3 +479,47 @@ class TestApoioEntreAmostras:
         saida = modulo.infer(_lote(tuple(range(0, 120, PASSO))), {})
 
         assert _registros(saida)[0]["ball_support"] == "absent"
+
+
+def test_o_registro_guarda_as_quebras_que_a_escolha_considerou() -> None:
+    """Sem a lista, 60 quadros de erro nao dizem se a quebra certa perdeu ou se ela nao existia."""
+    pontos = _trajetoria_com_quebra()
+    modulo = BallBreakShot()
+    modulo.load()
+
+    saida = modulo.infer(_lote(_indices(pontos)), {"ball": _bola(pontos)})
+
+    candidatos = _candidatos(saida)
+    assert candidatos
+    assert candidatos[0]["frame_index"] == _registros(saida)[0]["frame_index"]
+    scores = [float(cast("float", c["score"])) for c in candidatos]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_a_lista_de_candidatos_para_no_teto_declarado() -> None:
+    """Toda amostra interior e uma quebra de algum tamanho: sem teto isto vira a trajetoria."""
+    pontos = _trajetoria_com_quebra() + [
+        (QUEBRA + d, 300.0 - 2.0 * d, 200.0 + 5.0 * d) for d in (4 * PASSO, 5 * PASSO, 6 * PASSO)
+    ]
+    modulo = BallBreakShot()
+    modulo.load()
+
+    saida = modulo.infer(_lote(_indices(pontos)), {"ball": _bola(pontos)})
+
+    assert len(_candidatos(saida)) == CANDIDATOS_REGISTRADOS
+
+
+def test_o_ponto_medio_tambem_registra_o_que_foi_considerado() -> None:
+    """Cair no ponto medio nao e o mesmo que nao ter candidato: pode ser so o limiar.
+
+    O defeito replantado e o diagnostico que confunde as duas causas. Uma pede mexer no limiar, a
+    outra pede mexer na deteccao da bola, e ate aqui as duas saiam como `midpoint` e mais nada.
+    """
+    reta = [(i * PASSO, 100.0 + 3.0 * i * PASSO, 500.0) for i in range(8)]
+    modulo = BallBreakShot()
+    modulo.load()
+
+    saida = modulo.infer(_lote(_indices(reta)), {"ball": _bola(reta)})
+
+    assert _registros(saida)[0]["source"] == ESTIMADO
+    assert _candidatos(saida) != []

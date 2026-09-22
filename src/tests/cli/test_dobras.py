@@ -8,8 +8,9 @@ isso, e o consumo nao aparece em lugar nenhum: a execucao termina com sucesso.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from typer import Exit
@@ -155,6 +156,16 @@ def test_eval_instant_avisa_quando_a_dobra_fica_vazia(
     assert "nenhum clipe anotado na dobra ajuste" in resultado.output
 
 
+def _primeiro_json(saida: str) -> dict[str, Any]:
+    """O primeiro objeto da saida, porque `eval-instant` imprime dois: medida e taxonomia.
+
+    Cortar no ultimo `}` juntava os dois num texto que nao e JSON, e o teste morria em
+    `JSONDecodeError` em vez de comparar o que queria comparar.
+    """
+    objeto, _ = json.JSONDecoder().raw_decode(saida[saida.index("{") :])
+    return cast("dict[str, Any]", objeto)
+
+
 def test_eval_instant_reporta_a_procedencia_quando_a_execucao_a_gravou(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -183,12 +194,12 @@ def test_eval_instant_reporta_a_procedencia_quando_a_execucao_a_gravou(
     monkeypatch.setattr(cli, "consensus", _consenso({"a": 30, "b": 30}))
     monkeypatch.setattr(cli, "agreement", _nada)
     monkeypatch.setattr(cli, "_fps_do_clipe", _trinta)
+    monkeypatch.setattr(cli, "_comprimentos", _sem_comprimentos)
 
     resultado = runner.invoke(app, ["eval-instant", str(execucao)])
 
     assert resultado.exit_code == 0
-    relatorio = json.loads(resultado.output[: resultado.output.rindex("}") + 1])
-    assert relatorio["fontes"] == {"ball-break": 1, "midpoint": 1}
+    assert _primeiro_json(resultado.output)["fontes"] == {"ball-break": 1, "midpoint": 1}
 
 
 def test_eval_instant_de_execucao_antiga_continua_dizendo_desconhecida(
@@ -206,11 +217,109 @@ def test_eval_instant_de_execucao_antiga_continua_dizendo_desconhecida(
     monkeypatch.setattr(cli, "consensus", _consenso({"a": 30}))
     monkeypatch.setattr(cli, "agreement", _nada)
     monkeypatch.setattr(cli, "_fps_do_clipe", _trinta)
+    monkeypatch.setattr(cli, "_comprimentos", _sem_comprimentos)
 
     resultado = runner.invoke(app, ["eval-instant", str(execucao)])
 
-    relatorio = json.loads(resultado.output[: resultado.output.rindex("}") + 1])
-    assert relatorio["fontes"] == {"desconhecida": 1}
+    assert _primeiro_json(resultado.output)["fontes"] == {"desconhecida": 1}
+
+
+def _todos_os_json(saida: str) -> list[dict[str, Any]]:
+    """Os objetos que `eval-instant` imprime, em ordem: medida e depois taxonomia."""
+    decoder = json.JSONDecoder()
+    objetos: list[dict[str, Any]] = []
+    resto = saida[saida.index("{") :]
+    while resto.lstrip().startswith("{"):
+        objeto, fim = decoder.raw_decode(resto.lstrip())
+        objetos.append(cast("dict[str, Any]", objeto))
+        resto = resto.lstrip()[fim:]
+        if "{" not in resto:
+            break
+        resto = resto[resto.index("{") :]
+    return objetos
+
+
+def test_eval_instant_nomeia_a_causa_do_erro_a_partir_dos_candidatos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sessenta quadros de erro pedem trabalho diferente conforme a quebra certa tenha existido.
+
+    O defeito replantado nao levanta nada: o relatorio para na mediana, e quem le decide o
+    refinamento sem saber se ha o que reordenar.
+    """
+    import cli
+    from mlops.instant import OBSERVATIONS_FILE
+
+    execucao = tmp_path / "run"
+    execucao.mkdir()
+    (execucao / "events.jsonl").write_text(
+        json.dumps({"clip_id": "a", "shot_timestamp_s": 10.0})
+        + "\n"
+        + json.dumps({"clip_id": "b", "shot_timestamp_s": 10.0})
+        + "\n",
+        encoding="utf-8",
+    )
+    (execucao / OBSERVATIONS_FILE).write_text(
+        json.dumps(
+            {
+                "clip_id": "a",
+                "shot_source": "ball-break",
+                "candidates": [{"frame_index": 300}, {"frame_index": 30}],
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "clip_id": "b",
+                "shot_source": "ball-break",
+                "candidates": [{"frame_index": 300}, {"frame_index": 290}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "read", lambda: ())
+    monkeypatch.setattr(cli, "consensus", _consenso({"a": 30, "b": 30}))
+    monkeypatch.setattr(cli, "agreement", _nada)
+    monkeypatch.setattr(cli, "_fps_do_clipe", _trinta)
+    monkeypatch.setattr(cli, "_comprimentos", _sem_comprimentos)
+
+    resultado = runner.invoke(app, ["eval-instant", str(execucao)])
+
+    assert resultado.exit_code == 0
+    _, _, causas = _todos_os_json(resultado.output)
+    assert causas["tipos"] == {"escolha": 1, "trajetoria": 1}
+    assert causas["cobertura_das_causas"] == 1.0
+    assert causas["recall_em_k"]["top1"] == 0.0
+    assert causas["recall_em_k"]["top2"] == 0.5
+
+
+def test_eval_instant_de_execucao_sem_candidatos_declara_que_nao_sabe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Execucao anterior ao campo nao pode produzir taxonomia apontando para a deteccao da bola."""
+    import cli
+    from mlops.instant import OBSERVATIONS_FILE
+
+    execucao = tmp_path / "run"
+    execucao.mkdir()
+    (execucao / "events.jsonl").write_text(
+        json.dumps({"clip_id": "a", "shot_timestamp_s": 10.0}) + "\n", encoding="utf-8"
+    )
+    (execucao / OBSERVATIONS_FILE).write_text(
+        json.dumps({"clip_id": "a", "shot_source": "ball-break"}) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(cli, "read", lambda: ())
+    monkeypatch.setattr(cli, "consensus", _consenso({"a": 30}))
+    monkeypatch.setattr(cli, "agreement", _nada)
+    monkeypatch.setattr(cli, "_fps_do_clipe", _trinta)
+    monkeypatch.setattr(cli, "_comprimentos", _sem_comprimentos)
+
+    resultado = runner.invoke(app, ["eval-instant", str(execucao)])
+
+    _, _, causas = _todos_os_json(resultado.output)
+    assert causas["tipos"] == {"nao-declarado": 1}
+    assert causas["cobertura_das_causas"] == 0.0
 
 
 @pytest.mark.parametrize("clips", [["a"], ["a", "b", "c"], ["a", "a", "b"]])
@@ -344,6 +453,8 @@ def test_all_sem_gabarito_continua_valendo_o_catalogo_inteiro(
             self.stages: tuple[object, ...] = ()
             self.shot_source = "ball-break"
             self.ball_support = "detected"
+            self.shot_candidates: tuple[Mapping[str, object], ...] = ()
+            self.shot_candidate_pool: tuple[int, ...] = ()
 
     vistos: list[str] = []
 
@@ -369,6 +480,18 @@ def _rotulos(_: Any) -> object:
     return object()
 
 
+def _sem_comprimentos(_clips: Iterable[str]) -> dict[str, int]:
+    """Sem comprimento nao ha nulo a calcular, e o relatorio diz isso em vez de inventar."""
+    return {}
+
+
+def _comprimentos_de(tabela: dict[str, int]) -> Any:
+    def comprimentos(_clips: Iterable[str]) -> dict[str, int]:
+        return dict(tabela)
+
+    return comprimentos
+
+
 def _catalogo(registros: list[Any]) -> Any:
     def load_catalog() -> list[Any]:
         return registros
@@ -378,3 +501,60 @@ def _catalogo(registros: list[Any]) -> Any:
 
 def _populacao(itens: Any, _tabela: Any) -> list[Any]:
     return list(itens)
+
+
+def test_eval_spots_mede_detector_externo_com_os_mesmos_nulos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alternativa cujo codigo nao pode entrar em `src/` ainda precisa ser medida aqui.
+
+    O T-DEED e GPL-3.0 contra o CC-BY-4.0 deste projeto. Ele roda fora, escreve `clip_id` e
+    `frame_index`, e a comparacao com a regra em vigor usa o mesmo gabarito e os mesmos nulos.
+    """
+    import cli
+
+    spots = tmp_path / "spots.jsonl"
+    spots.write_text(
+        json.dumps({"clip_id": "a", "frame_index": 100})
+        + "\n"
+        + json.dumps({"clip_id": "b", "frame_index": 400})
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "read", lambda: ())
+    monkeypatch.setattr(cli, "consensus", _consenso({"a": 110, "b": 100}))
+    monkeypatch.setattr(cli, "agreement", _nada)
+    monkeypatch.setattr(cli, "_comprimentos", _comprimentos_de({"a": 400, "b": 400}))
+
+    resultado = runner.invoke(app, ["eval-spots", str(spots), "--dobra", "tudo"])
+
+    assert resultado.exit_code == 0, resultado.output
+    medida, nulos = _todos_os_json(resultado.output)
+    assert medida["n"] == 2
+    assert medida["dentro_da_tolerancia"] == 0.5
+    assert nulos["linhas_de_base"]["quadro_ao_acaso"] == pytest.approx(61 / 400)
+
+
+def test_eval_spots_nao_abre_o_reservado_sem_pedirem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O padrao e `ajuste` e nao `tudo`, porque e aqui que o holdout se perde por descuido."""
+    import cli
+
+    class Registro:
+        def __init__(self, shot_id: str, fold: int) -> None:
+            self.shot_id = shot_id
+            self.fold = fold
+            self.big_enough = True
+
+    spots = tmp_path / "spots.jsonl"
+    spots.write_text(json.dumps({"clip_id": "r", "frame_index": 100}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "read", lambda: ())
+    monkeypatch.setattr(cli, "consensus", _consenso({"r": 110}))
+    monkeypatch.setattr(cli, "agreement", _nada)
+    monkeypatch.setattr(cli, "load_catalog", _catalogo([Registro("r", 4)]))
+
+    resultado = runner.invoke(app, ["eval-spots", str(spots)])
+
+    assert resultado.exit_code == 1
+    assert "nenhum clipe anotado na dobra ajuste" in resultado.output

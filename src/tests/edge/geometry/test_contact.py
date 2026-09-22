@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from edge.geometry.contact import Observation, find_contact
+from edge.geometry.contact import Observation, best_contact, find_contact, rank_contacts
 
 PASSO = 12
 """O `coarse` amostra a 5 fps, e a 59,94 fps isso e um quadro a cada 12."""
@@ -152,3 +152,51 @@ def test_bola_parada_de_um_lado_nao_vira_virada_de_noventa_graus() -> None:
 
     assert contato is not None
     assert math.isclose(contato.turn_deg, 0.0, abs_tol=1e-6)
+
+
+def test_rank_contacts_ordena_da_maior_quebra_para_a_menor() -> None:
+    """Sem ordem declarada, "o contato certo estava em segundo lugar" nao quer dizer nada."""
+    ordenados = rank_contacts(_quebra_em(48), frame_count=FRAME_COUNT)
+
+    assert len(ordenados) > 1
+    assert [c.score for c in ordenados] == sorted((c.score for c in ordenados), reverse=True)
+
+
+def test_a_escolha_e_o_primeiro_da_lista_ordenada() -> None:
+    """`find_contact` e `rank_contacts` precisam decidir pelo mesmo score.
+
+    O defeito que isto impede e o pior tipo de defeito de diagnostico: duas implementacoes do
+    mesmo score divergindo, e a divergencia sendo lida como conclusao sobre o modelo.
+    """
+    bola = _quebra_em(48)
+
+    contato = find_contact(bola, frame_count=FRAME_COUNT)
+    ordenados = rank_contacts(bola, frame_count=FRAME_COUNT)
+
+    assert contato is not None
+    assert contato.frame_index == ordenados[0].frame_index
+    assert contato.turn_deg == ordenados[0].turn_deg
+
+
+def test_rank_contacts_respeita_o_filtro_de_candidatos() -> None:
+    bola = _quebra_em(48)
+    permitidos = {48}
+
+    ordenados = rank_contacts(bola, frame_count=FRAME_COUNT, candidates=permitidos)
+
+    assert {c.sample_index for c in ordenados} == permitidos
+
+
+def test_rank_contacts_devolve_vazio_quando_a_trajetoria_e_curta() -> None:
+    """Trajetoria curta e clipe com bola mal detectada, e nao uso errado da funcao."""
+    assert rank_contacts(_reta(0, 3, 0.0, 0.0, 1.0, 0.0), frame_count=FRAME_COUNT) == ()
+    assert best_contact(()) is None
+
+
+def test_a_lista_guarda_o_quadro_refinado_e_o_amostrado() -> None:
+    """O refino cai entre amostras, e sem o bruto nao da para saber de qual amostra ele veio."""
+    ordenados = rank_contacts(_quebra_em(48), frame_count=FRAME_COUNT)
+
+    assert all(c.sample_index % PASSO == 0 for c in ordenados)
+    escolhido = next(c for c in ordenados if c.sample_index == 48)
+    assert abs(escolhido.frame_index - escolhido.sample_index) <= PASSO

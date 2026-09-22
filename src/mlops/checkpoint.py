@@ -85,6 +85,22 @@ class Checkpoint:
     uma de `midpoint`. O avaliador media junto o contato detectado na trajetoria e o ponto medio
     preenchido, que sao coisas diferentes.
     """
+    candidatos: dict[str, list[dict[str, Any]]] = field(
+        default_factory=dict[str, list[dict[str, Any]]]
+    )
+    """As quebras que a especie `shot` considerou em cada clipe, para o diagnostico do instante.
+
+    Entra aqui pelo mesmo motivo de `fontes` e `apoios`: uma execucao retomada escreve a procedencia
+    inteira no fim, e o que nao sobrevive ao checkpoint sai do arquivo final sem aviso. Perder
+    candidato so dos clipes processados antes da queda daria uma taxonomia medida sobre metade do
+    conjunto com cara de medida sobre ele inteiro.
+    """
+    pools: dict[str, list[int]] = field(default_factory=dict[str, list[int]])
+    """O quadro de toda quebra pontuada por clipe, ao lado dos cinco candidatos com score.
+
+    Mesmo motivo de `candidatos`: o que nao sobrevive ao checkpoint sai do arquivo final sem aviso,
+    e uma linha de base medida sobre metade do conjunto tem a cara de uma medida sobre ele inteiro.
+    """
     tempos: dict[str, list[float]] = field(default_factory=dict[str, list[float]])
     identidade: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     falhas: dict[str, list[Any]] = field(default_factory=dict[str, list[Any]])
@@ -113,6 +129,8 @@ class Checkpoint:
             "origens": self.origens,
             "fontes": self.fontes,
             "apoios": self.apoios,
+            "candidatos": self.candidatos,
+            "pools": self.pools,
             "tempos": self.tempos,
             "identidade": self.identidade,
             "falhas": self.falhas,
@@ -168,10 +186,41 @@ def read_checkpoint(destino: Path) -> Checkpoint:
         origens=documento.get("origens", {}),
         fontes=documento.get("fontes", {}),
         apoios={str(k): str(v) for k, v in dict(documento.get("apoios", {})).items()},
+        candidatos=_candidatos(documento),
+        pools=_pools(documento),
         tempos=documento.get("tempos", {}),
         identidade=documento.get("identidade", {}),
         falhas=documento.get("falhas", {}),
     )
+
+
+def _candidatos(documento: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Le `candidatos` recusando o que nao tem a forma de lista de registros.
+
+    Checkpoint de execucao anterior a este campo nao tem a chave, e a ausencia vira dicionario
+    vazio: a retomada continua valendo e a taxonomia diz que nao ha candidato declarado, que e
+    verdade, em vez de inventar lista vazia por clipe.
+    """
+    bruto = _mapping(documento, "candidatos")
+    lido: dict[str, list[dict[str, Any]]] = {}
+    for clipe, valor in bruto.items():
+        itens = _list(valor, "candidatos")
+        if any(not isinstance(item, dict) for item in itens):
+            raise _invalid("candidatos")
+        lido[str(clipe)] = cast("list[dict[str, Any]]", itens)
+    return lido
+
+
+def _pools(documento: dict[str, Any]) -> dict[str, list[int]]:
+    """Le `pools` recusando o que nao for lista de inteiros, booleano incluido."""
+    bruto = _mapping(documento, "pools")
+    lido: dict[str, list[int]] = {}
+    for clipe, valor in bruto.items():
+        itens = _list(valor, "pools")
+        if any(isinstance(i, bool) or not isinstance(i, int) for i in itens):
+            raise _invalid("pools")
+        lido[str(clipe)] = cast("list[int]", itens)
+    return lido
 
 
 def _invalid(name: str) -> CheckpointError:

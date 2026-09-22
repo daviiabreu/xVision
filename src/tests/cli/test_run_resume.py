@@ -8,6 +8,7 @@ execucao com outra configuracao produzindo um arquivo unico com metade dos event
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,8 @@ class _Resultado:
     stages: tuple[_Etapa, ...]
     shot_source: str | None
     ball_support: str | None = "detected"
+    shot_candidates: tuple[Mapping[str, object], ...] = ()
+    shot_candidate_pool: tuple[int, ...] = ()
 
 
 def _prepara(
@@ -81,6 +84,8 @@ def _prepara(
             event=_Evento(registro.shot_id),
             stages=(_Etapa("ball", "yolo-ball", "0.1.0", 10.0),),
             shot_source="ball-break",
+            shot_candidates=({"frame_index": 10, "sample_index": 12, "score": 0.5},),
+            shot_candidate_pool=(10, 40, 70),
         )
 
     def rotulos(_: Path) -> object:
@@ -311,7 +316,13 @@ def test_a_procedencia_por_clipe_sai_ao_lado_dos_eventos(
         if x.strip()
     ]
     assert linhas == [
-        {"clip_id": str(i), "shot_source": "ball-break", "ball_support": "detected"}
+        {
+            "clip_id": str(i),
+            "shot_source": "ball-break",
+            "ball_support": "detected",
+            "candidates": [{"frame_index": 10, "sample_index": 12, "score": 0.5}],
+            "candidate_pool": [10, 40, 70],
+        }
         for i in range(3)
     ]
 
@@ -335,6 +346,12 @@ def test_a_procedencia_sobrevive_a_retomada(
     ]
     assert len(linhas) == 25
     assert {x["clip_id"] for x in linhas} == {str(i) for i in range(25)}
+    assert all(
+        x["candidates"] == [{"frame_index": 10, "sample_index": 12, "score": 0.5}] for x in linhas
+    ), (
+        "candidato dos clipes anteriores a queda precisa sobreviver ao checkpoint, senao a "
+        "taxonomia sai medida sobre metade do conjunto com cara de medida sobre ele inteiro"
+    )
 
 
 def test_retomar_com_outros_clipes_na_mesma_contagem_e_recusado(

@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import IO, Any, cast
+from typing import IO, Any, NamedTuple, cast
 
 import typer
 
@@ -60,13 +60,20 @@ from mlops.instant import (
     OBSERVATIONS_FILE,
     TOLERANCIA_ALVO,
     Anotacao,
+    BaselineReport,
     InstantError,
+    Resolucao,
     agreement,
+    baselines,
     consensus,
+    diagnose,
     labels_dir,
     measure,
     read,
+    read_spots,
+    resolution,
     sample,
+    taxonomy,
     wilson,
     write,
 )
@@ -342,6 +349,8 @@ def _run_selected_catalog(
     origens: dict[str, int] = dict(estado.origens)
     fontes: dict[str, str] = dict(estado.fontes)
     apoios: dict[str, str] = dict(estado.apoios)
+    candidatos: dict[str, list[dict[str, Any]]] = {k: list(v) for k, v in estado.candidatos.items()}
+    pools: dict[str, list[int]] = {k: list(v) for k, v in estado.pools.items()}
     feitos = set(estado.done)
     ok, falhou = estado.ok, estado.failed
     pendentes = [r for r in escolhidos if r.shot_id not in feitos]
@@ -355,6 +364,8 @@ def _run_selected_catalog(
         estado.origens = dict(origens)
         estado.fontes = dict(fontes)
         estado.apoios = dict(apoios)
+        estado.candidatos = {k: list(v) for k, v in candidatos.items()}
+        estado.pools = {k: list(v) for k, v in pools.items()}
         estado.tempos = {k: list(v) for k, v in tempos.items()}
         estado.identidade = {k: [v[0], v[1]] for k, v in identidade.items()}
         estado.falhas = {k: [v[0], v[1]] for k, v in falhas.items()}
@@ -377,6 +388,8 @@ def _run_selected_catalog(
             origens[fonte] = origens.get(fonte, 0) + 1
             fontes[registro.shot_id] = fonte
             apoios[registro.shot_id] = resultado.ball_support or "sem-apoio"
+            candidatos[registro.shot_id] = [dict(c) for c in resultado.shot_candidates]
+            pools[registro.shot_id] = list(resultado.shot_candidate_pool)
             for etapa in resultado.stages:
                 tempos.setdefault(etapa.kind, []).append(etapa.duration_ms)
                 identidade[etapa.kind] = (etapa.name, etapa.version)
@@ -386,7 +399,7 @@ def _run_selected_catalog(
             _marco(arquivo, checkpoint, posicao, len(feitos), len(escolhidos), comeco)
         arquivo.flush()
         checkpoint()
-    _escreve_procedencia(destino, fontes, apoios)
+    _escreve_procedencia(destino, fontes, apoios, candidatos, pools)
     modulos = resumo_dos_modulos(tempos, identidade, falhas)
     sha, sujo = git_state()
     host, python, plataforma = environment()
@@ -442,12 +455,20 @@ def _marco(
 
 
 def _escreve_procedencia(
-    destino: Path, fontes: Mapping[str, str], apoios: Mapping[str, str]
+    destino: Path,
+    fontes: Mapping[str, str],
+    apoios: Mapping[str, str],
+    candidatos: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    pools: Mapping[str, Sequence[int]] | None = None,
 ) -> Path:
     """Procedencia do instante por clipe, que o agregado do `run.json` nao consegue devolver.
 
     Sem este arquivo, `eval-instant` mede junto o contato detectado na trajetoria e o ponto medio
     preenchido, e as duas coisas somem dentro de uma mediana so.
+
+    `candidates` entra na mesma linha, e nao em arquivo proprio, porque ele responde sobre o mesmo
+    clipe e na mesma execucao: dois arquivos precisariam concordar sobre quais clipes existem, e
+    essa concordancia ja e conferida uma vez em `_procedencia`.
     """
     caminho = destino / OBSERVATIONS_FILE
     parcial = caminho.with_suffix(".jsonl.parcial")
@@ -458,6 +479,8 @@ def _escreve_procedencia(
                     "clip_id": clip,
                     "shot_source": fonte,
                     "ball_support": apoios.get(clip, "sem-apoio"),
+                    "candidates": [dict(c) for c in (candidatos or {}).get(clip, ())],
+                    "candidate_pool": list((pools or {}).get(clip, ())),
                 }
             )
             + "\n"
@@ -1515,10 +1538,11 @@ def evaluate_instant(run: Path, dobra: str = INSTANT_DOBRA) -> None:
             continue
         previsto[clip] = round(float(evento["shot_timestamp_s"]) * fps)
 
+    procedencia = _procedencia(run, clips)
     relatorio = measure(
         previsto,
         gabarito,
-        fontes=_procedencia(run, clips),
+        fontes=procedencia.fontes,
         concordancia=agreement(anotacoes),
     )
     if relatorio.n == 0:
@@ -1530,19 +1554,109 @@ def evaluate_instant(run: Path, dobra: str = INSTANT_DOBRA) -> None:
         f"  dentro de {TOLERANCIA_ALVO} quadros: {relatorio.dentro_da_tolerancia:.3f} "
         f"(IC95 {baixo:.3f} a {alto:.3f}, n={relatorio.n})"
     )
+    _mostra_nulos(
+        baselines(gabarito, _comprimentos(gabarito)),
+        resolution(round(relatorio.dentro_da_tolerancia * relatorio.n), relatorio.n),
+    )
+    causas = taxonomy(
+        diagnose(
+            previsto,
+            gabarito,
+            fontes=procedencia.fontes,
+            candidatos=procedencia.candidatos,
+        ),
+        gabarito=gabarito,
+        pools=procedencia.pools,
+    )
+    typer.echo(json.dumps(causas.to_dict(), ensure_ascii=False, indent=2))
+    typer.echo(
+        f"  causas nomeadas: {causas.cobertura:.3f} de {causas.erros} erros"
+        if causas.erros
+        else "  nenhum erro acima da tolerancia nesta execucao"
+    )
 
 
-def _procedencia(run: Path, clips: set[str]) -> dict[str, str]:
+class Procedencia(NamedTuple):
+    """O que o arquivo de procedencia sabe sobre cada clipe da execucao.
+
+    Os candidatos vem no mesmo objeto porque saem da mesma linha do mesmo arquivo: separa-los em
+    dois leitores faria a segunda leitura repetir, ou pior esquecer, a conferencia de que
+    procedencia e eventos falam dos mesmos clipes.
+    """
+
+    fontes: dict[str, str]
+    candidatos: dict[str, list[dict[str, object]]]
+    pools: dict[str, list[int]]
+
+
+SPOTS_DOBRA = typer.Option("ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+
+
+@app.command("eval-spots")
+def evaluate_spots(spots: Path, dobra: str = SPOTS_DOBRA) -> None:
+    """Mede um detector de instante de fora deste repositorio contra o gabarito manual.
+
+    O arquivo tem uma linha por clipe, com `clip_id` e `frame_index` em quadro nativo. Serve para
+    avaliar alternativa cujo codigo nao pode entrar em `src/`, como o T-DEED, que e GPL-3.0 contra
+    o CC-BY-4.0 deste projeto. O detector roda fora, escreve o arquivo, e a comparacao com a regra
+    em vigor acontece aqui, com o mesmo gabarito, a mesma tolerancia e os mesmos nulos.
+
+    O padrao e `--dobra ajuste` e nao `tudo`, ao contrario do `eval-instant`: alternativa externa e
+    exatamente o caso em que abrir o reservado por descuido custa o holdout do projeto.
+    """
+    try:
+        previsto = read_spots(spots)
+        anotacoes = read()
+    except InstantError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    gabarito = consensus(anotacoes)
+    if not gabarito:
+        typer.echo("sem gabarito manual nao ha contra o que medir o instante", err=True)
+        raise typer.Exit(code=1)
+    dobras = dobras_de(dobra)
+    if dobras != DOBRAS_DA_BOLA["tudo"]:
+        try:
+            folds = {r.shot_id: r.fold for r in load_catalog() if r.big_enough}
+        except ERROS_DE_USO as erro:
+            typer.echo(str(erro), err=True)
+            raise typer.Exit(code=1) from erro
+        gabarito = {c: v for c, v in gabarito.items() if folds.get(c) in dobras}
+        if not gabarito:
+            typer.echo(f"nenhum clipe anotado na dobra {dobra}", err=True)
+            raise typer.Exit(code=1)
+
+    relatorio = measure(previsto, gabarito, concordancia=agreement(anotacoes))
+    if relatorio.n == 0:
+        typer.echo("nenhum clipe anotado aparece neste arquivo de spots", err=True)
+        raise typer.Exit(code=1)
+    baixo, alto = wilson(round(relatorio.dentro_da_tolerancia * relatorio.n), relatorio.n)
+    typer.echo(json.dumps(relatorio.to_dict(), ensure_ascii=False, indent=2))
+    typer.echo(
+        f"  dentro de {TOLERANCIA_ALVO} quadros: {relatorio.dentro_da_tolerancia:.3f} "
+        f"(IC95 {baixo:.3f} a {alto:.3f}, n={relatorio.n})"
+    )
+    _mostra_nulos(
+        baselines(gabarito, _comprimentos(gabarito)),
+        resolution(round(relatorio.dentro_da_tolerancia * relatorio.n), relatorio.n),
+    )
+
+
+def _procedencia(run: Path, clips: set[str]) -> Procedencia:
     """Le a procedencia por clipe da execucao, quando ela existe.
 
     Execucao antiga nao tem o arquivo, e ai o relatorio continua dizendo `desconhecida` em vez de
     inventar `ball-break`: a diferenca entre nao saber e saber que foi medido e o que este arquivo
-    resolve, e ela nao pode ser preenchida por otimismo.
+    resolve, e ela nao pode ser preenchida por otimismo. O mesmo vale um nivel abaixo para
+    `candidates`, que execucao anterior ao campo nao tem: a lista fica ausente e a taxonomia diz
+    `nao-declarado`, em vez de ler ausencia como lista vazia e concluir que nao havia quebra.
     """
     caminho = run / OBSERVATIONS_FILE
     if not caminho.is_file():
-        return {}
+        return Procedencia({}, {}, {})
     fontes: dict[str, str] = {}
+    candidatos: dict[str, list[dict[str, object]]] = {}
+    pools: dict[str, list[int]] = {}
     for numero, linha in enumerate(caminho.read_text(encoding="utf-8").splitlines(), start=1):
         if not linha.strip():
             continue
@@ -1564,10 +1678,66 @@ def _procedencia(run: Path, clips: set[str]) -> dict[str, str]:
             typer.echo(f"{caminho.name}:{numero}: procedencia duplicada", err=True)
             raise typer.Exit(code=1)
         fontes[clip] = fonte
+        lista = documento.get("candidates")
+        if lista is not None:
+            if not isinstance(lista, list):
+                typer.echo(f"{caminho.name}:{numero}: candidates precisa ser lista", err=True)
+                raise typer.Exit(code=1)
+            candidatos[clip] = [
+                cast("dict[str, object]", item)
+                for item in cast("list[object]", lista)
+                if isinstance(item, dict)
+            ]
+        conjunto = documento.get("candidate_pool")
+        if conjunto is not None:
+            if not isinstance(conjunto, list):
+                typer.echo(f"{caminho.name}:{numero}: candidate_pool precisa ser lista", err=True)
+                raise typer.Exit(code=1)
+            pools[clip] = [
+                item
+                for item in cast("list[object]", conjunto)
+                if isinstance(item, int) and not isinstance(item, bool)
+            ]
     if set(fontes) != clips:
         typer.echo("procedencia e eventos precisam conter os mesmos clipes", err=True)
         raise typer.Exit(code=1)
-    return fontes
+    return Procedencia(fontes, candidatos, pools)
+
+
+def _comprimentos(clips: Iterable[str]) -> dict[str, int]:
+    """Quantos quadros tem cada clipe, que e o denominador do nulo do quadro ao acaso."""
+    catalogo = {r.shot_id: r for r in load_catalog() if r.big_enough}
+    medidos: dict[str, int] = {}
+    for clip in clips:
+        registro = catalogo.get(clip)
+        if registro is None:
+            continue
+        try:
+            medidos[clip] = probe(registro.clip_path, clip_id=clip).frame_count
+        except ERROS_DE_USO:
+            continue
+    return medidos
+
+
+def _mostra_nulos(relatorio: BaselineReport, resolucao: Resolucao) -> None:
+    """Imprime as linhas de base e a resolucao junto da medida, sempre.
+
+    Separado num helper porque os dois comandos de instante precisam imprimir o mesmo, e a
+    primeira versao desta sprint publicou uma taxa sem nulo e ela foi lida como o dobro do que era.
+    A resolucao entrou pelo mesmo motivo um nivel acima: sem ela, mudanca de um clipe em 24 e
+    apresentada como ganho.
+    """
+    typer.echo(
+        json.dumps(
+            {"linhas_de_base": relatorio.to_dict(), "resolucao": resolucao.to_dict()},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    typer.echo(
+        f"  este conjunto nao distingue mudanca menor que {resolucao.clipes:.1f} clipes; "
+        f"a comparacao pareada precisa de {resolucao.discordantes_para_sinal} discordantes"
+    )
 
 
 def _fps_do_clipe(clip_id: str) -> float | None:
