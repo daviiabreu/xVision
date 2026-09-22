@@ -1,4 +1,7 @@
 {
   "title": "Produto",
-  "pages": ["proveniencia-de-execucao"]
+  "pages": [
+    "proveniencia-de-execucao",
+    "execucao-com-modulos-reais"
+  ]
 }

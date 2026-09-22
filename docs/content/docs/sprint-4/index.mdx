@@ -17,6 +17,7 @@ está em andamento, e a página descreve o estado de hoje, incluindo o que ainda
 | --- | --- |
 | [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao) | por que a regra cinemática erra, oito hipóteses de refinamento medidas e um detector temporal publicado medido contra ela |
 | [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
+| [Execução com os módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) | a evidência operacional da Sprint 3 repetida sem stub, com render e com as features declarando ausência |
 | [Análise financeira](/docs/sprint-4/analise-financeira) | custo de desenvolvimento, CAPEX e OPEX da borda e cenários de benefício |
 | [Slides](/docs/sprint-4/slides) | apresentação da sprint |
 
@@ -74,10 +75,12 @@ sozinha deixaria o próximo commit de configuração repetir tudo.
 | build Linux apresentada como entregue | a página passou a dizer que ela não foi produzida |
 | README com campos genéricos | completado |
 | medição sem dado para reprodução | o `run.json` passou a gravar máquina, runtime, precisão, mediana e p95 |
+| evidência operacional com módulos em stub | repetida com os módulos reais, por uma configuração versionada que roda sem CUDA |
+| TensorRT sem configuração versionada | segue aberto: a configuração precisa do sha256 do ONNX exato de que cada plano foi construído na Jetson |
 
 Três apontamentos seguem abertos, e todos dependem da Jetson: os dados brutos das medições já
-publicadas, uma evidência operacional executada sem módulo em stub no dispositivo, e a medição do
-pipeline completo em meia precisão.
+publicadas, que nunca foram salvas; a mesma execução com módulos reais feita no dispositivo, e não
+na estação; e a medição do pipeline completo em meia precisão.
 
 ## O que está bloqueado
 

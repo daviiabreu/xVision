@@ -1,0 +1,132 @@
+{
+ "schema_version": 1,
+ "verified_at": "2026-09-22T20:38:06+00:00",
+ "source_commit": "3a96de0",
+ "configuration": "src/config/pipeline.models.cpu.toml",
+ "configuration_sha256": "d51e46392a864ce5066b4ea6f4c21aaabc2c9cd4c295ffb72d93aa2a37a033e1",
+ "what_changed_from_sprint_3": "modulos em stub trocados pelos modulos reais; mesma fixture sintetica, mesmo fluxo HTTP",
+ "private_data_copied": false,
+ "model_weights": "presentes em var/models na maquina que executou; nao publicados",
+ "host": {
+  "python": "3.10.20",
+  "platform": "darwin-arm64",
+  "hardware": {
+   "machine": "arm64",
+   "processor": "arm",
+   "cpu_count": 10,
+   "release": "27.0.0"
+  },
+  "runtime": {
+   "torch": "2.13.0",
+   "torchvision": "0.28.0",
+   "ultralytics": "8.4.123",
+   "opencv-python-headless": "5.0.0.93",
+   "numpy": "2.2.6"
+  }
+ },
+ "fixture": {
+  "generator": "xvision clip",
+  "bytes": 25618,
+  "sha256": "502c85f60842af010bdd05d7138d6f7b17e9e4f17ec90859c7cb32e5dd159227",
+  "sprint_3_sha256": "195b8d6752fdeff0fcfce12aef08498b28a1768fa706975485be6d139fce2b47",
+  "note": "mesmo gerador e mesmo tamanho; os bytes diferem porque o codificador de video do Docker Linux da Sprint 3 nao e o deste macOS"
+ },
+ "http_flow": {
+  "checks": [
+   {
+    "operation": "register",
+    "http_status": 201
+   },
+   {
+    "operation": "login",
+    "http_status": 200
+   },
+   {
+    "operation": "reserve_upload",
+    "http_status": 200
+   },
+   {
+    "operation": "upload_binary",
+    "http_status": 202
+   },
+   {
+    "operation": "poll_terminal_status",
+    "http_status": 200,
+    "video_status": "Finalizado",
+    "progresso": 100,
+    "motivo": null
+   },
+   {
+    "operation": "fetch_result",
+    "http_status": 200
+   },
+   {
+    "operation": "history_contains_result",
+    "http_status": 200,
+    "passed": true
+   }
+  ],
+  "wall_clock_s": 23.3
+ },
+ "stages": {
+  "ball": {
+   "status": "ok",
+   "duration_ms": 8151.9,
+   "status_via_api": "ok"
+  },
+  "field": {
+   "status": "ok",
+   "duration_ms": 2638.1,
+   "status_via_api": "ok"
+  },
+  "identity": {
+   "status": "ok",
+   "duration_ms": 9.8,
+   "status_via_api": "ok"
+  },
+  "marking": {
+   "status": "ok",
+   "duration_ms": 4.2,
+   "status_via_api": "ok"
+  },
+  "players": {
+   "status": "ok",
+   "duration_ms": 9210.6,
+   "status_via_api": "ok"
+  },
+  "pose": {
+   "status": "ok",
+   "duration_ms": 22.0,
+   "status_via_api": "ok"
+  },
+  "shot": {
+   "status": "ok",
+   "duration_ms": 5.8,
+   "status_via_api": "ok"
+  },
+  "tracking": {
+   "status": "ok",
+   "duration_ms": 0.5,
+   "status_via_api": "ok"
+  }
+ },
+ "features": {
+  "body_part": "unavailable",
+  "type_of_play": "unavailable",
+  "looked_before": "unavailable",
+  "goalkeeper_position": "unavailable"
+ },
+ "render": {
+  "http_status": 200,
+  "bytes": 19330,
+  "frames": 30,
+  "resolution": "526x240",
+  "sprint_3": "null, por falta dos pesos"
+ },
+ "limitations": [
+  "maquina de desenvolvimento em CPU, e nao a Jetson: os tempos por etapa nao valem como desempenho embarcado",
+  "fixture sintetica: os modulos reais nao encontram bola nem jogador, entao as quatro features saem unavailable",
+  "fp32 com letterbox no cv2, porque a configuracao de producao exige CUDA",
+  "execucao nativa na arvore de trabalho, e nao em clone limpo com volume novo como na Sprint 3"
+ ]
+}

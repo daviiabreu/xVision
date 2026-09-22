@@ -1,0 +1,78 @@
+---
+title: Execução com os módulos reais
+description: A evidência operacional da Sprint 3 repetida sem stub, com o que ela prova e o que ainda não prova
+---
+
+A evidência operacional da Sprint 3 subiu o produto de um clone limpo e percorreu o fluxo inteiro,
+mas com seis módulos de percepção em stub, porque o clone não carrega peso. A revisão apontou que
+isso limita outra pessoa de repetir o experimento. Esta página repete o mesmo fluxo com os módulos
+reais e compara as duas execuções.
+
+## O que mudou entre as duas execuções
+
+Uma coisa só, de propósito: os módulos. A fixture vem do mesmo gerador, `xvision clip`, e o fluxo
+HTTP é o mesmo, de sete operações. Assim a diferença entre os resultados é atribuível aos módulos e
+não a outra variável.
+
+Os bytes da fixture diferem, com o mesmo tamanho de 25618 bytes, porque o codificador de vídeo do
+Docker Linux usado na Sprint 3 não é o deste macOS. A cena é a mesma.
+
+## Como reproduzir
+
+A configuração de produção declara meia precisão e letterbox no dispositivo, e as duas diretivas
+exigem GPU NVIDIA. [`pipeline.models.cpu.toml`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/config/pipeline.models.cpu.toml)
+é a mesma configuração sem essas três diretivas, e um teste impede que ela divirja da de produção
+em qualquer outra coisa.
+
+```bash
+cd src
+uv run xvision clip --out ../var/out/fixture.mp4
+XVISION_PIPELINE=pipeline.models.cpu.toml uv run --extra api --extra players --extra ball \
+  --extra topview uvicorn api:create_app --factory --host 127.0.0.1 --port 8080
+```
+
+Os pesos precisam estar em `var/models`, que é ignorado pelo git. O fluxo HTTP é o descrito na
+[execução e validação da Sprint 3](/docs/sprint-3/produto/execucao-e-validacao).
+
+## O resultado
+
+O registro completo, com commit, sha256 da configuração, máquina, versões de runtime, fixture e o
+resultado de cada etapa, está em
+[`operacao-modulos-reais-20260922.json`](/sprint-4/produto/evidencias/operacao-modulos-reais-20260922.json).
+
+As sete operações do fluxo passaram: cadastro 201, login 200, reserva 200, envio 202, conclusão
+`Finalizado` com progresso 100, resultado 200 e o vídeo presente no histórico. O fluxo levou 23,3
+segundos de parede.
+
+| Etapa | Sprint 3, stub | Agora, módulo real | Tempo agora |
+| --- | --- | --- | --- |
+| `ball` | ok | ok | 8151,9 ms |
+| `players` | ok | ok | 9210,6 ms |
+| `field` | ok | ok | 2638,1 ms |
+| `pose` | ok | ok | 22,0 ms |
+| `identity` | ok | ok | 9,8 ms |
+| `shot` | ok | ok | 5,8 ms |
+| `marking` | ok | ok | 4,2 ms |
+| `tracking` | ok | ok | 0,5 ms |
+
+Duas diferenças contam mais que a tabela.
+
+**O render passou a existir.** Na Sprint 3 ele era nulo por falta dos pesos, e a página listava isso
+como limitação. Agora a rota de render devolve 200 com um MP4 legível de 30 quadros em 526×240.
+
+**As quatro features saem `unavailable`, e isso é o comportamento certo.** No stub, `type_of_play`
+saía `individual`, lido do gabarito da fixture: era um valor inventado com cara de medido. Com os
+módulos reais, não há bola nem jogador de verdade numa cena sintética, então nenhuma feature tem o
+que medir, e elas dizem isso em vez de devolver número.
+
+## O que esta execução não prova
+
+| Limite | Por quê |
+| --- | --- |
+| desempenho embarcado | rodou em CPU numa estação de desenvolvimento, em fp32 com letterbox no `cv2`; os tempos acima não valem como tempo na Jetson |
+| qualidade dos modelos | a fixture é sintética, então os modelos não têm o que detectar |
+| subida de clone limpo | rodou na árvore de trabalho, e não num clone com volume novo como na Sprint 3 |
+
+O que ela prova é que os módulos reais atravessam o produto de ponta a ponta, do envio ao render,
+e que as features declaram ausência quando não há o que medir. A execução na Jetson continua
+pendente, e o `run.json` já grava a placa, o CUDA e a precisão por espécie para quando ela acontecer.
