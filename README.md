@@ -8,15 +8,13 @@
   <table>
     <tr>
       <td align="center">
-        <!-- TODO: LinkedIn -->
-        <a href="#">
+        <a href="https://www.linkedin.com/in/yasmim-passos/">
           <img src="docs/public/readme/Yasmim Marly.png" style="border-radius: 10%; width: 150px;" alt="Yasmim Marly"/><br>
           <sub><b>Yasmim Marly Passos</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn -->
-        <a href="#">
+        <a href="https://www.linkedin.com/in/matheusjorgerosa/">
           <img src="docs/public/readme/Matheus Jorge.png" style="border-radius: 10%; width: 150px;" alt="Matheus Jorge"/><br>
           <sub><b>Matheus Jorge Rosa</b></sub>
         </a>
@@ -28,8 +26,7 @@
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn -->
-        <a href="#">
+        <a href="https://www.linkedin.com/in/gabriel-martins-alves/">
           <img src="docs/public/readme/Gabriel Henrique.png" style="border-radius: 10%; width: 150px;" alt="Gabriel Henrique"/><br>
           <sub><b>Gabriel Henrique Martins Alves</b></sub>
         </a>
@@ -37,15 +34,13 @@
     </tr>
     <tr>
       <td align="center">
-        <!-- TODO: LinkedIn -->
-        <a href="#">
+        <a href="https://www.linkedin.com/in/roberto-dbf/">
           <img src="docs/public/readme/Roberto Diniz.png" style="border-radius: 10%; width: 150px;" alt="Roberto Diniz"/><br>
           <sub><b>Roberto Diniz Branco Filho</b></sub>
         </a>
       </td>
       <td align="center">
-        <!-- TODO: LinkedIn -->
-        <a href="#">
+        <a href="https://www.linkedin.com/in/danielppdias/">
           <img src="docs/public/readme/Daniel Parente.png" style="border-radius: 10%; width: 150px;" alt="Daniel Parente"/><br>
           <sub><b>Daniel Parente Pessoa Dias</b></sub>
         </a>
