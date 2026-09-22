@@ -1,13 +1,6 @@
-<!-- TODO: nome do projeto -->
-# [Nome do Projeto]
+# xVision
 
-<!-- TODO: nome do grupo -->
-## [Nome do Grupo]
-
-<!-- TODO: adicionar a logo em docs/public/readme/logo.png -->
-<p align="center">
-  <img src="docs/public/readme/logo.png" alt="Logo do projeto" width="600">
-</p>
+## Inteli T12 G02
 
 ## Integrantes:
 

@@ -185,7 +185,7 @@ recall. No `letterbox` cuda a trajetória entregue é idêntica fonte a fonte: 3
 
 ## Decisões
 
-O padrão do pipe continua PyTorch fp32, por três razões medidas:
+O plano TensorRT continua fora do padrão do pipe, por duas razões medidas:
 
 - Na bola não há detecção a mais ou a menos e o desvio máximo é
   0,497 px, mas o `shot` passa de "quadro 180, midpoint, conf 0,05" para "quadro 106, ball-break,
@@ -197,10 +197,12 @@ O padrão do pipe continua PyTorch fp32, por três razões medidas:
   `magicTag` que não casa, na desserialização. Por isso `RuntimeInfo.runtime_versions` registra a
   versão usada.
 
-A bola fica em fp32 no TOML, e o `players` não. A saída do `players` é consumida inteira, sem
-redução sequencial, e perde zero detecções. A bola alimenta um rastreador sequencial, onde uma
-detecção marginal vira cascata — e mesmo com a reâncora corrigida, ligar por padrão espera o
-`eval-ball` com o conjunto do parceiro.
+O `players` entrou primeiro em meia precisão porque a saída dele é consumida inteira, sem redução
+sequencial, e perde zero detecções. A bola alimenta um rastreador sequencial, onde uma detecção
+marginal vira cascata, e por isso ela esperou a reâncora presa ao alcance da última posição. Com
+essa correção a divergência caiu de 61 para 1 quadro em 360, e a bola passou a declarar
+`quantize = "fp16"` em `pipeline.models.toml`. O que continua pendente é a validação contra o
+conjunto anotado do parceiro pelo `eval-ball`, e não a ativação.
 
 `edge/trt.py` mora fora de `edge/runtime.py` para o contrato continuar importável pelo venv de
 teste, que não tem nem `tensorrt` nem `torch` — mesmo motivo de o adapter do Ultralytics morar na
@@ -237,7 +239,7 @@ secundária.
 
 | Item | O que falta |
 | --- | --- |
-| `ball` com `quantize = "fp16"` por padrão | `eval-ball` contra o conjunto anotado do parceiro |
+| validação da bola em fp16 contra gabarito | `eval-ball` contra o conjunto anotado do parceiro; a ativação já está no TOML |
 | plano TensorRT por padrão | conjunto anotado para arbitrar a mudança no `shot` e na homografia |
 | bola na pipeline paralela | a visão superior roda hoje só com jogadores e keypoints |
 | decode único do clipe | identificação e render ainda releem o vídeo |

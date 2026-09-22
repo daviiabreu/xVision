@@ -175,9 +175,10 @@ Encerre os dois processos com `Ctrl+C`.
 ## Modelos e render
 
 Em `pipeline.models.toml`, `players`, `ball`, `field` e `pose` usam modelos com pesos;
-`tracking` e `shot` usam regras sem peso próprio; `identity` continua stub. São seis módulos
-com implementação não stub, mas não sete modelos treinados. Somente `body_part` e `type_of_play`
-estão declaradas como features nessa configuração. As limitações estão nas páginas de
+`tracking`, `shot` e `identity` usam regras sem peso próprio, e `identity` classifica equipes por
+cor de uniforme com `TeamIdentity`. São sete módulos com implementação não stub, e `marking` é o
+único que continua stub, mas não são sete modelos treinados. Quatro features estão declaradas
+nessa configuração: `body_part`, `type_of_play`, `looked_before` e `goalkeeper_position`. As limitações estão nas páginas de
 [campo](/docs/sprint-3/modelos/campo-e-homografia) e [bola](/docs/sprint-3/modelos/bola-e-trajetoria).
 
 Para preparar inferência local, pare a API e execute em `src/`:

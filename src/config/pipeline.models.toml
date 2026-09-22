@@ -31,14 +31,16 @@ fps      = "native"
 impl     = "edge.modules.players:YoloPlayers"
 artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
 frames   = "dense"
-# Meia precisao ligada so aqui, e a bola fica em fp32 de proposito.
 # Medido nesta Jetson, 40 quadros reais: `players` perde ZERO deteccoes em 685 (as tres caixas
 # nao casadas eram duplicatas sobre objeto ja casado, nao recall), IoU mediano 0,985, e ganha
-# de 25% a 35% de tempo. A saida desta especie e consumida inteira, sem reducao sequencial.
-# A bola nao entra: no mesmo video a trajetoria diverge em 61 dos 360 quadros, e sem gabarito
-# nao se sabe qual das duas esta certa. A causa nem e a meia precisao, e o corte conf = 0,10
-# num tracker sequencial, que reproduz a mesma cascata quando se perturba o proprio fp32 em
-# 1e-04. Ligar a bola espera o `eval-ball` com o conjunto do parceiro.
+# de 25% a 35% de tempo. A saida desta especie e consumida inteira, sem reducao sequencial, e e
+# por isso que ela foi a primeira a entrar.
+#
+# A bola entrou depois, em `ee11364`, e o motivo esta no comentario dela mais abaixo. Este bloco
+# dizia "a bola fica em fp32 de proposito" e ficou obsoleto um dia depois, quando ela passou a
+# declarar `quantize = "fp16"` 40 linhas adiante, no mesmo arquivo. A revisao da Sprint 3 achou a
+# contradicao antes de nos, e o teste de inventario em `src/tests/test_inventario_documentado.py`
+# existe para ela nao voltar.
 quantize = "fp16"
 
 [modules.ball]
