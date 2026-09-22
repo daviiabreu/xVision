@@ -1,6 +1,90 @@
 ---
 title: Sprint 4
-description: Sprint 4
+description: Integração da borda com os serviços centrais, refinamento do instante e correções da revisão
 ---
 
-Placeholder.
+Pelo [planejamento da Sprint 1](/docs/sprint-1/planejamento-proximas-sprints), a Sprint 4 torna real
+a separação proposta na arquitetura: o dispositivo processa o clipe, gera apenas o evento
+estruturado e o envia ao backend, que persiste e disponibiliza o resultado ao frontend e a um
+receptor simulado da Footstats.
+
+Esta página é o ponto de entrada da sprint e compara o que foi entregue com esse plano. A sprint
+está em andamento, e a página descreve o estado de hoje, incluindo o que ainda não começou.
+
+## O que entrou
+
+| Página | O que traz |
+| --- | --- |
+| [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao) | por que a regra cinemática erra, oito hipóteses de refinamento medidas e um detector temporal publicado medido contra ela |
+| [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
+| [Análise financeira](/docs/sprint-4/analise-financeira) | custo de desenvolvimento, CAPEX e OPEX da borda e cenários de benefício |
+| [Slides](/docs/sprint-4/slides) | apresentação da sprint |
+
+## O plano da sprint, item a item
+
+O planejamento define sete entregas para esta sprint. A tabela diz o que existe hoje e onde está a
+evidência, e separa o que veio de sprints anteriores do que foi feito agora.
+
+| Item | Entrega planejada | Estado |
+| --- | --- | --- |
+| S4-AR01 | contrato estável do evento | existe desde a Sprint 2: `ShotEvent` 1.0 com JSON Schema e chave de idempotência formada por clipe e quadro do contato |
+| S4-AR02 | comunicação borda-backend | não entregue: o processamento roda no mesmo serviço que recebe o clipe, sem dispositivo separado enviando evento |
+| S4-AR03 | entrega confiável | parcial: a chave de idempotência existe no contrato, mas fila local persistente, retentativa com espera progressiva e reenvio após queda de rede não existem |
+| S4-AR04 | persistência e consulta | existe desde a Sprint 3: histórico de análises consultável pelo frontend |
+| S4-AR05 | receptor simulado da Footstats | não entregue |
+| S4-AR06 | otimização orientada por gargalo | parcial: o `run.json` agora grava máquina, runtime e precisão por espécie, então a comparação antes e depois passa a ser reproduzível; nenhuma medição nova foi feita na Jetson nesta sprint |
+| S4-AR07 | arquitetura atualizada | não entregue nesta sprint |
+
+O núcleo da sprint, os itens 02, 03 e 05, não tem entrega mesclada até hoje. É a principal lacuna
+em relação ao plano, e está registrada aqui para não ser lida como entregue.
+
+## O que foi medido
+
+O instante da finalização era o número mais fraco do projeto: 0,292 dos clipes dentro de 30
+quadros. A sprint nomeou a causa de todos os erros e descobriu que a regra fica abaixo de chutar o
+meio do clipe.
+
+| Medida, 24 clipes de desenvolvimento | Dentro de 30 quadros |
+| --- | --- |
+| detector temporal publicado, sem treino local | 1,000 |
+| ponto médio fixo | 0,333 |
+| regra cinemática em vigor | 0,292 |
+| quadro ao acaso | 0,161 |
+
+O detector temporal não entra no produto: o código dele é GPL-3.0, os pesos não declaram licença, e
+o `src/` do projeto é CC-BY-4.0. A decisão de embarcá-lo é do grupo com o parceiro e a orientação.
+
+A medida trouxe um limite que vale mais que ela. Com 24 clipes anotados, o conjunto não distingue
+mudança menor que 4,1 clipes, e as sete hipóteses de refinamento que falharam moviam um ou dois.
+O gargalo dessa frente passou a ser o conjunto de avaliação, e não o modelo. A página do instante
+traz o detalhe, os nulos e a conta.
+
+## O que veio da revisão da Sprint 3
+
+A revisão dos dois artefatos da Sprint 3 apontou afirmações desatualizadas e medições sem o que
+permite reproduzi-las. As correções vieram com verificação automática, porque a correção manual
+sozinha deixaria o próximo commit de configuração repetir tudo.
+
+| Apontamento | Correção |
+| --- | --- |
+| versão do pacote não acompanha as releases | corrigida, com teste que cobra `releases/`, `pyproject.toml` e `uv.lock` |
+| comentário e página afirmavam fp32 para a bola | corrigidos, com teste que recusa comentário que contradiga a precisão declarada |
+| `identity` descrita como stub | corrigida, com teste que cobra a página de operação contra a configuração |
+| duas features declaradas quando são quatro | corrigida, pelo mesmo teste |
+| build Linux apresentada como entregue | a página passou a dizer que ela não foi produzida |
+| README com campos genéricos | completado |
+| medição sem dado para reprodução | o `run.json` passou a gravar máquina, runtime, precisão, mediana e p95 |
+
+Três apontamentos seguem abertos, e todos dependem da Jetson: os dados brutos das medições já
+publicadas, uma evidência operacional executada sem módulo em stub no dispositivo, e a medição do
+pipeline completo em meia precisão.
+
+## O que está bloqueado
+
+**Na Jetson.** A paridade embarcada da bola, o custo do módulo de bola na placa e as medições que a
+revisão cobrou. O `run.json` já está pronto para registrar essas execuções com procedência.
+
+**Em anotação humana.** A segunda anotação cega do instante. Com o detector temporal em mediana de
+5 quadros, ela é o que separa um número legível de um número no grão do rótulo.
+
+**Em decisão do grupo.** A licença do detector temporal, antes de qualquer trabalho de embarque.

@@ -1,10 +1,4 @@
 {
   "title": "Sprint 4",
-  "pages": [
-    "placeholder",
-    "modelos",
-    "produto",
-    "analise-financeira",
-    "slides"
-  ]
+  "pages": ["index", "modelos", "produto", "analise-financeira", "slides"]
 }
