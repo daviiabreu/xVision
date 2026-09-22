@@ -1,0 +1,126 @@
+---
+title: Bola e trajetória
+description: Segunda passada cega da anotação do piloto e o que ela diz sobre o gabarito da bola
+---
+
+Esta página continua a [bola e trajetória da Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria)
+e trata de uma pendência dela: o gabarito do piloto nunca tinha sido conferido. Nesta sprint ele
+recebeu uma segunda passada cega, feita pelo mesmo anotador, e passou no critério que a spec definiu.
+O detector, o rastreador e a configuração da bola não mudaram.
+
+## Onde se encaixa no fluxo
+
+```text
+ball-trajectory-v1.jsonl, primeira passada (assistida pelo detector)
+  -> amostra fixa: todo quadro de contato e 25% dos demais, por clipe
+  -> xvision label ball-blind: página local, sem a primeira marca nem a proposta do modelo
+  -> ball-trajectory-v1-cega.jsonl, segunda passada
+  -> xvision label ball-agreement: concordância nos quadros das duas
+```
+
+O resultado não altera o modelo nem a métrica dele. Ele diz quanto do erro medido em
+`eval-ball-trajectory` pode ser do próprio gabarito.
+
+## Componentes e responsabilidades
+
+| Componente                     | Responsabilidade                                                                                                         | O que não faz                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| `mlops.bola_cega.amostra`      | sortear, com semente fixa, todo contato e 25% dos demais quadros de cada clipe, misturando os clipes na ordem            | não escolhe quadro pelo erro do modelo                   |
+| `xvision label ball-blind`     | servir o quadro e até 30 vizinhos para cada lado, gravar centro, diâmetro e visibilidade no esquema `ball-trajectory-v1` | não mostra a primeira passada nem a proposta do detector |
+| `xvision label ball-agreement` | medir a distância do centro em diâmetros da primeira passada, a concordância de visibilidade e o kappa                   | não decide qual das duas passadas está certa             |
+
+## Fluxo de dados
+
+A primeira passada tem 328 quadros de oito clipes e seis partidas, só das dobras de
+desenvolvimento. A amostra da segunda tem 88: os oito quadros de contato e 10 dos 40 demais de
+cada clipe. A página escuta apenas em `127.0.0.1` e grava em `var/labels/`, ignorado pelo Git,
+porque cada quadro é material restrito do parceiro.
+
+Cada marca sai no mesmo esquema da primeira passada, com `quality_flags` igual a
+`human-annotated` e `blind-second-pass`. O leitor e o validador são os mesmos, então a segunda
+passada é recusada pelas mesmas regras que a primeira.
+
+## Resultado
+
+| Medida                                  | Resultado                 | Critério da spec  |
+| --------------------------------------- | ------------------------- | ----------------- |
+| quadros comparados                      | 86 de 88, 7 de 8 contatos | todos os contatos |
+| distância do centro, mediana            | 0,217 diâmetro            | até 0,5           |
+| distância do centro, p95                | 0,691 diâmetro            |                   |
+| distância do centro no contato, mediana | 0,327 diâmetro            |                   |
+| diferença relativa do diâmetro, mediana | 0,167                     |                   |
+| visibilidade igual                      | 0,884                     | pelo menos 0,80   |
+| kappa de visibilidade                   | 0,056                     |                   |
+
+Pelos dois critérios da spec, o protocolo não precisa ser revisto antes de ampliar a anotação. A
+metade das marcas cai a menos de um quarto de diâmetro da primeira passada, e a tolerância do PCK é
+um diâmetro inteiro.
+
+O kappa baixo não contradiz a concordância de 0,884. Quase todo quadro é `visible` nas duas
+passadas, então concordar nessa classe é quase certo por acaso, e o kappa desconta exatamente isso.
+Entre `visible` e `occluded`, a segunda passada foi mais conservadora: quatro quadros fizeram esse
+caminho e um fez o contrário. As outras discordâncias vêm de quadros que a primeira passada deixou
+sem bola ou como `ambiguous` e a segunda marcou.
+
+## O que a segunda passada encontrou
+
+**Um clipe tem marcações incompatíveis.** Num clipe de controle, três quadros seguidos têm as duas
+marcas a 135 a 210 px uma da outra, entre 11 e 19 diâmetros: uma das passadas seguiu outro objeto.
+No mesmo clipe, a primeira passada registrou diâmetros de 267 a 457 px em quatro quadros, onde a
+segunda marcou 14 px. Com a tolerância de um diâmetro, qualquer previsão a menos de 267 a 457 px
+do centro conta como acerto nesses quadros. São 4 dos 317 visíveis, então o efeito no PCK publicado é pequeno, mas é
+erro do gabarito e não do modelo.
+
+**Esse clipe responde por toda a cauda.** Sem ele, o p95 cai de 0,691 para 0,426 diâmetro e o
+máximo de 19,3 para 0,535, com a mediana praticamente igual. A cauda descreve um clipe, e não o
+gabarito inteiro.
+
+## Decisões
+
+**A segunda passada foi feita pelo mesmo anotador.** A spec pedia outra pessoa. Davi, que fez a
+primeira, fez também a segunda, e a consequência está declarada: o número mede a consistência de um
+anotador consigo mesmo e o quanto a proposta do detector puxava a primeira marca, e não a
+concordância entre duas pessoas. A alternativa descartada era manter o piloto sem nenhuma
+conferência até alguém estar disponível.
+
+**A página não mostra nada da primeira passada.** Ela recebe só o quadro e as marcas desta própria
+passada. A alternativa descartada era revisar a primeira passada ponto a ponto, que é mais rápido e
+mede outra coisa: quem revê uma marca tende a aceitá-la.
+
+**O contexto temporal fica disponível, e a marca só vale no quadro alvo.** A primeira passada teve o
+clipe inteiro. Negar movimento na segunda mediria a falta dele, e não a concordância.
+
+**A régua é o diâmetro da primeira passada.** É a mesma do PCK da avaliação, então meio diâmetro de
+discordância é diretamente comparável à tolerância que o modelo recebe.
+
+## Trade-offs
+
+A segunda passada custou uma sessão de anotação e usa o mesmo esquema, o mesmo leitor e o mesmo
+validador da primeira, sem ferramenta externa.
+
+A desvantagem principal é o anotador único. Um viés que o anotador tenha nas duas passadas, como
+marcar o centro da mancha borrada e não o da bola, não aparece em nenhuma medida desta página.
+
+## Riscos e incertezas
+
+**O clipe incompatível ainda não foi resolvido.** Até alguém decidir qual passada está certa, as
+métricas de trajetória da Sprint 3 carregam esses quadros como estão.
+
+**São 86 quadros.** A mediana é estável com esse n, e o p95 não: ele é decidido por três ou quatro
+quadros.
+
+## Ainda não implementado
+
+| Pendência                                       | Próximo passo                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| os dois quadros que faltam, um deles de contato | completar pela mesma página, que retoma de onde parou                                       |
+| clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
+| concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
+| paridade embarcada da bola                      | segue dependendo da Jetson, como na Sprint 3                                                |
+
+## Referências
+
+1. Cohen, J. A coefficient of agreement for nominal scales. _Educational and Psychological
+   Measurement_, 20(1), 1960.
+2. [Bola e trajetória, Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria), que define o esquema
+   `ball-trajectory-v1`, a janela do piloto e o PCK por diâmetro aparente.

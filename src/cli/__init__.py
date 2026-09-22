@@ -1114,6 +1114,140 @@ def label_stats() -> None:
     )
 
 
+BOLA_PRIMEIRA = typer.Option(
+    None, help="Primeira passada. Padrao: labels/ball-trajectory-v1.jsonl."
+)
+BOLA_FILA = typer.Option(None, help="Fila do piloto. Padrao: labels/model-pilots-v1/queue.json.")
+BOLA_SEGUNDA = typer.Option(None, help="Segunda passada. Padrao: ball-trajectory-v1-cega.jsonl.")
+BOLA_PORTA = typer.Option(8765, help="Porta local da pagina de anotacao.")
+BOLA_NAVEGADOR = typer.Option(True, "--navegador/--sem-navegador", help="Abre a pagina sozinho.")
+BOLA_JSON = typer.Option(None, help="Grava a concordancia agregada em JSON.")
+
+
+def _passadas(
+    primeira: Path | None, fila: Path | None, segunda: Path | None
+) -> tuple[Path, Path, Path]:
+    base = labels_dir()
+    return (
+        primeira or base / "ball-trajectory-v1.jsonl",
+        fila or base / "model-pilots-v1" / "queue.json",
+        segunda or base / "ball-trajectory-v1-cega.jsonl",
+    )
+
+
+@label_app.command("ball-blind")
+def label_ball_blind(
+    annotator: str = LABEL_QUEM,
+    primeira: Path | None = BOLA_PRIMEIRA,
+    fila: Path | None = BOLA_FILA,
+    segunda: Path | None = BOLA_SEGUNDA,
+    porta: int = BOLA_PORTA,
+    navegador: bool = BOLA_NAVEGADOR,
+) -> None:
+    """Reanota a bola sem ver a primeira passada: todo contato e 25% dos demais quadros.
+
+    Abre uma pagina local em vez de janela, entao roda tambem onde o wheel e headless. A pagina nao
+    recebe a marca da primeira passada nem a proposta do modelo, so o quadro e o que esta mesma
+    passada ja gravou.
+    """
+    import webbrowser
+
+    from mlops.ball_trajectory import BallTrajectoryLabelError, read_ball_trajectory_labels
+    from mlops.bola_cega import BolaCegaError, Sessao, amostra, contatos_da_fila, servidor
+
+    if not annotator:
+        typer.echo("diga quem anota com --annotator", err=True)
+        raise typer.Exit(code=1)
+    caminho_primeira, caminho_fila, caminho_segunda = _passadas(primeira, fila, segunda)
+    try:
+        labels = read_ball_trajectory_labels(caminho_primeira)
+        alvos = amostra(labels, contatos_da_fila(caminho_fila))
+        catalogo = {r.shot_id: r for r in load_catalog() if r.big_enough}
+        videos: dict[str, Path] = {}
+        for label in labels:
+            if label.clip_id in videos:
+                continue
+            registro = catalogo.get(label.clip_id)
+            if registro is None:
+                raise BolaCegaError(f"{label.clip_id} nao esta no catalogo")
+            if sha256_of(registro.clip_path) != label.video_sha256:
+                raise BolaCegaError(f"o video de {label.clip_id} nao e o da primeira passada")
+            videos[label.clip_id] = registro.clip_path
+        sessao = Sessao(
+            alvos,
+            {(label.clip_id, label.frame_index): label for label in labels},
+            videos,
+            caminho_segunda,
+            annotator,
+            lambda: datetime.now(timezone.utc),
+        )
+        http = servidor(sessao, porta)
+    except ERROS_DE_USO + (BallTrajectoryLabelError, BolaCegaError, OSError) as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    endereco = f"http://127.0.0.1:{porta}/"
+    contatos = sum(alvo.contato for alvo in alvos)
+    typer.echo(f"{len(alvos)} quadros, {contatos} de contato, em {endereco} (ctrl+c encerra)")
+    if navegador:
+        webbrowser.open(endereco)
+    try:
+        http.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        http.server_close()
+        sessao.close()
+    typer.echo(f"marcas em {caminho_segunda}; a concordancia sai de `xvision label ball-agreement`")
+
+
+@label_app.command("ball-agreement")
+def label_ball_agreement(
+    primeira: Path | None = BOLA_PRIMEIRA,
+    fila: Path | None = BOLA_FILA,
+    segunda: Path | None = BOLA_SEGUNDA,
+    saida: Path | None = BOLA_JSON,
+) -> None:
+    """Concordancia entre a primeira passada da bola e a segunda, cega, nos quadros das duas."""
+    from mlops.ball_trajectory import BallTrajectoryLabelError, read_ball_trajectory_labels
+    from mlops.bola_cega import LIMIAR_CENTRO, LIMIAR_VISIBILIDADE, BolaCegaError, contatos_da_fila
+    from mlops.bola_cega import medir as medir_bola
+
+    caminho_primeira, caminho_fila, caminho_segunda = _passadas(primeira, fila, segunda)
+    try:
+        concordancia = medir_bola(
+            read_ball_trajectory_labels(caminho_primeira),
+            read_ball_trajectory_labels(caminho_segunda),
+            contatos_da_fila(caminho_fila),
+        )
+    except (BallTrajectoryLabelError, BolaCegaError, OSError) as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+
+    def numero(valor: float | None) -> str:
+        return "sem par visivel" if valor is None else f"{valor:.3f}"
+
+    kappa = "indefinido" if concordancia.kappa is None else f"{concordancia.kappa:.3f}"
+    typer.echo(f"  {concordancia.n_pares} quadros comparados, {concordancia.n_contatos} de contato")
+    typer.echo(f"  visibilidade igual em {concordancia.visibilidade:.3f}, kappa {kappa}")
+    typer.echo(
+        f"  centro em diametros da primeira passada, n={concordancia.n_centros}: "
+        f"mediana {numero(concordancia.centro_mediana)}, p95 {numero(concordancia.centro_p95)}, "
+        f"maximo {numero(concordancia.centro_max)}"
+    )
+    typer.echo(f"  centro no contato: mediana {numero(concordancia.contato_mediana)}")
+    typer.echo(f"  diametro, diferenca relativa mediana {numero(concordancia.diametro_mediana)}")
+    for par, quantos in concordancia.confusao.items():
+        typer.echo(f"    {par:<28}{quantos:>4}")
+    veredito = {True: "dentro", False: "fora", None: "sem par visivel para decidir"}
+    typer.echo(
+        f"  protocolo ({LIMIAR_CENTRO} diametro, visibilidade {LIMIAR_VISIBILIDADE}): "
+        f"{veredito[concordancia.aprovada]}"
+    )
+    if saida is not None:
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(concordancia.to_dict(), indent=2) + "\n", encoding="utf-8")
+
+
 def dobras_de(dobra: str) -> frozenset[int]:
     """Traduz o nome da dobra em conjunto de indices, ou encerra com a lista do que existe.
 

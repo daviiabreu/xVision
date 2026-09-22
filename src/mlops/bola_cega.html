@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bola, segunda passada cega</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111;
+        color: #ddd;
+        font:
+          13px/1.4 system-ui,
+          sans-serif;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        cursor: crosshair;
+      }
+      #hud {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        background: rgba(0, 0, 0, 0.72);
+        padding: 8px 10px;
+        border-radius: 6px;
+        max-width: 420px;
+      }
+      #hud b {
+        color: #fff;
+      }
+      #ajuda {
+        position: fixed;
+        bottom: 8px;
+        left: 8px;
+        background: rgba(0, 0, 0, 0.72);
+        padding: 8px 10px;
+        border-radius: 6px;
+        color: #aaa;
+      }
+      #aviso {
+        position: fixed;
+        top: 8px;
+        right: 8px;
+        background: #7a2d00;
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 6px;
+        display: none;
+      }
+      .vis-visible {
+        color: #6f6;
+      }
+      .vis-occluded {
+        color: #fc6;
+      }
+      .vis-not-visible {
+        color: #f66;
+      }
+      .vis-ambiguous {
+        color: #9cf;
+      }
+      kbd {
+        background: #333;
+        border-radius: 3px;
+        padding: 0 4px;
+        color: #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="tela"></canvas>
+    <div id="hud"></div>
+    <div id="aviso"></div>
+    <div id="ajuda">
+      <kbd>clique</kbd> centro · <kbd>shift+clique</kbd> borda da bola
+      (diâmetro) · <kbd>[</kbd> <kbd>]</kbd> diâmetro ±0,5 · <kbd>{</kbd>
+      <kbd>}</kbd> ±2<br />
+      <kbd>1</kbd> visível · <kbd>2</kbd> oclusa · <kbd>3</kbd> fora de quadro ·
+      <kbd>4</kbd> ambígua · <kbd>b</kbd> borrão · <kbd>c</kbd> corte<br />
+      <kbd>←</kbd> <kbd>→</kbd> quadro vizinho (<kbd>shift</kbd> ±5) ·
+      <kbd>0</kbd> volta ao alvo · <kbd>h</kbd> esconde a marca ·
+      <kbd>z</kbd> enquadra · roda = zoom · arrastar = mover<br />
+      <kbd>enter</kbd> grava e avança · <kbd>backspace</kbd> anterior ·
+      <kbd>n</kbd> pula sem gravar
+    </div>
+    <script>
+      const tela = document.getElementById("tela"),
+        ctx = tela.getContext("2d");
+      const hud = document.getElementById("hud"),
+        aviso = document.getElementById("aviso");
+      let fila = [],
+        contexto = 30,
+        quem = "",
+        pos = 0,
+        delta = 0,
+        imagem = null;
+      let escala = 1,
+        ox = 0,
+        oy = 0,
+        escondida = false,
+        ultimoDiametro = 14;
+      let marca = null;
+      const cache = new Map();
+
+      function nova() {
+        return {
+          visibility: null,
+          center: null,
+          diameter: ultimoDiametro,
+          motion_blur: false,
+          camera_cut: false,
+        };
+      }
+
+      function carrega(i, d) {
+        const chave = `${i}:${d}`;
+        if (!cache.has(chave)) {
+          cache.set(
+            chave,
+            new Promise((ok, falha) => {
+              const img = new Image();
+              img.onload = () => ok(img);
+              img.onerror = () =>
+                falha(
+                  new Error(`quadro ${i}${d >= 0 ? "+" : ""}${d} indisponível`),
+                );
+              img.src = `/quadro?i=${i}&d=${d}`;
+            }),
+          );
+        }
+        return cache.get(chave);
+      }
+
+      function avisa(texto) {
+        aviso.textContent = texto;
+        aviso.style.display = texto ? "block" : "none";
+      }
+
+      async function mostra() {
+        try {
+          const img = await carrega(pos, delta);
+          const primeira = !imagem;
+          imagem = img;
+          if (primeira) enquadra();
+          avisa(
+            delta === 0
+              ? ""
+              : `quadro de contexto (${delta > 0 ? "+" : ""}${delta}). A marca só vale no alvo: tecla 0.`,
+          );
+        } catch (erro) {
+          avisa(erro.message);
+        }
+        desenha();
+        if (pos + 1 < fila.length) carrega(pos + 1, 0);
+      }
+
+      function enquadra() {
+        if (!imagem) return;
+        escala = Math.min(
+          tela.width / imagem.width,
+          tela.height / imagem.height,
+        );
+        ox = (tela.width - imagem.width * escala) / 2;
+        oy = (tela.height - imagem.height * escala) / 2;
+      }
+
+      function desenha() {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, 0, tela.width, tela.height);
+        if (imagem) {
+          ctx.imageSmoothingEnabled = escala < 2;
+          ctx.setTransform(escala, 0, 0, escala, ox, oy);
+          ctx.drawImage(imagem, 0, 0);
+          if (!escondida && marca && marca.center) {
+            const [x, y] = marca.center;
+            ctx.lineWidth = 1 / escala;
+            ctx.strokeStyle = delta === 0 ? "#0f0" : "rgba(0,255,0,.35)";
+            ctx.beginPath();
+            ctx.arc(x, y, marca.diameter / 2, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.fillRect(
+              x - 0.5 / escala,
+              y - 0.5 / escala,
+              1 / escala,
+              1 / escala,
+            );
+          }
+        }
+        const alvo = fila[pos] || {};
+        const feitos = fila.filter((a) => a.marca).length;
+        const vis = marca && marca.visibility;
+        hud.innerHTML =
+          `<b>${pos + 1}/${fila.length}</b> · ${feitos} gravados · anotador <b>${quem}</b><br>` +
+          `clipe ${alvo.clip_id} · quadro ${alvo.frame_index}${delta ? ` (vendo ${delta > 0 ? "+" : ""}${delta})` : ""}<br>` +
+          `visibilidade <b class="vis-${vis}">${vis || "—"}</b> · ` +
+          `centro ${marca && marca.center ? marca.center.map((v) => v.toFixed(1)).join(", ") : "—"} · ` +
+          `diâmetro ${marca ? marca.diameter.toFixed(1) : "—"} px` +
+          `${marca && marca.motion_blur ? " · borrão" : ""}${marca && marca.camera_cut ? " · corte" : ""}` +
+          `${alvo.marca ? "<br><i>já gravado; enter regrava</i>" : ""}`;
+      }
+
+      function paraImagem(ev) {
+        return [(ev.clientX - ox) / escala, (ev.clientY - oy) / escala];
+      }
+
+      async function abre(i) {
+        pos = Math.max(0, Math.min(fila.length - 1, i));
+        delta = 0;
+        const salva = fila[pos].marca;
+        marca = salva
+          ? { ...salva, diameter: salva.diameter || ultimoDiametro }
+          : nova();
+        await mostra();
+      }
+
+      async function grava() {
+        if (!marca.visibility) {
+          avisa("escolha a visibilidade (1 a 4) antes de gravar");
+          return;
+        }
+        if (marca.visibility === "visible" && !marca.center) {
+          avisa("bola visível precisa de centro: clique nela");
+          return;
+        }
+        const corpo = { ...marca };
+        if (corpo.visibility !== "visible") {
+          corpo.center = null;
+          corpo.diameter = null;
+        }
+        const resposta = await fetch(`/marca?i=${pos}`, {
+          method: "POST",
+          body: JSON.stringify(corpo),
+        });
+        const json = await resposta.json();
+        if (!resposta.ok) {
+          avisa(json.erro || "falha ao gravar");
+          return;
+        }
+        if (marca.visibility === "visible") ultimoDiametro = marca.diameter;
+        fila[pos].marca = corpo;
+        const proximo = fila.findIndex((a, j) => j > pos && !a.marca);
+        if (proximo >= 0) await abre(proximo);
+        else if (pos + 1 < fila.length) await abre(pos + 1);
+        else {
+          desenha();
+          avisa(
+            `fim da fila: ${fila.filter((a) => a.marca).length} de ${fila.length} gravados`,
+          );
+        }
+      }
+
+      let arraste = null;
+      tela.addEventListener("mousedown", (ev) => {
+        arraste = { x: ev.clientX, y: ev.clientY, ox, oy, moveu: false };
+      });
+      window.addEventListener("mousemove", (ev) => {
+        if (!arraste) return;
+        const dx = ev.clientX - arraste.x,
+          dy = ev.clientY - arraste.y;
+        if (Math.abs(dx) + Math.abs(dy) > 3) arraste.moveu = true;
+        if (arraste.moveu) {
+          ox = arraste.ox + dx;
+          oy = arraste.oy + dy;
+          desenha();
+        }
+      });
+      window.addEventListener("mouseup", (ev) => {
+        const clique = arraste && !arraste.moveu;
+        arraste = null;
+        if (!clique || !imagem) return;
+        if (delta !== 0) {
+          avisa("volte ao alvo (tecla 0) para marcar");
+          return;
+        }
+        const [x, y] = paraImagem(ev);
+        if (ev.shiftKey && marca.center) {
+          marca.diameter = Math.max(
+            1,
+            2 * Math.hypot(x - marca.center[0], y - marca.center[1]),
+          );
+        } else {
+          marca.center = [x, y];
+          marca.visibility = "visible";
+        }
+        desenha();
+      });
+      tela.addEventListener(
+        "wheel",
+        (ev) => {
+          ev.preventDefault();
+          const fator = Math.exp(-ev.deltaY * 0.0015);
+          const [x, y] = paraImagem(ev);
+          escala = Math.max(0.1, Math.min(40, escala * fator));
+          ox = ev.clientX - x * escala;
+          oy = ev.clientY - y * escala;
+          desenha();
+        },
+        { passive: false },
+      );
+
+      window.addEventListener("keydown", async (ev) => {
+        const passo = ev.shiftKey ? 5 : 1;
+        const tecla = ev.key;
+        if (tecla === "ArrowRight" || tecla === "ArrowLeft") {
+          delta = Math.max(
+            -contexto,
+            Math.min(
+              contexto,
+              delta + (tecla === "ArrowRight" ? passo : -passo),
+            ),
+          );
+          await mostra();
+          ev.preventDefault();
+          return;
+        }
+        if (tecla === "0") {
+          delta = 0;
+          await mostra();
+          return;
+        }
+        if (tecla === "Enter") {
+          await grava();
+          return;
+        }
+        if (tecla === "Backspace") {
+          ev.preventDefault();
+          await abre(pos - 1);
+          return;
+        }
+        if (tecla === "n") {
+          await abre(pos + 1);
+          return;
+        }
+        if (tecla === "z") {
+          enquadra();
+          desenha();
+          return;
+        }
+        if (tecla === "h") {
+          escondida = !escondida;
+          desenha();
+          return;
+        }
+        const visibilidades = {
+          1: "visible",
+          2: "occluded",
+          3: "not-visible",
+          4: "ambiguous",
+        };
+        if (tecla in visibilidades) {
+          marca.visibility = visibilidades[tecla];
+          desenha();
+          return;
+        }
+        const ajustes = { "[": -0.5, "]": 0.5, "{": -2, "}": 2 };
+        if (tecla in ajustes) {
+          marca.diameter = Math.max(1, marca.diameter + ajustes[tecla]);
+          desenha();
+          return;
+        }
+        if (tecla === "b") {
+          marca.motion_blur = !marca.motion_blur;
+          desenha();
+          return;
+        }
+        if (tecla === "c") {
+          marca.camera_cut = !marca.camera_cut;
+          desenha();
+          return;
+        }
+      });
+
+      function redimensiona() {
+        tela.width = innerWidth;
+        tela.height = innerHeight;
+        enquadra();
+        desenha();
+      }
+      window.addEventListener("resize", redimensiona);
+
+      (async () => {
+        redimensiona();
+        const estado = await (await fetch("/estado")).json();
+        fila = estado.alvos;
+        contexto = estado.contexto;
+        quem = estado.annotator;
+        const primeiro = fila.findIndex((a) => !a.marca);
+        await abre(primeiro >= 0 ? primeiro : 0);
+      })();
+    </script>
+  </body>
+</html>

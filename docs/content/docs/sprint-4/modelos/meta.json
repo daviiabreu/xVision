@@ -1,4 +1,7 @@
 {
   "title": "Modelos",
-  "pages": ["instante-da-finalizacao"]
+  "pages": [
+    "instante-da-finalizacao",
+    "bola-e-trajetoria"
+  ]
 }
