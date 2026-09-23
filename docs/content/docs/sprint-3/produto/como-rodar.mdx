@@ -211,9 +211,22 @@ uv run --frozen --extra api --extra players --extra ball --extra topview --extra
 
 `artifact get` confere os arquivos contra o manifesto e imprime o caminho do peso válido. Ele
 não baixa arquivos. Se faltar um peso, a mensagem informa o diretório esperado em `var/models`.
-Obtenha os arquivos por meio do responsável, no armazenamento autorizado do time, coloque-os nesse
-diretório e repita a conferência. Não use `artifact add` para aceitar outro binário como se fosse
-o mesmo peso. Clipes, anotações e pesos privados não vêm no clone.
+
+Os pesos de jogadores, bola, campo e pose estão em repositórios privados da organização
+`xvisionm11` no Hugging Face, um por manifesto, com o nome do manifesto e a versão como tag. O campo
+`hub` de cada manifesto diz qual. Com acesso à organização e `hf auth login` feito, em `src/`:
+
+```bash
+hf download xvisionm11/football-player-detection football-player-detection.pt --revision v1.0.0 --local-dir ../var/models/fac37e36b0dc6f605ace4b134107d134396734a99254931aee2acbc2768a0256
+hf download xvisionm11/yolo-football-ball-detection yolo-football-ball-detection.pt --revision v0.1.0 --local-dir ../var/models/935b75a4a9b8c29f353a0c202bb984f299e47c55107857bd4882ee62c43018bf
+hf download xvisionm11/pitch-keypoints-yolo11n-pose best.pt --revision v0.1.0 --local-dir ../var/models/167fe1bb7fd29c39f8b2434129d75b73b16a8a5f86d66fd539372481fa07c787
+hf download xvisionm11/yolov8n-pose yolov8n-pose.pt --revision v8.4.0 --local-dir ../var/models/d5d6a7a1de6b0a9609d99bb1e6ab6bee5b5d2128e3c35a1c119262c16c3dda2f
+```
+
+Depois, repita as conferências acima. O peso do `shot` não tem cópia no Hugging Face, porque os
+autores não declaram licença para ele, e sai da fonte original como descrito acima. Não use
+`artifact add` para aceitar outro binário como se fosse o mesmo peso. Clipes e anotações não vêm no
+clone e não vão para o Hugging Face.
 
 Somente depois de todas as conferências passarem, inicie a API com a configuração de modelos:
 

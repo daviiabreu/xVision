@@ -47,6 +47,8 @@ classes = "0 ball, 1 goalkeeper, 2 player, 3 referee"
 repository = "https://github.com/roboflow/sports"
 setup = "https://github.com/roboflow/sports/blob/main/examples/soccer/setup.sh"
 download = "https://drive.google.com/uc?id=17PXFNlx-jI7VjVo_vQnB1sONjRyvoB-q"
+hub = "xvisionm11/football-player-detection"
+hub_revision = "v1.0.0"
 
 # Campos abaixo o leitor ignora: ficam para quem abrir o arquivo.
 

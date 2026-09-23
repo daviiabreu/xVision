@@ -82,6 +82,29 @@ def test_todo_manifesto_declarado_existe_e_e_legivel(modelos: dict[str, Percepti
         assert manifesto.files, f"{caminho} sem sha256 nao detecta troca de peso"
 
 
+ORG_NO_HUB = "xvisionm11"
+SEM_COPIA_NO_HUB = frozenset({"tdeed-soccernetball-test"})
+"""Peso sem licenca declarada pelos autores: cada instalacao baixa da fonte original."""
+
+
+def test_todo_peso_da_producao_diz_onde_esta_no_hub(modelos: dict[str, PerceptionModule]) -> None:
+    """O manifesto e o unico lugar que diz de onde o peso vem.
+
+    O repositorio privado tem o nome do manifesto e a versao como tag. Se um dos dois andar sem o
+    outro, o `hf download` da pagina de operacao baixa outro arquivo, e o `artifact get` so recusa
+    depois, quando o sha256 nao bate.
+    """
+    for modulo in modelos.values():
+        if modulo.spec.artifact is None:
+            continue
+        manifesto = read_manifest(Path(modulo.spec.artifact))
+        if manifesto.name in SEM_COPIA_NO_HUB:
+            assert "hub" not in manifesto.source
+            continue
+        assert manifesto.source.get("hub") == f"{ORG_NO_HUB}/{manifesto.name}"
+        assert manifesto.source.get("hub_revision") == f"v{manifesto.version}"
+
+
 def test_as_duas_configuracoes_declaram_os_mesmos_conjuntos_de_quadros() -> None:
     """Conjunto divergente faria o mesmo modulo amostrar diferente em cada arquivo."""
     assert read_framesets(MODELOS) == read_framesets(PADRAO)

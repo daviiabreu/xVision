@@ -8,6 +8,8 @@ entrypoint = "yolo-football-ball-detection.pt"
 url = "https://huggingface.co/martinjolif/yolo-football-ball-detection"
 license = "AGPL-3.0"
 note = "YOLO11n de classe unica, 2,59M parametros, mAP50 0,891 em 125 imagens de teste"
+hub = "xvisionm11/yolo-football-ball-detection"
+hub_revision = "v0.1.0"
 
 [[files]]
 path = "yolo-football-ball-detection.pt"

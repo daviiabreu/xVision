@@ -13,3 +13,5 @@ repository = "https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/merge_reques
 training = "src/models/line_tracking/train.py"
 dataset = "https://www.soccer-net.org/tasks/camera-calibration"
 labels = "https://huggingface.co/datasets/Adit-jain/Soccana_Keypoint_detection_v1"
+hub = "xvisionm11/pitch-keypoints-yolo11n-pose"
+hub_revision = "v0.1.0"
