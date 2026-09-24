@@ -20,6 +20,7 @@ está em andamento, e a página descreve o estado de hoje, incluindo o que ainda
 | [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
 | [Execução com os módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) | a evidência operacional da Sprint 3 repetida sem stub, com render e com as features declarando ausência |
 | [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) | o pipeline de produção medido na placa em fp32, fp16 e TensorRT, com tempo, energia e memória por clipe, e as duas etapas que o fizeram caber na memória |
+| [Quantização INT8 na Jetson](/docs/sprint-4/modelos/quantizacao-int8) | os modelos quantizados em INT8 medidos na placa contra fp16 e fp32 do mesmo peso: de 21% a 24% mais rápidos que o fp16, e por que não entram no pipeline agora |
 | [Análise financeira](/docs/sprint-4/analise-financeira) | custo de desenvolvimento, CAPEX e OPEX da borda e cenários de benefício |
 | [Slides](/docs/sprint-4/slides) | apresentação da sprint |
 
@@ -35,7 +36,7 @@ evidência, e separa o que veio de sprints anteriores do que foi feito agora.
 | S4-AR03 | entrega confiável | parcial: a chave de idempotência existe no contrato, mas fila local persistente, retentativa com espera progressiva e reenvio após queda de rede não existem |
 | S4-AR04 | persistência e consulta | existe desde a Sprint 3: histórico de análises consultável pelo frontend |
 | S4-AR05 | receptor simulado da Footstats | não entregue |
-| S4-AR06 | otimização orientada por gargalo | entregue: o pipeline completo foi medido na Jetson em fp32, fp16 e TensorRT, com tempo, energia e pico de memória por clipe; o gargalo de memória levou o instante para uma etapa própria |
+| S4-AR06 | otimização orientada por gargalo | entregue: o pipeline completo foi medido na Jetson em fp32, fp16 e TensorRT, com tempo, energia e pico de memória por clipe; o gargalo de memória levou o instante para uma etapa própria; o INT8 foi medido na placa e ficou fora por mudar a resposta |
 | S4-AR07 | arquitetura atualizada | não entregue nesta sprint |
 
 O núcleo da sprint, os itens 02, 03 e 05, não tem entrega mesclada até hoje. É a principal lacuna
@@ -57,8 +58,9 @@ meio do clipe.
 O detector temporal passou a ser a espécie `shot` das configurações de modelos reais. Ele roda em
 outro processo, por um executor com licença GPL-3.0 própria, porque importar o código dele levaria
 o `src/` inteiro para a mesma licença. O preço é o custo: uns 20 s por clipe em CPU, contra 145 ms
-da regra, e ainda sem medida na Jetson. O peso não declara licença, e o uso dele no produto precisa
-ser registrado com o parceiro e a orientação.
+da regra, e 13,8 s na mediana na GPU da Jetson, medidos na
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson#instante-na-placa). O peso não
+declara licença, e o uso dele no produto precisa ser registrado com o parceiro e a orientação.
 
 A medida trouxe um limite que vale mais que ela. Com 24 clipes anotados, o conjunto não distingue
 mudança menor que 4,1 clipes, e as sete hipóteses de refinamento que falharam moviam um ou dois.

@@ -352,6 +352,81 @@ def tegrastats_resumo(
     typer.echo(texto)
 
 
+BENCH_PLANO = typer.Option(..., "--plano", help="nome=caminho de um .engine; repita por precisao.")
+BENCH_REFERENCIA = typer.Option("fp32", help="O plano contra o qual os outros sao comparados.")
+BENCH_PONTOS = typer.Option(0, help="Pontos da cabeca de pose; zero para deteccao.")
+BENCH_CLIPES = typer.Option(10, help="Quantos clipes do recorte fornecem quadros.")
+BENCH_POR_CLIPE = typer.Option(5, help="Quadros espacados por clipe.")
+BENCH_DOBRA = typer.Option("ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+BENCH_SAIDA = typer.Option(None, help="Grava o relatorio completo, com o tempo de cada passada.")
+BENCH_RAIO = typer.Option(4.0, help="Distancia maxima entre centros, em px da entrada.")
+
+
+@app.command("bench-planos")
+def bench_planos(
+    plano: list[str] = BENCH_PLANO,
+    referencia: str = BENCH_REFERENCIA,
+    pontos: int = BENCH_PONTOS,
+    clipes: int = BENCH_CLIPES,
+    por_clipe: int = BENCH_POR_CLIPE,
+    dobra: str = BENCH_DOBRA,
+    saida: Path | None = BENCH_SAIDA,
+    raio_centro: float = BENCH_RAIO,
+) -> None:
+    """Tempo e concordancia de planos TensorRT do mesmo peso em fp32, fp16 e INT8, na placa."""
+    from edge.trt import tensorrt_loader
+    from mlops.bench_plano import BenchError, compara
+
+    planos: dict[str, Path] = {}
+    for item in plano:
+        nome, separador, caminho = item.partition("=")
+        if not separador or not nome or not caminho:
+            typer.echo(f"--plano {item!r}: o formato e nome=caminho", err=True)
+            raise typer.Exit(code=1)
+        planos[nome] = Path(caminho)
+    quadros: list[Any] = []
+    for registro in _escolhidos(clipes, False, dobra):
+        clip = probe(registro.clip_path, clip_id=registro.shot_id)
+        passo = max(1, clip.frame_count // (por_clipe + 1))
+        indices = [passo * (i + 1) for i in range(por_clipe)]
+        fonte = VideoSource(registro.clip_path)
+        try:
+            lidos = cast("Mapping[int, Any]", fonte.read(indices))
+        finally:
+            fonte.close()
+        quadros.extend(lidos[i] for i in indices)
+    carregador = tensorrt_loader()
+    try:
+        relatorio = compara(
+            planos,
+            quadros,
+            lambda caminho: carregador(caminho, "cuda"),
+            referencia=referencia,
+            pontos=pontos,
+            raio_centro=raio_centro,
+        )
+    except BenchError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    relatorio["construcao"] = {
+        nome: json.loads(caminho.with_suffix(".run.json").read_text(encoding="utf-8"))
+        for nome, caminho in planos.items()
+    }
+    relatorio["git_sha"], relatorio["git_dirty"] = git_state()
+    relatorio["hardware"] = hardware()
+    relatorio["runtime"] = runtimes()
+    if saida is not None:
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(relatorio, indent=2) + "\n", encoding="utf-8")
+    for nome, dados in cast("dict[str, dict[str, Any]]", relatorio["planos"]).items():
+        contra = cast("dict[str, Any]", dados.get("contra_referencia") or {})
+        typer.echo(
+            f"  {nome:<6} mediana {dados['ms_mediana']:>8.2f} ms  p95 {dados['ms_p95']:>8.2f} ms  "
+            f"revocacao {contra.get('revocacao', '-')}  precisao {contra.get('precisao', '-')}  "
+            f"centro {contra.get('revocacao_centro', '-')} {contra.get('precisao_centro', '-')}"
+        )
+
+
 def _run_catalog(
     out: Path | None,
     config: Path,

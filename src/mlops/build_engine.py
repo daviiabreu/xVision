@@ -72,9 +72,7 @@ def build(
         "engine_sha256": sha256_of(output),
         "engine_bytes": output.stat().st_size,
         "fp16": fp16,
-        "precisao": ("fp16 por flag" if por_flag else "fp16 pelo ONNX convertido")
-        if fp16
-        else "fp32",
+        "precisao": _precisao(fp16, por_flag=por_flag, int8=_quantizado(trt, network)),
         **conversao,
         "workspace_gib": workspace_gib,
         "inputs": _tensores(network.num_inputs, network.get_input),
@@ -125,6 +123,27 @@ def _prepara_onnx(
     modulo_onnx.save(modelo, str(destino))
     info.update({"onnx_trabalho": str(destino), "onnx_trabalho_sha256": sha256_of(destino)})
     return destino, info
+
+
+def _precisao(fp16: bool, *, por_flag: bool, int8: bool) -> str:
+    """A precisao do plano, dita pelo que a construcao realmente usou.
+
+    INT8 no TensorRT 11 nao tem flag: vem dos nos Q/DQ que o ONNX ja traz, e as demais camadas ficam
+    nos tipos que o ONNX declara. Chamar esse plano de fp32 so porque nenhuma flag foi ligada
+    descreveria um plano que nao existe.
+    """
+    if int8:
+        return "int8 pelos nos Q/DQ do ONNX, demais camadas nos tipos do ONNX"
+    if fp16:
+        return "fp16 por flag" if por_flag else "fp16 pelo ONNX convertido"
+    return "fp32"
+
+
+def _quantizado(trt: Any, network: Any) -> bool:
+    quantize = getattr(getattr(trt, "LayerType", None), "QUANTIZE", None)
+    if quantize is None:
+        return False
+    return any(network.get_layer(i).type == quantize for i in range(network.num_layers))
 
 
 def _tensores(quantos: int, pega: Any) -> list[dict[str, object]]:

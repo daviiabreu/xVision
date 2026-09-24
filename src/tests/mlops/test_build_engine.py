@@ -16,7 +16,10 @@ from mlops.build_engine import EngineBuildError, build
 
 
 def _trt(
-    parse_ok: bool = True, plano: bytes | None = b"plano", flag_fp16: bool = True
+    parse_ok: bool = True,
+    plano: bytes | None = b"plano",
+    flag_fp16: bool = True,
+    quantizado: bool = False,
 ) -> tuple[SimpleNamespace, dict[str, Any]]:
     visto: dict[str, Any] = {"flags": []}
 
@@ -33,8 +36,20 @@ def _trt(
             def resultado(i: int) -> SimpleNamespace:
                 return saida
 
+            camadas = [SimpleNamespace(type="convolution")]
+            if quantizado:
+                camadas.append(SimpleNamespace(type="quantize"))
+
+            def camada(i: int) -> SimpleNamespace:
+                return camadas[i]
+
             return SimpleNamespace(
-                num_inputs=1, get_input=entrada, num_outputs=1, get_output=resultado
+                num_inputs=1,
+                get_input=entrada,
+                num_outputs=1,
+                get_output=resultado,
+                num_layers=len(camadas),
+                get_layer=camada,
             )
 
         def create_builder_config(self) -> SimpleNamespace:
@@ -71,6 +86,7 @@ def _trt(
         Builder=Builder,
         OnnxParser=Parser,
         MemoryPoolType=SimpleNamespace(WORKSPACE="workspace"),
+        LayerType=SimpleNamespace(QUANTIZE="quantize"),
         BuilderFlag=SimpleNamespace(FP16="fp16") if flag_fp16 else SimpleNamespace(TF32="tf32"),
         __version__="11.3.0.99",
     )
@@ -149,9 +165,22 @@ def test_sem_fp16_nenhuma_flag_de_precisao_e_ligada(
     modulo, visto = _trt()
     _instala(monkeypatch, modulo, "tensorrt")
 
-    build(onnx, tmp_path / "field.engine", fp16=False)
+    relatorio = build(onnx, tmp_path / "field.engine", fp16=False)
 
     assert visto["flags"] == []
+    assert relatorio["precisao"] == "fp32"
+
+
+def test_onnx_com_nos_q_dq_sai_como_int8_e_nao_como_fp32(
+    onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modulo, visto = _trt(quantizado=True)
+    _instala(monkeypatch, modulo, "tensorrt-cu13")
+
+    relatorio = build(onnx, tmp_path / "player-int8.engine", fp16=False)
+
+    assert visto["flags"] == []
+    assert str(relatorio["precisao"]).startswith("int8 pelos nos Q/DQ")
 
 
 def test_onnx_recusado_pelo_parser_nao_gera_plano(

@@ -2,6 +2,7 @@
   "title": "Modelos",
   "pages": [
     "instante-da-finalizacao",
-    "bola-e-trajetoria"
+    "bola-e-trajetoria",
+    "quantizacao-int8"
   ]
 }

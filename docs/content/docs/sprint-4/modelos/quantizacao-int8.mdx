@@ -1,0 +1,162 @@
+---
+title: Quantização INT8 na Jetson
+description: Os modelos quantizados em INT8 medidos na placa contra fp16 e fp32 do mesmo peso, em tempo e concordância
+---
+
+Esta página continua a [quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao), que levou os
+modelos de jogadores (Players), bola (Ball) e pontos do campo (Line) a TensorRT FP16. Nesta sprint os
+três foram quantizados em INT8 (card #138) e publicados no Hugging Face, mas ainda não tinham rodado
+na placa. Aqui eles foram medidos na Jetson contra o fp32 e o fp16 do mesmo peso, em 24/09/2026.
+
+## Onde se encaixa no fluxo
+
+```text
+peso .pt local -> ONNX fp32 (Sprint 3) ------------------------------------------+
+               -> ONNX fp16 -> quantização estática do ONNX Runtime -> ONNX INT8 |
+                                                                                 v
+                 mlops.build_engine na placa (TensorRT 11.3): planos fp32, fp16 e INT8
+                                                                                 |
+                 xvision bench-planos: os mesmos 50 quadros em cada plano -> tempo e concordância
+```
+
+Os três pesos são os pesos locais que a Sprint 3 quantizou, e não os de produção: Players
+`220a757f…`, Ball `c4f7222d…` e Line `a7f78ca3…`. Por isso a comparação é sempre dentro do mesmo
+peso, e nenhum número desta página se compara com as métricas do pipeline de produção.
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que não faz |
+| --- | --- | --- |
+| quantização estática do ONNX Runtime (`onnx.quantize` 0.1.0) | inserir os nós Q/DQ nas convoluções, com as escalas tiradas de uma calibração | não está no repositório: o script e os dados de calibração não ficaram registrados |
+| `mlops.build_engine` | construir o plano de cada precisão e registrar o sha256 do ONNX, a versão do TensorRT, a precisão e a forma da entrada | não escolhe precisão nem calibra |
+| `xvision bench-planos` | rodar os mesmos quadros em cada plano, medir cada passada e comparar as detecções com as do fp32 | não mede acurácia contra rótulo |
+
+## Fluxo de dados
+
+Os ONNX INT8 vieram do Hugging Face (`xvisionm11/player.int8`, `ball.int8` e `keypoints.int8`) e
+foram conferidos antes de construir. As convoluções têm os mesmos nomes e formas das do fp32, e os
+pesos diferem dos do fp32 em no máximo 2 unidades da última casa do float16: o INT8 saiu dos mesmos
+pesos, por uma exportação em meia precisão. O grafo recebe e devolve fp32, converte para fp16 logo
+na entrada e quantiza as 64 convoluções de Players e de Ball, e as 97 de Line, com nós Q/DQ. O
+plano INT8 é, portanto, o fp16 com as convoluções em INT8, e o TensorRT 11 o constrói sem calibrar
+de novo, porque as escalas já estão no grafo.
+
+Os fp32 de comparação são os ONNX exportados dos mesmos pesos na Sprint 3, com a mesma entrada:
+960x960 para Players e Line, e 1280x1280 para Ball. O fp16 sai desse ONNX pela conversão do
+construtor, a mesma da [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson#tensorrt-versionado).
+
+A comparação usa 50 quadros reais de 10 clipes das dobras de ajuste, 5 por clipe, com cinco
+passadas de aquecimento antes de medir. O tempo é o de uma passada do plano, com a cópia da entrada
+e da saída entre CPU e GPU, e sem pré e pós-processamento. Duas detecções formam par quando têm a
+mesma classe e IoU de pelo menos 0,5.
+
+## O que a placa mediu
+
+| Mediana de 50 passadas | fp32 | fp16 | INT8 | INT8 contra fp16 |
+| --- | --- | --- | --- | --- |
+| Players, 960x960 | 35,4 ms | 21,9 ms | 16,7 ms | -24% |
+| Ball, 1280x1280 | 36,2 ms | 25,4 ms | 20,2 ms | -21% |
+| Line, 960x960 | 27,5 ms | 18,6 ms | 14,3 ms | -23% |
+
+Contra o fp32, o fp16 corta de 30% a 38% do tempo e o INT8 corta de 44% a 53%. A Sprint 3 publicou
+40% de redução, mas comparava PyTorch fp32 com TensorRT fp16 pelo tempo de processar um vídeo
+inteiro, com leitura, pré e pós-processamento; os números não se comparam diretamente. Os tempos de
+cada passada, com o p95 de cada plano, estão na
+[evidência](/sprint-4/modelos/evidencias/quantizacao-int8-20260924.json).
+
+| Contra o fp32 | fp16 | INT8 |
+| --- | --- | --- |
+| Players: detecções do fp32 reencontradas | 801 de 801 | 745 de 801 (0,930) |
+| Players: detecções que o fp32 não tem | 1 | 10 |
+| Ball: detecções do fp32 reencontradas | 67 de 67 | 36 de 67 (0,537) |
+| Ball: detecções que o fp32 não tem | 0 | 64 |
+| Line: campo reencontrado | 50 de 50 | 50 de 50 |
+| Line: distância mediana dos pontos | 0,19 px | 11,9 px |
+
+O fp16 praticamente não muda a resposta. O INT8 muda, e em graus diferentes por modelo. Em Players,
+ele perde 56 das 801 detecções do fp32, 7%. Em Line, acha o campo nos 50 quadros, mas os pontos se
+movem 11,9 px na mediana, cerca de 1,2% da largura da entrada, contra 0,19 px do fp16. Em Ball, a
+diferença é grande: o INT8 devolve 100 detecções onde o fp32 devolve 67, e só 36 formam par.
+
+O par por IoU é duro com a bola, cuja caixa tem 8 px de lado na entrada: um deslocamento de 3 px já
+derruba o IoU para 0,45. Parte das 31 bolas que faltam pode ser a mesma bola deslocada. Mesmo que
+todas fossem, sobrariam pelo menos 33 detecções que o fp32 não tem, e o fp16 não tem nenhuma. A
+segunda rodada, com par também pela distância do centro, separa as duas coisas.
+
+| Tamanho do plano | fp32 | fp16 | INT8 |
+| --- | --- | --- | --- |
+| Players | 241 MB | 196 MB | 66 MB |
+| Ball | 235 MB | 161 MB | 123 MB |
+| Line | 181 MB | 150 MB | 86 MB |
+
+## Decisões
+
+**O INT8 não entra no pipeline agora.** Em Ball a resposta muda demais para qualquer uso. Em
+Players e em Line o ganho é de cerca de 23% sobre o fp16, e a perda só pode ser julgada contra
+rótulo: 7% das detecções num caso, 12 px de ponto no outro, o que vira erro de homografia. A
+alternativa descartada era adotar o INT8 em Players pelo ganho de tempo. Ela fica para depois da
+acurácia contra rótulo, e só vale para os pesos de produção, que não são estes.
+
+**A comparação é contra o fp32 do mesmo peso, e não contra a produção.** Os ONNX INT8 saíram dos
+pesos locais. Comparar com o pipeline de produção misturaria o efeito da quantização com o de trocar
+de modelo. A alternativa descartada era plugar os planos INT8 no pipeline e ler as métricas de
+produção.
+
+**Concordância no lugar de acurácia, pelo IoU e pelo centro.** Sem o conjunto rotulado de cada modelo
+na placa, a medida é quanto a precisão menor muda a resposta do fp32. O par por IoU de 0,5 é o
+padrão de detecção; o par pela distância do centro entrou no banco por causa da bola, e sai na
+segunda rodada.
+
+**O plano é construído na placa, com o sha256 do ONNX e a precisão registrados.** Plano não
+atravessa versão de TensorRT nem placa. O construtor registrava o plano INT8 como fp32, porque só
+olhava a flag de fp16; ele passou a ler os nós Q/DQ da rede, e a evidência desta rodada traz a
+correção declarada.
+
+## Trade-offs
+
+O INT8 corta de 44% a 53% do tempo do fp32 e de 21% a 24% do fp16, e deixa o plano de 1,3 a 3 vezes
+menor que o fp16. O tamanho importa, porque o custo do TensorRT no pipeline foi memória: o pico
+chegou a 92% da RAM. A desvantagem principal é que ele muda a resposta, pouco em Players, nos pontos
+em Line e muito em Ball, e que a quantização não pode ser refeita a partir do repositório.
+
+## Riscos e incertezas
+
+**A calibração não tem origem registrada, e os repositórios INT8 estão públicos.** A quantização
+estática exige quadros de calibração, e nem o ONNX nem o repositório dizem quais foram. Se forem
+cortes da Footstats, as escalas saíram de dado restrito, e os três repositórios precisam ficar
+privados até a origem ser confirmada.
+
+**O ONNX INT8 só roda no TensorRT.** O ONNX Runtime 1.23.2 em CPU recusa o grafo com a otimização
+ligada, porque funde os nós Q/DQ num operador que não aceita escala em fp16. Com a otimização
+desligada, ele não devolve nenhuma detecção em Players nem em Ball, onde o fp32 devolve 812 e 68. A
+validação contra rótulo da Sprint 3, feita com ONNX Runtime numa RTX A4000, não pode ser repetida
+do mesmo jeito.
+
+**Concordância alta não garante qualidade.** Se o fp32 erra num quadro e o INT8 erra igual, os dois
+concordam.
+
+**São 50 quadros de 10 clipes.** O tempo por passada é estável com esse n; a concordância em cenas
+muito diferentes das do conjunto não foi medida.
+
+## Ainda não implementado
+
+| Pendência | Próximo experimento |
+| --- | --- |
+| par pela distância do centro | segunda rodada na placa, na fila depois do catálogo: se o INT8 de Ball reencontrar pelo centro quase todas as 67 bolas do fp32, o problema é de localização; se não, é de detecção |
+| acurácia do INT8 contra rótulo | repetir a validação da Sprint 3 com os planos INT8 no TensorRT, já que o ONNX Runtime não roda o grafo |
+| INT8 dos pesos de produção | quantizar os pesos de `pipeline.models.toml` com uma rota versionada e medir dentro do pipeline em duas etapas |
+| memória no pipeline | hipótese: planos INT8 menores baixam o pico de 92% do TensorRT; medir com o `tegrastats` quando houver INT8 de produção |
+| quantização reproduzível | versionar o script INT8 com o manifesto do conjunto de calibração, como o `mlops.build_engine` faz com o plano |
+
+## Referências
+
+1. [Quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao): FP16, métricas contra rótulo na
+   RTX A4000 e o fluxo de exportação.
+2. [Pesquisa sobre quantização e otimização](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao), da
+   Sprint 1.
+3. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson): a placa, o TensorRT 11 e o
+   construtor de planos.
+4. [Quantização do ONNX Runtime](https://onnxruntime.ai/docs/performance/model-optimizations/quantization.html):
+   o formato Q/DQ e a calibração estática.
+5. [Tipos quantizados no TensorRT](https://docs.nvidia.com/deeplearning/tensorrt/latest/inference-library/work-quantized-types.html):
+   como o construtor trata os nós Q/DQ.
