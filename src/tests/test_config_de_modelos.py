@@ -175,6 +175,25 @@ def test_o_oraculo_so_difere_da_producao_no_modulo_do_instante() -> None:
         assert producao[kind] == oraculo[kind], f"{kind} diverge entre producao e oraculo"
 
 
+def test_as_duas_etapas_so_diferem_da_producao_no_instante() -> None:
+    """A segunda etapa tem que medir a mesma percepcao da producao, com o instante vindo de fora.
+
+    Se qualquer outra especie divergir, o numero medido na placa em duas etapas deixa de valer
+    como numero da configuracao de producao, que e o que ele precisa representar.
+    """
+    producao = {c.kind: c for c in read_config(MODELOS)}
+    etapas = {c.kind: c for c in read_config(Path("config/pipeline.models.duas-etapas.toml"))}
+
+    assert set(producao) == set(etapas)
+    assert etapas["shot"].impl == "mlops.spots:PrecomputedShot"
+    assert etapas["shot"].options == {"spots": "../var/spots/tdeed.jsonl"}
+    for kind in sorted(set(producao) - {"shot"}):
+        assert producao[kind] == etapas[kind], f"{kind} diverge entre producao e duas etapas"
+    assert read_framesets(MODELOS) == read_framesets(
+        Path("config/pipeline.models.duas-etapas.toml")
+    )
+
+
 def test_a_janela_so_difere_do_oraculo_no_frameset_da_pose() -> None:
     """Taxa nativa ancorada no chute e a unica variavel dessa configuracao."""
     oraculo = {c.kind: c for c in read_config(Path("config/pipeline.oracle.toml"))}

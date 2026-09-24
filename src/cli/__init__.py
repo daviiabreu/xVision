@@ -261,6 +261,71 @@ def run(
     typer.echo(str(escrito))
 
 
+SPOTS_OUT = typer.Option(None, help="Arquivo da primeira etapa. Padrao: var/spots/<modulo>.jsonl.")
+
+
+@app.command()
+def spots(
+    config: Path | None = RUN_CONFIG,
+    limit: int = RUN_LIMIT,
+    gabarito: bool = RUN_GABARITO,
+    dobra: str | None = RUN_DOBRA,
+    saida: Path | None = SPOTS_OUT,
+) -> None:
+    """Primeira etapa do instante: roda so a especie `shot` e grava um instante por clipe.
+
+    Existe porque na Orin de 8 GB o T-DEED e o resto do pipeline nao cabem juntos na memoria. A
+    segunda etapa e `xvision run` com `config/pipeline.models.duas-etapas.toml`, que le este
+    arquivo. Clipe ja gravado e pulado, entao a mesma chamada retoma de onde parou.
+    """
+    from edge.cache.perception import tuning_of
+    from edge.graph.framesets import read_framesets
+    from edge.paths import var_dir
+    from mlops.spots import SpotsError, gera
+
+    config = _config(config)
+    if not config.is_file():
+        typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
+        raise typer.Exit(code=1)
+    escolhidos = _escolhidos(limit, gabarito, dobra)
+    try:
+        shot = load_modules(read_config(config)).get("shot")
+        if shot is None:
+            raise SpotsError(f"{config} nao declara modules.shot")
+        frameset = read_framesets(config).get(shot.spec.frames)
+        if frameset is None:
+            raise SpotsError(f"{config} nao declara frames.{shot.spec.frames}")
+        destino = saida or var_dir() / "spots" / f"{shot.spec.name}.jsonl"
+        resumo = gera(escolhidos, shot, frameset, destino)
+    except ERROS_DE_USO + (SpotsError,) as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    sha, sujo = git_state()
+    procedencia = {
+        "schema_version": "1.0",
+        "config": str(config),
+        "config_sha256": sha256_of(config),
+        "git_sha": sha,
+        "git_dirty": sujo,
+        "module": {"name": shot.spec.name, "version": shot.spec.version, "tuning": tuning_of(shot)},
+        "hardware": hardware(),
+        "runtime": runtimes(),
+        "novos": resumo.feitos,
+        "pulados": resumo.pulados,
+        "falhas": [clip for clip, _ in resumo.falhas],
+    }
+    destino.with_suffix(".run.json").write_text(
+        json.dumps(procedencia, indent=2) + "\n", encoding="utf-8"
+    )
+    for clip, erro in resumo.falhas:
+        typer.echo(f"  {clip}: {erro}", err=True)
+    typer.echo(
+        f"  {resumo.feitos} instantes novos, {resumo.pulados} ja gravados, "
+        f"{len(resumo.falhas)} falhas"
+    )
+    typer.echo(str(destino))
+
+
 def _run_catalog(
     out: Path | None,
     config: Path,
@@ -272,6 +337,22 @@ def _run_catalog(
     if not config.is_file():
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
+    escolhidos = _escolhidos(limit, gabarito, dobra)
+    destino = resume if resume is not None else (runs_dir() if out is None else out) / new_run_id()
+    try:
+        with exclusive_run(destino):
+            _run_selected_catalog(escolhidos, config, destino, resume=resume is not None)
+    except CheckpointError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+
+
+def _escolhidos(limit: int, gabarito: bool, dobra: str | None) -> list[ShotRecord]:
+    """Os clipes de uma execucao de catalogo, o mesmo recorte para `run` e para `spots`.
+
+    Um lugar so porque as duas etapas do instante precisam cobrir exatamente o mesmo conjunto: se a
+    primeira escolhesse outro recorte, a segunda sairia sem instante nos clipes que faltaram.
+    """
     if gabarito and dobra is None:
         typer.echo(
             "--gabarito abre os 38 clipes anotados, e 14 deles sao o pacote reservado: passe "
@@ -297,14 +378,7 @@ def _run_catalog(
         if not catalogo:
             typer.echo("nenhum clipe tem instante anotado; rode `xvision label scrub`", err=True)
             raise typer.Exit(code=1)
-    escolhidos = catalogo[:limit] if limit else catalogo
-    destino = resume if resume is not None else (runs_dir() if out is None else out) / new_run_id()
-    try:
-        with exclusive_run(destino):
-            _run_selected_catalog(escolhidos, config, destino, resume=resume is not None)
-    except CheckpointError as erro:
-        typer.echo(str(erro), err=True)
-        raise typer.Exit(code=1) from erro
+    return catalogo[:limit] if limit else catalogo
 
 
 def _run_selected_catalog(

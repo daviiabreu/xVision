@@ -1,0 +1,134 @@
+# A configuracao de producao em duas etapas, para a Jetson Orin Nano de 8 GB.
+#
+# Identica a `pipeline.models.toml` fora a secao `[modules.shot]`, e um teste cobra isso. Na placa,
+# o pipeline sozinho leva o pico de memoria a 5,4 GB e o T-DEED sozinho a 5,7 GB, com 2,4 GB ja
+# ocupados pelo sistema; os dois juntos passam dos 7,3 GB. Por isso o instante sai antes:
+#
+#   xvision spots --config config/pipeline.models.toml                     (primeira etapa)
+#   xvision run --all --config config/pipeline.models.duas-etapas.toml    (segunda etapa)
+#
+# As duas chamadas precisam do mesmo recorte (`--gabarito`, `--dobra`, `--limit`).
+
+[frames.coarse]
+strategy = "uniform"
+fps = 5
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[frames.tdeed]
+strategy = "uniform"
+fps = 12.5
+# O checkpoint do T-DEED foi treinado a 25 fps com passo 2. A 59,94 fps nativos o passo inteiro
+# mais proximo e 5, o que da 11,99 por segundo, 4% abaixo do treino. O numero medido no pipeline
+# sai com essa amostragem, e nao com a do experimento fora da arvore.
+
+[frames.window]
+strategy = "around"
+anchor   = "shot"
+before_s = 1.5
+after_s  = 0.5
+fps      = "native"
+
+[modules.players]
+impl     = "edge.modules.players:YoloPlayers"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
+frames   = "dense"
+# Medido nesta Jetson, 40 quadros reais: `players` perde ZERO deteccoes em 685 (as tres caixas
+# nao casadas eram duplicatas sobre objeto ja casado, nao recall), IoU mediano 0,985, e ganha
+# de 25% a 35% de tempo. A saida desta especie e consumida inteira, sem reducao sequencial, e e
+# por isso que ela foi a primeira a entrar.
+#
+# A bola entrou depois, em `ee11364`, e o motivo esta no comentario dela mais abaixo. Este bloco
+# dizia "a bola fica em fp32 de proposito" e ficou obsoleto um dia depois, quando ela passou a
+# declarar `quantize = "fp16"` 40 linhas adiante, no mesmo arquivo. A revisao da Sprint 3 achou a
+# contradicao antes de nos, e o teste de inventario em `src/tests/test_inventario_documentado.py`
+# existe para ela nao voltar.
+quantize = "fp16"
+
+[modules.ball]
+impl     = "edge.modules.ball:YoloBall"
+artifact = "models/manifests/ball/yolo-football-ball-detection-0.1.0.toml"
+frames   = "dense"
+conf            = 0.10
+imgsz           = 1600
+ladrilhos       = 2
+sobreposicao_px = 100
+# Ranking rejeitado na comparacao de desenvolvimento de 07/09/2026.
+# Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
+ranking            = false
+ranking_candidates = 2
+# Letterbox dos quatro ladrilhos no device, e nao no cv2 da CPU.
+# Medido nesta Jetson, 30 quadros reais: 260,0 ms cai para 232,9 ms por quadro, 10,4% em tres
+# rodadas intercaladas. A concordancia e a mais limpa que medimos: 108 contra 108 deteccoes, zero
+# perdidas, zero inventadas, IoU mediano 0,9986. E na trajetoria que o rastreador entrega, sobre os
+# 360 quadros do clipe, a divergencia e ZERO: mesmas fontes (333 detected, 15 interpolated,
+# 12 missing) e deslocamento abaixo do meio decimo de pixel.
+letterbox = "cuda"
+# Meia precisao, medida no caminho de producao (letterbox no device, lote 4), tres rodadas
+# intercaladas sobre quadros reais: 237,4 ms cai para 176,6 ms por quadro, 25,6%.
+#
+# Segurou ate o `ee11364` existir. Antes dele, uma caixa a 3,7e-05 do corte `conf = 0,10` sumia em
+# fp16, a lacuna nao fechava e a trajetoria reancorava em outro objeto a 1641 px: 61 dos 360
+# quadros divergiam. Com a reancora presa ao alcance da ultima posicao, a divergencia caiu para
+# 1 quadro em 360, e nesse unico quadro a bola nao se move: o fp32 marca `detected` e o fp16
+# marca `interpolated` na mesma posicao, com deslocamento de 0,6 px no pior caso do clipe.
+#
+# O que ainda NAO foi medido e acuracia contra gabarito: o conjunto do parceiro nao esta na
+# maquina, entao isto e concordancia com o fp32, e nao prova de que nao piorou. O `eval-ball`
+# continua sendo o juiz.
+quantize = "fp16"
+
+[modules.field]
+impl     = "edge.modules.field:YoloField"
+artifact = "models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
+frames   = "dense"
+imgsz                         = 960
+conf                          = 0.25
+method                        = "ransac"
+keypoint_confidence           = 0.25
+threshold_diagonal_fraction   = 0.0025
+min_inliers                   = 6
+max_reprojection_p95_px       = 10.0
+
+[modules.shot]
+impl   = "mlops.spots:PrecomputedShot"
+frames = "coarse"
+spots  = "../var/spots/tdeed.jsonl"
+# Segunda etapa: o instante vem do arquivo que `xvision spots --config config/pipeline.models.toml`
+# gravou, com o T-DEED rodando sozinho na GPU. Na Orin de 8 GB os dois nao cabem juntos na memoria.
+
+[modules.tracking]
+impl   = "edge.modules.tracking:GreedyTracking"
+frames   = "dense"
+
+[modules.pose]
+impl     = "edge.modules.pose:YoloPose"
+artifact = "models/manifests/pose/yolov8n-pose-8.4.0.toml"
+frames   = "dense"
+
+[modules.identity]
+impl   = "edge.modules.identity:TeamIdentity"
+frames = "dense"
+
+[modules.marking]
+impl  = "edge.modules.stubs:StubMarking"
+frames = "dense"
+needs = ["players", "tracking", "identity"]
+
+[features.body_part]
+impl = "edge.features.body_part:BodyPart"
+
+[features.type_of_play]
+impl = "edge.features.type_of_play:TypeOfPlay"
+
+[features.looked_before]
+impl = "edge.features.looked_before:LookedBefore"
+
+[features.goalkeeper_position]
+impl = "edge.features.goalkeeper_position:GoalkeeperPosition"
+
+[render.top_view]
+players = "models/manifests/players/football-player-detection-1.0.0.toml"
+field = "models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"
