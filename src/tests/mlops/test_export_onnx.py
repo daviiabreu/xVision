@@ -27,6 +27,7 @@ def exporter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace
             assert options["dynamic"] is options["nms"] is options["simplify"] is False
             assert options["opset"] == 17
             assert options["imgsz"] == (544, 960)
+            assert options["batch"] == state.shape[0]
             state.repeats += 1
             target = self.source.with_suffix(".onnx")
             target.write_text(f"raw-date-{state.repeats}")
@@ -146,3 +147,16 @@ def test_wrong_export_shape_is_rejected(exporter: SimpleNamespace) -> None:
     exporter.shape = [1, 3, 960, 544]
     with pytest.raises(ValueError, match="shape"):
         export_repeated(exporter.manifest, exporter.output, (544, 960))
+
+
+def test_lote_declarado_chega_ao_export_e_ao_relatorio(exporter: SimpleNamespace) -> None:
+    exporter.shape = [4, 3, 544, 960]
+
+    report = export_repeated(exporter.manifest, exporter.output, (544, 960), batch=4)
+
+    assert report["shape"] == [4, 3, 544, 960]
+
+
+def test_lote_invalido_falha_antes_de_carregar_peso(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="batch"):
+        export_repeated(tmp_path / "missing.toml", tmp_path / "out", (544, 960), batch=0)

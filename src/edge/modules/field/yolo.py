@@ -257,7 +257,7 @@ def _backend_de_plano(
     acontece — e no campo isso seria especialmente enganoso, porque `fp16` aqui PIORA o PyTorch.
     """
     from edge.modules.field.module import FieldConfigError
-    from edge.trt import tensorrt_loader
+    from edge.trt import tensorrt_loader, tensorrt_version
 
     plano = Path(engine)
     if not plano.is_file():
@@ -275,7 +275,7 @@ def _backend_de_plano(
         provider="tensorrt",
         device=device,
         loader=tensorrt_loader(),
-        runtime_versions=(("tensorrt", version("tensorrt")),),
+        runtime_versions=(("tensorrt", tensorrt_version()),),
     )
     backend.load(
         RuntimeArtifact(

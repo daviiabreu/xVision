@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +24,24 @@ import numpy as np
 from edge.runtime import Array, ArtifactIncompatible, ModelLoader, RuntimeModel, RuntimeUnavailable
 
 _TORCH_POR_TRT = {"HALF": "float16", "FLOAT": "float32"}
+
+
+DISTRIBUICOES = ("tensorrt-cu13", "tensorrt-cu12", "tensorrt")
+"""Os nomes com que o binding chega pelo pip, na ordem em que sao procurados.
+
+O pip da Jetson instala `tensorrt-cu13`, e nao `tensorrt`: perguntar a versao de `tensorrt`
+levantava `PackageNotFoundError` e derrubava `ball` e `field` em todo clipe, medido em 24/09/2026.
+"""
+
+
+def tensorrt_version() -> str:
+    """A versao do TensorRT instalado, para o `run.json` dizer qual abriu o plano."""
+    for nome in DISTRIBUICOES:
+        try:
+            return version(nome)
+        except PackageNotFoundError:
+            continue
+    raise RuntimeUnavailable(f"nenhum pacote de TensorRT instalado: {', '.join(DISTRIBUICOES)}")
 
 
 def tensorrt_loader() -> ModelLoader:

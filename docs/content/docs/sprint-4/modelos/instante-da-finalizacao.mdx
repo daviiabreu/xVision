@@ -250,9 +250,16 @@ conjunto que mede.
 **O custo é o preço da troca.** Medido isolado em CPU nesta máquina, cada janela de 100 passos, uns
 8,3 s de vídeo, custa de 17 a 20 s, e a carga do modelo fica abaixo de 0,2 s. Clipe de até 100
 passos sai em uns 20 s, e o mais longo do conjunto, com 108 passos, paga duas janelas e sai em 35 a
-45 s. A regra cinemática custa 145 ms. Na GPU da Jetson o T-DEED ainda não foi medido. A evidência
-agregada, sem identificador de clipe, está em
+45 s. A regra cinemática custa 145 ms. A evidência agregada, sem identificador de clipe, está em
 [`instante-tdeed-pipeline-20260922.json`](/sprint-4/modelos/evidencias/instante-tdeed-pipeline-20260922.json).
+
+### Na Jetson
+
+Na placa, o T-DEED e o resto do pipeline não couberam juntos nos 8 GB, e o instante passou a sair
+numa etapa própria, antes das outras espécies, como detalha a
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson). Nessa etapa, na GPU, os 24
+instantes saíram idênticos aos da estação em CPU, com diferença de zero quadro em todos, e o T-DEED
+levou 13,8 s por clipe na mediana, contando a subida do processo, com 96 J de energia por clipe.
 
 ## O que este conjunto consegue enxergar
 
@@ -329,9 +336,9 @@ O ganho é que a frente parou de andar no escuro. Seis hipóteses foram descarta
 de por impressão, e a sétima foi medida contra o mesmo nulo que derrubou as outras.
 
 A desvantagem principal é o custo. A regra cinemática é nossa, roda em 145 ms e mede 0,292. O
-T-DEED mede 1,000, custa uns 20 s por clipe em CPU nesta máquina, tem 12,3M parâmetros e ainda não
-foi medido na Jetson. Se o custo na placa não couber no orçamento da borda, a troca volta a ser
-decisão, e não conclusão.
+T-DEED mede 1,000, custa 13,8 s por clipe na GPU da Jetson e tem 12,3M parâmetros. Na placa ele
+não cabe junto com o resto do pipeline, e por isso roda numa etapa separada, o que obriga a
+decodificar o clipe duas vezes.
 
 A segunda é que a resolução publicada ao lado da taxa vai tornar boa parte do trabalho futuro
 desta frente indefensável até o conjunto crescer. É desconfortável e é o ponto: sem ela, o mesmo
@@ -369,12 +376,10 @@ antigo sob a chave do código novo. Aconteceu nesta sprint e apareceu como 16 cl
 
 | Pendência | Próximo experimento |
 | --- | --- |
-| custo na Jetson | rodar o executor na GPU da placa com o `run.json` de procedência, antes de ligar o T-DEED na borda |
 | licença do peso | registrar com o parceiro e a orientação o uso de um peso sem licença declarada, com o número desta página |
 | efeito nas features | medir `type_of_play` e `body_part` no catálogo com o instante novo, porque 24 clipes não bastam para macro-F1 |
 | adiantamento de 6 quadros | testar um deslocamento fixo uma única vez no pacote reservado, depois do congelamento, e não nos 24 de ajuste |
 | tamanho do conjunto de desenvolvimento | anotar de 24 para 60 clipes, que é o mínimo para o teste de sinal pareado resolver uma mudança do tamanho das que esta sprint produziu |
-| custo na Jetson | 8 a 18 s por clipe em CPU aqui não diz nada sobre a placa; medir latência, memória e energia antes de considerar embarque |
 | conjunto reservado | uma única execução depois do congelamento, sem recalibrar nos mesmos 14 clipes |
 | detecção, e não localização | o resultado atual assume que o clipe contém uma finalização; medir o comportamento em corte sem chute é outro experimento |
 | medida que ordene as quebras | descartada por ora: seis hipóteses falharam contra o nulo e o T-DEED resolve o mesmo problema por outro caminho |

@@ -122,6 +122,9 @@ PACOTES = (
     "onnxruntime",
     "onnxruntime-gpu",
     "tensorrt",
+    "tensorrt-cu13",
+    "tensorrt-cu12",
+    "timm",
 )
 """Os pacotes cujo numero de versao muda o resultado ou o tempo, e nenhum a mais."""
 

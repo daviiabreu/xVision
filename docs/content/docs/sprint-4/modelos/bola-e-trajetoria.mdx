@@ -1,12 +1,13 @@
 ---
 title: Bola e trajetória
-description: Segunda passada cega da anotação do piloto e o que ela diz sobre o gabarito da bola
+description: Segunda passada cega do gabarito do piloto e a bola repetida na Jetson em TensorRT
 ---
 
 Esta página continua a [bola e trajetória da Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria)
 e trata de uma pendência dela: o gabarito do piloto nunca tinha sido conferido. Nesta sprint ele
 recebeu uma segunda passada cega, feita pelo mesmo anotador, e passou no critério que a spec definiu.
-O detector, o rastreador e a configuração da bola não mudaram.
+O detector, o rastreador e a configuração da bola não mudaram. A bola também foi repetida na Jetson,
+em TensorRT, contra o PyTorch.
 
 ## Onde se encaixa no fluxo
 
@@ -75,6 +76,25 @@ erro do gabarito e não do modelo.
 máximo de 19,3 para 0,535, com a mediana praticamente igual. A cauda descreve um clipe, e não o
 gabarito inteiro.
 
+## Na Jetson, em TensorRT
+
+A outra pendência da Sprint 3 era repetir a bola no dispositivo. O plano TensorRT fp16 de lote 4
+foi construído na placa, a partir de um ONNX versionado, e medido no mesmo piloto anotado contra o
+PyTorch fp16, os dois na Jetson:
+
+| Piloto, 328 quadros | PyTorch fp16 | TensorRT fp16 |
+| --- | --- | --- |
+| PCK por diâmetro | 0,3028 | 0,2997 |
+| erro do centro, mediana | 256,7 px | 257,1 px |
+| erro do centro, p95 | 566,0 px | 566,0 px |
+| pontos detectados, interpolados | 315, 13 | 315, 13 |
+| trocas de trilha | 0 | 0 |
+
+A diferença é de um quadro no PCK. Com o ranking desligado, o ponto escolhido é a detecção que o
+rastreador aceita, então essa tabela é a paridade de candidatos e de ponto escolhido que a Sprint 3
+deixou pendente. Na etapa completa, a bola passa de 21,8 para 16,3 s por clipe; o custo, a memória
+e a configuração versionada estão na [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
+
 ## Decisões
 
 **A segunda passada foi feita pelo mesmo anotador.** A spec pedia outra pessoa. Davi, que fez a
@@ -86,6 +106,11 @@ conferência até alguém estar disponível.
 **A página não mostra nada da primeira passada.** Ela recebe só o quadro e as marcas desta própria
 passada. A alternativa descartada era revisar a primeira passada ponto a ponto, que é mais rápido e
 mede outra coisa: quem revê uma marca tende a aceitá-la.
+
+**O resíduo de movimento fica desligado, sem medida na placa.** Ele só existe dentro do ranking de
+candidatos, que a comparação de 07/09 rejeitou e que está desligado em todas as configurações. Medir
+o custo dele na Jetson responderia a uma pergunta que nenhuma configuração em uso faz; se o ranking
+voltar, a medida volta junto.
 
 **O contexto temporal fica disponível, e a marca só vale no quadro alvo.** A primeira passada teve o
 clipe inteiro. Negar movimento na segunda mediria a falta dele, e não a concordância.
@@ -115,7 +140,6 @@ não: ele é decidido por três ou quatro quadros.
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
 | concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
-| paridade embarcada da bola                      | segue dependendo da Jetson, como na Sprint 3                                                |
 
 ## Referências
 

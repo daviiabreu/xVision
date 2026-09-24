@@ -257,6 +257,23 @@ que execute um clipe autorizado em clone e volume vazios. O aceite exige validar
 produzir um MP4 com bola e visão superior, registrando comando, revisão, configuração e resultado
 agregado. Esse teste de independência ainda está pendente; a execução sem pesos não o substitui.
 
+## Na Jetson
+
+Na Jetson Orin Nano de 8 GB o pipeline roda em duas etapas, porque o T-DEED e as outras espécies
+não cabem juntos na memória. O ambiente precisa do grupo `jetson`, que traz o TensorRT e o
+exportador de ONNX:
+
+```bash
+uv sync --frozen --all-extras --group jetson
+uv run xvision spots --config config/pipeline.models.toml --dobra ajuste
+uv run xvision run --all --dobra ajuste --config config/pipeline.models.duas-etapas.toml
+```
+
+As duas chamadas precisam do mesmo recorte de clipes. Para usar os planos TensorRT de bola e campo,
+a segunda etapa troca a configuração por `config/pipeline.models.jetson.toml`, depois de construir
+os planos como o cabeçalho dela descreve. As medições, os requisitos atendidos e o que ficou de fora
+estão na [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
+
 ## Diagnóstico
 
 | Sintoma | Conferência e ação |

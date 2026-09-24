@@ -1,0 +1,30 @@
+# O ONNX de lote 4 de onde sai o plano TensorRT da bola na Jetson.
+#
+# Diferente do 0.1.0 no lote (os quatro ladrilhos de um quadro vao numa chamada so) e no ambiente:
+# exportado na propria placa por `python -m mlops.export_onnx --batch 4`, duas vezes, com os dois
+# arquivos iguais byte a byte. O sha256 do 0.1.0 nao se repete fora do ambiente em que foi gerado,
+# por isso este e outra versao e nao uma correcao.
+schema_version = "1.0"
+kind = "ball"
+name = "yolo-football-ball-detection-onnx"
+version = "0.2.0"
+entrypoint = "yolo-football-ball-detection.onnx"
+
+[[files]]
+path = "yolo-football-ball-detection.onnx"
+sha256 = "0efa48783923aa6e40af7c6c54bc16850306f4c4068dfde20706e77604d278ca"
+bytes = 11048172
+
+[source]
+parent_pt_sha256 = "fb37942448e7de08745e8aab148d0794f680a738ddd55e5f17abe9ab2d6313fb"
+exporter = "ultralytics-8.4.129"
+torch = "2.13.0"
+onnx = "1.22.0"
+opset = "17"
+input = "images:float32:4x3x992x1600:NCHW"
+output = "output0:float32:4x5x32550"
+dynamic = "false"
+nms = "false"
+exported_on = "Jetson Orin Nano Super, L4T R39.2.1, Python 3.10.21"
+hub = "xvisionm11/yolo-football-ball-detection-onnx"
+hub_revision = "v0.2.0"

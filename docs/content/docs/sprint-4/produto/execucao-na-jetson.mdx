@@ -1,0 +1,202 @@
+---
+title: Execução na Jetson
+description: O pipeline de produção medido no dispositivo, com memória, energia, meia precisão e TensorRT
+---
+
+A revisão da Sprint 3 deixou quatro apontamentos que só o dispositivo fecha: a execução com os
+módulos reais feita na placa, e não na estação; o pipeline completo em meia precisão; os dados
+brutos das medições publicadas; e a configuração TensorRT versionada. Esta página traz as quatro
+medições, feitas em 24/09/2026 nos 24 clipes de desenvolvimento com instante anotado. A lista
+completa dos apontamentos está na [entrada da sprint](/docs/sprint-4#o-que-veio-da-revisão-da-sprint-3).
+
+## A placa
+
+| Item              | Valor                                                                          |
+| ----------------- | ------------------------------------------------------------------------------ |
+| placa             | Jetson Orin Nano Engineering Reference Developer Kit Super, 6 núcleos, 7,3 GiB |
+| sistema           | Ubuntu 24.04.4, kernel 6.8.12-1021-tegra, L4T R39.2.1                          |
+| modo de energia   | `MAXN_SUPER`                                                                   |
+| runtime           | torch 2.13.0+cu130, ultralytics 8.4.129, TensorRT 11.3.0.99 (pip)              |
+| interface gráfica | ligada durante todas as medições, com 2,4 GB ocupados com a placa parada       |
+
+O torch do PyPI foi compilado para `sm_80` e avisa que a Orin, `sm_87`, não está entre as
+arquiteturas da build. Ele roda assim mesmo, e a medida abaixo mostra que o resultado não muda: os
+instantes da placa são idênticos aos da estação.
+
+## Onde se encaixa no fluxo
+
+```text
+etapa 1  xvision spots   (config/pipeline.models.toml)
+         clipe -> quadros a 12 fps -> T-DEED na GPU -> var/spots/tdeed.jsonl
+
+etapa 2  xvision run     (config/pipeline.models.duas-etapas.toml ou pipeline.models.jetson.toml)
+         clipe -> jogadores, bola, campo, pose, identidade, rastreio
+               -> instante lido de var/spots/tdeed.jsonl -> features -> ShotEvent 1.0
+```
+
+Cada etapa carrega só os próprios modelos e tem a GPU inteira para si.
+
+## Por que duas etapas
+
+A produção rodava o T-DEED em outro processo, chamado de dentro do pipeline. Na placa isso não
+coube:
+
+| O que roda                            | Pico de RAM da placa                          |
+| ------------------------------------- | --------------------------------------------- |
+| placa parada, com a interface gráfica | 2,4 GB                                        |
+| pipeline sem o T-DEED                 | 5,4 GB                                        |
+| T-DEED sozinho                        | 5,7 GB                                        |
+| os dois ao mesmo tempo                | passa dos 7,3 GB, e o alocador do torch falha |
+
+Na Orin a GPU usa a mesma RAM do sistema, e a memória que o CUDA reserva não vai para o swap.
+Com 4 GB de swap temporário, 2 de 3 clipes ainda falharam. Liberar o cache do alocador antes de
+chamar o T-DEED e converter a entrada dele para meia precisão também não bastaram.
+
+**A decisão foi separar em duas etapas**, mesclada na !106. A primeira roda só o `shot` e grava um
+instante por clipe; a segunda roda o resto do pipeline com o instante lido do arquivo.
+
+## Instante na placa
+
+| Medida, 24 clipes                          | Placa, GPU                         | Estação, CPU |
+| ------------------------------------------ | ---------------------------------- | ------------ |
+| instantes iguais                           | 24 de 24, diferença de zero quadro | referência   |
+| dentro de 30 quadros                       | 1,000                              | 1,000        |
+| mediana do erro                            | 5 quadros                          | 5 quadros    |
+| T-DEED por clipe, com a subida do processo | 13,8 s na mediana, 15,0 s no p95 | cerca de 20 s em clipe de até 100 passos, 35 a 45 s acima disso |
+
+## Pipeline completo, fp32 contra meia precisão
+
+As duas execuções usam a segunda etapa, os mesmos 24 clipes e o cache de percepção limpo antes de
+cada uma. A única diferença é o `quantize = "fp16"` em jogadores e bola. O campo roda em fp32 nas
+duas, porque a meia precisão o deixa mais lento, como medido na
+[Sprint 3](/docs/sprint-3/modelos/desempenho-e-paralelismo).
+
+| Por clipe                                     | fp32    | fp16 (produção) | Mudança              |
+| --------------------------------------------- | ------- | --------------- | -------------------- |
+| tempo da etapa 2                              | 72,5 s  | 49,1 s          | -32%                 |
+| energia da etapa 2                            | 1122 J  | 670 J           | -40%                 |
+| potência média                                | 15,5 W  | 13,6 W          |                      |
+| pico de RAM da placa                          | 6,5 GB  | 6,3 GB          |                      |
+| temperatura máxima (junção)                   | 67,7 °C | 64,7 °C         |                      |
+| jogadores, mediana                            | 35,4 s  | 18,2 s          | -49%                 |
+| bola, mediana                                 | 29,3 s  | 21,8 s          | -26%                 |
+| campo, mediana                                | 5,1 s   | 5,2 s           | igual, fp32 nas duas |
+| identidade, pose e rastreio, medianas somadas | 3,8 s   | 3,8 s           |                      |
+
+Somando a primeira etapa (15,9 s e 96 J por clipe), a produção em meia precisão processa um clipe
+em **65 s e 766 J** na placa.
+
+## TensorRT, versionado
+
+A revisão apontou que o plano TensorRT da Sprint 3 não tinha configuração versionada: ninguém
+sabia de que ONNX cada plano tinha saído. Agora a cadeia inteira é reproduzível e fica registrada:
+
+```text
+peso .pt (manifesto) -> ONNX (mlops.export_onnx, duas exportações iguais byte a byte)
+                     -> ONNX de trabalho (fp16, saída renomeada) -> plano (mlops.build_engine)
+config/pipeline.models.jetson.toml declara o plano e o sha256 do ONNX de origem
+```
+
+| Plano | ONNX de origem | Tamanho | Construção |
+| --- | --- | --- | --- |
+| bola, lote 4, 992x1600 | `yolo-football-ball-detection-onnx` 0.2.0, `0efa4878…` | 155 MB | 284 s |
+| campo, 544x960 | `pitch-keypoints-yolo11n-pose-onnx` 0.2.0, `997c44c7…` | 90 MB | 247 s |
+
+Os dois ONNX têm manifesto no repositório e cópia privada no Hugging Face, e os planos ficam em
+`var/engines/`, fora do Git, porque não atravessam versão de TensorRT nem placa. Dois detalhes do
+TensorRT 11 entraram no construtor. Ele tirou a flag de meia precisão, então o ONNX é convertido
+para fp16 antes, com entrada e saída mantidas em fp32. E a saída do exportador se chama `output0`,
+enquanto o contrato dos detectores chama o binding de `predictions`: o nome é trocado no ONNX de
+trabalho, e não no publicado.
+
+| Por clipe, etapa 2 | fp16 PyTorch | fp16 TensorRT | Mudança |
+| --- | --- | --- | --- |
+| tempo | 49,1 s | 43,9 s | -11% |
+| energia | 670 J | 562 J | -16% |
+| potência média | 13,6 W | 12,8 W | |
+| pico de RAM da placa | 6,3 GB | 6,9 GB | +0,6 GB |
+| bola, mediana | 21,8 s | 16,3 s | -25% |
+| campo, mediana | 5,2 s | 2,6 s | -50% |
+
+**A bola em TensorRT reproduz a PyTorch.** No piloto anotado de 328 quadros, o PCK por diâmetro
+vai de 0,3028 para 0,2997, um quadro a menos, com a mesma mediana e o mesmo p95 do erro do centro e
+o mesmo número de pontos detectados e interpolados. Nas features dos 24 clipes, `body_part` e
+`type_of_play` coincidem em 23 e `looked_before` e `goalkeeper_position` em 22: as diferenças vêm
+dos números da bola e do campo, que mudam pouco com o plano.
+
+**O preço do TensorRT é memória.** Os planos somam 245 MB, cada um reserva a própria memória de
+ativação na GPU, e o pico da placa sobe para 92% da RAM com a interface gráfica ligada.
+
+## Memória e energia contra os requisitos
+
+**RNF-04 não é atendido com a interface gráfica ligada.** O
+[requisito](/docs/sprint-1/requisitos/nao-funcionais) pede uso de memória abaixo de 70% da
+capacidade, e a segunda etapa chega a 84% no pico em PyTorch e a 92% com TensorRT. Com a placa parada, a interface gráfica já ocupa
+2,4 GB. Um dispositivo de borda operando no campo não teria tela, e a mesma medida sem a interface
+é o primeiro experimento pendente.
+
+**RNF-05 tem potência média e energia por clipe registradas** para fp32, fp16 e TensorRT, com o
+modo de energia declarado. Os 90 minutos contínuos que ele exige ficaram para a execução do
+catálogo, que roda por horas seguidas com o `tegrastats` ligado. Nas execuções desta página, de 20
+a 30 minutos, a temperatura máxima foi de 67,7 °C, sem sinal de estrangulamento.
+
+## Como reproduzir
+
+Em `src/`, com `uv sync --frozen --all-extras --group jetson`:
+
+```bash
+xvision spots --config config/pipeline.models.toml --gabarito --dobra ajuste
+xvision cache clear
+tegrastats --interval 1000 --logfile ../var/runs/etapa2.tegrastats.log &
+xvision run --all --gabarito --dobra ajuste --config config/pipeline.models.duas-etapas.toml
+xvision tegrastats ../var/runs/etapa2.tegrastats.log --clipes 24
+```
+
+Cada `run.json` grava commit, placa, JetPack, CUDA, versões de runtime e o ajuste de cada espécie.
+Os dados brutos agregados, sem identificador de clipe, estão em
+[`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json).
+
+## Decisões
+
+**O instante sai antes do resto do pipeline.** A alternativa descartada era desligar a interface
+gráfica e manter um processo só. Ela resolve esta placa e não a próxima: o pico de 5,7 GB do T-DEED
+sozinho não deixa margem para outra espécie crescer. A desvantagem é decodificar o clipe duas vezes,
+cerca de 2 s por clipe.
+
+**A meia precisão fica na produção.** Ela corta 32% do tempo e 40% da energia sem mudar o instante,
+que vem da primeira etapa, e a Sprint 3 já tinha medido a concordância das caixas com o fp32.
+
+**O TensorRT fica versionado e medido, mas a configuração de uso contínuo na placa segue em PyTorch
+fp16.** Ele poupa mais 11% do tempo e 16% da energia, e em troca leva a memória a 92%, sem margem
+para um clipe mais longo que os 24 medidos. A alternativa descartada era adotá-lo já, e a troca fica
+para depois do experimento sem interface gráfica, que devolve a margem.
+
+**O tempo de cada espécie sai do `run.json` com o cache limpo.** A primeira execução em duas etapas
+reaproveitou percepção das tentativas anteriores, e um acerto de cache aparece como tempo quase
+zero. Ela vale como prova de que o fluxo cabe, e não como medida de tempo.
+
+## Trade-offs
+
+Duas etapas deixaram o pipeline caber na placa e mantiveram o instante idêntico. A desvantagem
+principal é operacional: o dispositivo passa a ter duas chamadas por clipe, e as duas precisam do
+mesmo recorte de clipes, o que o código garante por um único auxiliar de seleção.
+
+## Riscos e incertezas
+
+**Torch fora da lista de arquiteturas.** A build do PyPI não declara `sm_87`. Hoje funciona, e o
+próximo `uv lock` pode trazer uma versão que não funcione. A saída está registrada: o JetPack tem
+torch próprio para a Orin.
+
+**Memória no limite.** Mesmo em duas etapas, o pico da segunda etapa é de 84% da RAM com a
+interface gráfica ligada. Uma espécie a mais, ou um modelo maior, volta a faltar memória.
+
+**São 24 clipes.** O tempo por clipe varia com a duração do corte, e o p95 é decidido por dois ou
+três clipes longos.
+
+## Ainda não implementado
+
+| Pendência                      | Próximo experimento                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| RNF-04 sem a interface gráfica | repetir a segunda etapa em PyTorch e em TensorRT com a placa em modo texto e comparar o pico |
+| RNF-05, 90 minutos contínuos   | ler o `tegrastats` do catálogo noturno: temperatura, frequência e crescimento de memória   |
+| decodificação por hardware     | o OpenCV do lock decodifica na CPU; o NVDEC da placa exige GStreamer, que o wheel não traz |

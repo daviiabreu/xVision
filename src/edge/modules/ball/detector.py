@@ -825,7 +825,7 @@ def _engine_backend(
     qualquer coisa". O `quantize` levanta em vez de ser ignorado: a precisao de um plano foi
     fixada na construcao, e aceitar o ajuste calado faria o TOML descrever algo que nao acontece.
     """
-    from edge.trt import tensorrt_loader
+    from edge.trt import tensorrt_loader, tensorrt_version
 
     plano = Path(config.engine)
     if not plano.is_file():
@@ -843,7 +843,7 @@ def _engine_backend(
         provider="tensorrt",
         device=config.device,
         loader=tensorrt_loader(),
-        runtime_versions=(("tensorrt", version("tensorrt")),),
+        runtime_versions=(("tensorrt", tensorrt_version()),),
     )
     artifact = RuntimeArtifact(
         path=plano,

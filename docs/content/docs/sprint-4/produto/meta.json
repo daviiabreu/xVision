@@ -2,6 +2,7 @@
   "title": "Produto",
   "pages": [
     "proveniencia-de-execucao",
-    "execucao-com-modulos-reais"
+    "execucao-com-modulos-reais",
+    "execucao-na-jetson"
   ]
 }

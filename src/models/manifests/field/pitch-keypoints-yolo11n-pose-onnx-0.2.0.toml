@@ -1,0 +1,29 @@
+# O ONNX de onde sai o plano TensorRT do campo na Jetson.
+#
+# Mesmo shape do 0.1.0, exportado na propria placa por `python -m mlops.export_onnx`, duas vezes, com
+# os dois arquivos iguais byte a byte. O sha256 difere do 0.1.0 porque o ambiente mudou (ultralytics
+# 8.4.129 contra 8.4.123), e a exportacao so se repete no mesmo ambiente.
+schema_version = "1.0"
+kind = "field"
+name = "pitch-keypoints-yolo11n-pose-onnx"
+version = "0.2.0"
+entrypoint = "best.onnx"
+
+[[files]]
+path = "best.onnx"
+sha256 = "997c44c7a95bf80721c18a69a2363e386251c41d2f1aacb57055a660173984d8"
+bytes = 13062983
+
+[source]
+parent_pt_sha256 = "650a84407ae9833106d87b39a2063d2ab8b92e8ac12c2d4f36ffd09f0de37674"
+exporter = "ultralytics-8.4.129"
+torch = "2.13.0"
+onnx = "1.22.0"
+opset = "17"
+input = "images:float32:1x3x544x960:NCHW"
+output = "output0:float32:1x92x10710"
+dynamic = "false"
+nms = "false"
+exported_on = "Jetson Orin Nano Super, L4T R39.2.1, Python 3.10.21"
+hub = "xvisionm11/pitch-keypoints-yolo11n-pose-onnx"
+hub_revision = "v0.2.0"

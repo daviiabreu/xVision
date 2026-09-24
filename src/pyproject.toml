@@ -56,6 +56,15 @@ dev = [
     "pyyaml>=6.0",
     "httpx2>=2.0",
 ]
+# So na placa: `uv sync --frozen --all-extras --group jetson`. O plano TensorRT so abre na versao
+# que o gerou, e quem constroi e quem abre e este binding, e nao o `trtexec` do apt (10.16), que
+# nao tem pacote para o Python 3.10 do projeto. O `onnx` e o do exportador, `mlops.export_onnx`, e o
+# conversor de fp16 existe porque o TensorRT 11 tirou `BuilderFlag.FP16`.
+jetson = [
+    "tensorrt-cu13==11.3.0.99; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "onnx==1.22.0",
+    "onnxconverter-common==1.16.0",
+]
 
 [build-system]
 requires = ["hatchling"]

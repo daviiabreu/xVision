@@ -24,9 +24,19 @@ def normalize_date(model: Any) -> None:
             entry.value = "1970-01-01T00:00:00"
 
 
-def export_repeated(manifest: Path, output: Path, shape: tuple[int, int]) -> dict[str, object]:
+def export_repeated(
+    manifest: Path, output: Path, shape: tuple[int, int], batch: int = 1
+) -> dict[str, object]:
+    """Exporta duas vezes e exige os dois arquivos iguais byte a byte.
+
+    `batch` existe por causa do plano TensorRT da bola: os quatro ladrilhos de um quadro vao numa
+    chamada so, e um plano tem o shape assado dentro, entao o ONNX de onde ele sai precisa ter o
+    lote 4 declarado. O padrao continua 1, que e o que o campo usa.
+    """
     if any(value <= 0 or value % 32 for value in shape):
         raise ValueError("shape exige altura e largura positivas e multiplas de 32")
+    if batch <= 0:
+        raise ValueError("batch exige um lote positivo")
     weight = resolve(read_manifest(manifest))
     onnx = cast("Any", import_module("onnx"))
     yolo = cast("Any", import_module("ultralytics")).YOLO
@@ -43,7 +53,7 @@ def export_repeated(manifest: Path, output: Path, shape: tuple[int, int]) -> dic
                         format="onnx",
                         imgsz=shape,
                         opset=17,
-                        batch=1,
+                        batch=batch,
                         dynamic=False,
                         simplify=False,
                         nms=False,
@@ -57,7 +67,7 @@ def export_repeated(manifest: Path, output: Path, shape: tuple[int, int]) -> dic
             if len(inputs) != 1:
                 raise ValueError("export exige exatamente uma entrada")
             dimensions = [dimension.dim_value for dimension in inputs[0].type.tensor_type.shape.dim]
-            if dimensions != [1, 3, *shape]:
+            if dimensions != [batch, 3, *shape]:
                 raise ValueError("export produziu shape diferente do declarado")
             normalize_date(model)
             onnx.checker.check_model(model)
@@ -70,7 +80,7 @@ def export_repeated(manifest: Path, output: Path, shape: tuple[int, int]) -> dic
     report: dict[str, object] = {
         "manifest_sha256": sha256_of(manifest),
         "weight_sha256": sha256_of(weight),
-        "shape": [1, 3, *shape],
+        "shape": [batch, 3, *shape],
         "opset": 17,
         "raw_sha256": raw_digests,
         "normalized_sha256": digests,
@@ -91,10 +101,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--height", type=int, required=True)
     parser.add_argument("--width", type=int, required=True)
+    parser.add_argument("--batch", type=int, default=1)
     args = parser.parse_args()
-    print(
-        json.dumps(export_repeated(args.manifest, args.output, (args.height, args.width)), indent=2)
-    )
+    relatorio = export_repeated(args.manifest, args.output, (args.height, args.width), args.batch)
+    print(json.dumps(relatorio, indent=2))
 
 
 if __name__ == "__main__":

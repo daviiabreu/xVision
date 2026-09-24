@@ -326,6 +326,32 @@ def spots(
     typer.echo(str(destino))
 
 
+TEGRASTATS_CLIPES = typer.Option(
+    None, help="Quantos clipes a execucao processou, para o por clipe."
+)
+TEGRASTATS_JSON = typer.Option(None, help="Grava o resumo em JSON.")
+
+
+@app.command("tegrastats")
+def tegrastats_resumo(
+    log: Path,
+    clipes: int | None = TEGRASTATS_CLIPES,
+    saida: Path | None = TEGRASTATS_JSON,
+) -> None:
+    """Pico de memoria, potencia e energia de uma execucao na Jetson, a partir do `tegrastats`."""
+    from mlops.tegrastats import TegrastatsError, le, resume
+
+    try:
+        resumo = resume(le(log), clipes)
+    except TegrastatsError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    texto = json.dumps(resumo, indent=2)
+    if saida is not None:
+        saida.write_text(texto + "\n", encoding="utf-8")
+    typer.echo(texto)
+
+
 def _run_catalog(
     out: Path | None,
     config: Path,

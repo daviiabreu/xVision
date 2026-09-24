@@ -194,6 +194,28 @@ def test_as_duas_etapas_so_diferem_da_producao_no_instante() -> None:
     )
 
 
+def test_a_configuracao_da_jetson_so_troca_bola_e_campo_por_plano() -> None:
+    """A placa roda as duas etapas com plano TensorRT em `ball` e `field`, e nada mais muda.
+
+    Plano sem o sha256 do ONNX de origem seria um binario opaco: nao daria para saber de que peso
+    ele saiu. E `quantize` junto de `engine` e recusado pelo detector, porque a precisao ja foi
+    fixada na construcao do plano.
+    """
+    etapas = {c.kind: c for c in read_config(Path("config/pipeline.models.duas-etapas.toml"))}
+    jetson = {c.kind: c for c in read_config(Path("config/pipeline.models.jetson.toml"))}
+
+    assert set(etapas) == set(jetson)
+    for kind in ("ball", "field"):
+        opcoes = dict(jetson[kind].options)
+        assert str(opcoes.pop("engine")).startswith("../var/engines/"), kind
+        assert len(str(opcoes.pop("engine_onnx_sha256"))) == 64, kind
+        assert "quantize" not in opcoes, kind
+        esperado = {k: v for k, v in etapas[kind].options.items() if k != "quantize"}
+        assert opcoes == esperado, kind
+    for kind in sorted(set(etapas) - {"ball", "field"}):
+        assert etapas[kind] == jetson[kind], f"{kind} diverge entre duas etapas e jetson"
+
+
 def test_a_janela_so_difere_do_oraculo_no_frameset_da_pose() -> None:
     """Taxa nativa ancorada no chute e a unica variavel dessa configuracao."""
     oraculo = {c.kind: c for c in read_config(Path("config/pipeline.oracle.toml"))}

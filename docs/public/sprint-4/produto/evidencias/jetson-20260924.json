@@ -1,0 +1,557 @@
+{
+  "schema_version": "1.0",
+  "data": "2026-09-24",
+  "descricao": "pipeline de producao na Jetson, em duas etapas, nos 24 clipes de desenvolvimento com instante anotado",
+  "dados_privados_copiados": false,
+  "placa": {
+    "hardware": {
+      "machine": "aarch64",
+      "processor": "aarch64",
+      "cpu_count": 6,
+      "release": "6.8.12-1021-tegra",
+      "tegra_release": "# R39 (release), REVISION: 2.1, GCID: 46758480, BOARD: generic, EABI: aarch64, DATE: Fri Aug  7 05:54:22 AM UTC 2026",
+      "gpu": "Orin",
+      "gpu_memory_mb": 7849
+    },
+    "runtime_etapa2": {
+      "torch": "2.13.0",
+      "torchvision": "0.28.0",
+      "ultralytics": "8.4.129",
+      "opencv-python-headless": "5.0.0.93",
+      "numpy": "2.2.6",
+      "cuda": "13.0",
+      "cudnn": "92000"
+    },
+    "python": "3.10.21",
+    "platform": "linux-aarch64",
+    "modo_de_energia": "MAXN_SUPER",
+    "interface_grafica": "ligada"
+  },
+  "memoria_sem_duas_etapas": {
+    "placa_parada_mb": 2400,
+    "pipeline_sem_tdeed_pico_mb": 5442,
+    "tdeed_sozinho_pico_mb": 5703,
+    "os_dois_juntos": "passa de 7486 MB; o alocador do torch falha em todo clipe",
+    "com_swap_4gb": "1 de 3 e depois 2 de 3 clipes com o T-DEED; a memoria do CUDA nao vai para o swap"
+  },
+  "etapa1_tdeed": {
+    "configuracao": "config/pipeline.models.toml",
+    "git_sha": "782beee",
+    "git_dirty": false,
+    "config_sha256": "050fa979adb85645c2adb1bd3ec6a3710f532788a1291c59bf410d59b8f737cd",
+    "modulo": {
+      "name": "tdeed",
+      "version": "0.1.0",
+      "tuning": "runner=f4c651e2f687b128;source=a680ddf053647743;device=auto"
+    },
+    "runtime": {
+      "torch": "2.13.0",
+      "torchvision": "0.28.0",
+      "ultralytics": "8.4.129",
+      "opencv-python-headless": "5.0.0.93",
+      "numpy": "2.2.6"
+    },
+    "instantes_iguais_aos_da_estacao": "24 de 24",
+    "dentro_de_30_quadros": 1.0,
+    "mediana_erro_quadros": 5,
+    "tdeed_por_clipe_s": {
+      "mediana": 13.8,
+      "p95": 15.0,
+      "max": 25.3
+    },
+    "tegrastats": {
+      "amostras": 380,
+      "duracao_s": 382.0,
+      "ram_total_mb": 7486,
+      "ram_pico_mb": 5287,
+      "swap_pico_mb": 475,
+      "gpu_ocupada": 0.179,
+      "potencia_media_w": 6.02,
+      "potencia_mediana_w": 5.17,
+      "potencia_pico_w": 13.13,
+      "energia_j": 2299.8,
+      "temperatura_pico_c": 50.875,
+      "clipes": 24,
+      "energia_por_clipe_j": 95.8,
+      "segundos_por_clipe": 15.9
+    }
+  },
+  "etapa2_fp32": {
+    "configuracao": "var/experimentos/pipeline.models.duas-etapas.fp32.toml: duas-etapas sem as duas linhas quantize",
+    "config_sha256": "673a68d73d0677e20c1853e600d47203f26828980a6f8ea1f1fc0ebf9fff6c7b",
+    "git_sha": "782beee",
+    "git_dirty": false,
+    "clipes": 24,
+    "especies": {
+      "ball": {
+        "implementacao": "yolo-ball",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "conf=0.1;imgsz=1600;ladrilhos=2;letterbox='cuda';sobreposicao_px=100;tracker={'max_ball_speed_px_per_s': 3000.0, 'max_gap_frames': 5, 'gate_margin': 1.5, 'flag_stationary': False, 'stationary_radius_px': 6.0, 'stationary_frames': 45, 'candidate_order': False};ranking=False,2",
+        "duracao_ms": {
+          "median": 29283.4,
+          "p95": 40398.3,
+          "mean": 28744.1,
+          "min": 16731.8,
+          "max": 51169.9
+        }
+      },
+      "field": {
+        "implementacao": "yolo-field",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "{\"conf\": 0.25, \"device\": \"\", \"imgsz\": 960, \"keypoint_confidence\": 0.25, \"line_refinement\": false, \"max_reprojection_p95_px\": 10.0, \"method\": \"ransac\", \"min_inliers\": 6, \"quantize\": \"fp32\", \"threshold_diagonal_fraction\": 0.0025}",
+        "duracao_ms": {
+          "median": 5112.3,
+          "p95": 7508.6,
+          "mean": 5014.5,
+          "min": 3013.3,
+          "max": 8214.0
+        }
+      },
+      "identity": {
+        "implementacao": "team-color",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 2643.0,
+          "p95": 3542.3,
+          "mean": 2703.6,
+          "min": 1312.0,
+          "max": 4736.8
+        }
+      },
+      "marking": {
+        "implementacao": "stub-marking",
+        "status": "failed",
+        "clipes_com_falha": 24,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 229.8,
+          "p95": 311.3,
+          "mean": 221.9,
+          "min": 130.3,
+          "max": 367.2
+        }
+      },
+      "players": {
+        "implementacao": "yolo-players",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 35365.0,
+          "p95": 47956.1,
+          "mean": 34071.5,
+          "min": 20800.5,
+          "max": 59553.6
+        }
+      },
+      "pose": {
+        "implementacao": "yolo-pose",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 830.9,
+          "p95": 1168.4,
+          "mean": 831.0,
+          "min": 375.1,
+          "max": 1364.4
+        }
+      },
+      "shot": {
+        "implementacao": "precomputed",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "spots=8fd6a999ecfd36c6",
+        "duracao_ms": {
+          "median": 78.8,
+          "p95": 97.9,
+          "mean": 81.2,
+          "min": 62.3,
+          "max": 122.1
+        }
+      },
+      "tracking": {
+        "implementacao": "greedy-iou",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 371.7,
+          "p95": 511.9,
+          "mean": 367.2,
+          "min": 175.5,
+          "max": 538.5
+        }
+      }
+    },
+    "tegrastats": {
+      "amostras": 1730,
+      "duracao_s": 1740.0,
+      "ram_total_mb": 7486,
+      "ram_pico_mb": 6532,
+      "swap_pico_mb": 645,
+      "gpu_ocupada": 0.889,
+      "potencia_media_w": 15.48,
+      "potencia_mediana_w": 15.59,
+      "potencia_pico_w": 19.53,
+      "energia_j": 26931.1,
+      "temperatura_pico_c": 67.718,
+      "clipes": 24,
+      "energia_por_clipe_j": 1122.1,
+      "segundos_por_clipe": 72.5
+    }
+  },
+  "etapa2_fp16": {
+    "configuracao": "config/pipeline.models.duas-etapas.toml",
+    "config_sha256": "df4ce54bd1609c66f2be7ec4f709dbb2c278b50060bfecdde98dc29503556cab",
+    "git_sha": "782beee",
+    "git_dirty": false,
+    "clipes": 24,
+    "especies": {
+      "ball": {
+        "implementacao": "yolo-ball",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "conf=0.1;imgsz=1600;ladrilhos=2;letterbox='cuda';quantize='fp16';sobreposicao_px=100;tracker={'max_ball_speed_px_per_s': 3000.0, 'max_gap_frames': 5, 'gate_margin': 1.5, 'flag_stationary': False, 'stationary_radius_px': 6.0, 'stationary_frames': 45, 'candidate_order': False};ranking=False,2",
+        "duracao_ms": {
+          "median": 21748.1,
+          "p95": 35040.0,
+          "mean": 21833.7,
+          "min": 12517.3,
+          "max": 41012.3
+        }
+      },
+      "field": {
+        "implementacao": "yolo-field",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "{\"conf\": 0.25, \"device\": \"\", \"imgsz\": 960, \"keypoint_confidence\": 0.25, \"line_refinement\": false, \"max_reprojection_p95_px\": 10.0, \"method\": \"ransac\", \"min_inliers\": 6, \"quantize\": \"fp32\", \"threshold_diagonal_fraction\": 0.0025}",
+        "duracao_ms": {
+          "median": 5198.1,
+          "p95": 7238.9,
+          "mean": 5108.3,
+          "min": 3069.3,
+          "max": 8613.4
+        }
+      },
+      "identity": {
+        "implementacao": "team-color",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 2610.4,
+          "p95": 3520.2,
+          "mean": 2690.8,
+          "min": 1530.4,
+          "max": 4706.5
+        }
+      },
+      "marking": {
+        "implementacao": "stub-marking",
+        "status": "failed",
+        "clipes_com_falha": 24,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 225.6,
+          "p95": 322.5,
+          "mean": 232.1,
+          "min": 130.9,
+          "max": 497.7
+        }
+      },
+      "players": {
+        "implementacao": "yolo-players",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "quantize=fp16",
+        "duracao_ms": {
+          "median": 18159.2,
+          "p95": 26038.7,
+          "mean": 17603.5,
+          "min": 11176.4,
+          "max": 28310.0
+        }
+      },
+      "pose": {
+        "implementacao": "yolo-pose",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 793.0,
+          "p95": 1279.8,
+          "mean": 817.8,
+          "min": 401.8,
+          "max": 1349.1
+        }
+      },
+      "shot": {
+        "implementacao": "precomputed",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "spots=8fd6a999ecfd36c6",
+        "duracao_ms": {
+          "median": 75.2,
+          "p95": 93.2,
+          "mean": 76.4,
+          "min": 58.7,
+          "max": 135.8
+        }
+      },
+      "tracking": {
+        "implementacao": "greedy-iou",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 369.5,
+          "p95": 513.2,
+          "mean": 374.1,
+          "min": 176.3,
+          "max": 751.2
+        }
+      }
+    },
+    "tegrastats": {
+      "amostras": 1173,
+      "duracao_s": 1179.0,
+      "ram_total_mb": 7486,
+      "ram_pico_mb": 6326,
+      "swap_pico_mb": 479,
+      "gpu_ocupada": 0.829,
+      "potencia_media_w": 13.63,
+      "potencia_mediana_w": 13.87,
+      "potencia_pico_w": 19.37,
+      "energia_j": 16073.8,
+      "temperatura_pico_c": 64.687,
+      "clipes": 24,
+      "energia_por_clipe_j": 669.7,
+      "segundos_por_clipe": 49.1
+    }
+  },
+  "etapa2_tensorrt": {
+    "configuracao": "config/pipeline.models.jetson.toml",
+    "config_sha256": "aafbde9f8ccdb60c2456a23cb8bfb69ebcc3ee8c24f401597aa320c742bf1491",
+    "git_sha": "9775d64",
+    "git_dirty": false,
+    "clipes": 24,
+    "especies": {
+      "ball": {
+        "implementacao": "yolo-ball",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "conf=0.1;engine='../var/engines/ball-b4.engine';engine_onnx_sha256='0efa48783923aa6e40af7c6c54bc16850306f4c4068dfde20706e77604d278ca';imgsz=1600;ladrilhos=2;letterbox='cuda';sobreposicao_px=100;tracker={'max_ball_speed_px_per_s': 3000.0, 'max_gap_frames': 5, 'gate_margin': 1.5, 'flag_stationary': False, 'stationary_radius_px': 6.0, 'stationary_frames': 45, 'candidate_order': False};ranking=False,2",
+        "duracao_ms": {
+          "median": 16263.3,
+          "p95": 28651.2,
+          "mean": 18029.7,
+          "min": 9701.2,
+          "max": 42885.9
+        }
+      },
+      "field": {
+        "implementacao": "yolo-field",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "{\"conf\": 0.25, \"device\": \"\", \"imgsz\": 960, \"keypoint_confidence\": 0.25, \"line_refinement\": false, \"max_reprojection_p95_px\": 10.0, \"method\": \"ransac\", \"min_inliers\": 6, \"quantize\": \"fp32\", \"threshold_diagonal_fraction\": 0.0025}",
+        "duracao_ms": {
+          "median": 2615.8,
+          "p95": 3992.4,
+          "mean": 2679.0,
+          "min": 1694.4,
+          "max": 4631.0
+        }
+      },
+      "identity": {
+        "implementacao": "team-color",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 2701.0,
+          "p95": 3667.2,
+          "mean": 2763.0,
+          "min": 1320.1,
+          "max": 4987.2
+        }
+      },
+      "marking": {
+        "implementacao": "stub-marking",
+        "status": "failed",
+        "clipes_com_falha": 24,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 220.4,
+          "p95": 307.8,
+          "mean": 213.4,
+          "min": 128.5,
+          "max": 363.6
+        }
+      },
+      "players": {
+        "implementacao": "yolo-players",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "quantize=fp16",
+        "duracao_ms": {
+          "median": 18209.0,
+          "p95": 26619.0,
+          "mean": 18080.9,
+          "min": 10886.9,
+          "max": 34082.7
+        }
+      },
+      "pose": {
+        "implementacao": "yolo-pose",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 867.9,
+          "p95": 1380.2,
+          "mean": 928.9,
+          "min": 426.5,
+          "max": 2005.3
+        }
+      },
+      "shot": {
+        "implementacao": "precomputed",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": "spots=8fd6a999ecfd36c6",
+        "duracao_ms": {
+          "median": 77.8,
+          "p95": 152.3,
+          "mean": 85.2,
+          "min": 51.3,
+          "max": 181.1
+        }
+      },
+      "tracking": {
+        "implementacao": "greedy-iou",
+        "status": "ok",
+        "clipes_com_falha": 0,
+        "ajuste": null,
+        "duracao_ms": {
+          "median": 373.4,
+          "p95": 519.4,
+          "mean": 368.1,
+          "min": 176.0,
+          "max": 539.3
+        }
+      }
+    },
+    "tegrastats": {
+      "amostras": 1047,
+      "duracao_s": 1054.0,
+      "ram_total_mb": 7486,
+      "ram_pico_mb": 6916,
+      "swap_pico_mb": 0,
+      "gpu_ocupada": 0.746,
+      "potencia_media_w": 12.81,
+      "potencia_mediana_w": 12.63,
+      "potencia_pico_w": 19.33,
+      "energia_j": 13497.7,
+      "temperatura_pico_c": 64.75,
+      "clipes": 24,
+      "energia_por_clipe_j": 562.4,
+      "segundos_por_clipe": 43.9
+    }
+  },
+  "planos_tensorrt": {
+    "ball": {
+      "onnx_sha256": "0efa48783923aa6e40af7c6c54bc16850306f4c4068dfde20706e77604d278ca",
+      "onnx_trabalho_sha256": "22d8b536aae23bde61b1611fd987c886e3d88080482804c6068edeafb8e5bfd3",
+      "engine_sha256": "f7209ece3c0335abb2f39eb5817704df3d7375211c456bdc68217874e3cc7569",
+      "engine_bytes": 154797916,
+      "precisao": "fp16 pelo ONNX convertido",
+      "conversor": "onnxconverter-common 1.16.0",
+      "saida_renomeada": "output0 -> predictions",
+      "inputs": [
+        {
+          "name": "images",
+          "shape": [
+            4,
+            3,
+            992,
+            1600
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "predictions",
+          "shape": [
+            4,
+            5,
+            32550
+          ]
+        }
+      ],
+      "build_s": 287.6,
+      "tensorrt": "11.3.0.99"
+    },
+    "field": {
+      "onnx_sha256": "997c44c7a95bf80721c18a69a2363e386251c41d2f1aacb57055a660173984d8",
+      "onnx_trabalho_sha256": "84fbca2550526b7bb8e77e4b77a182c18722c7d59185b3c0c5c818accdb2131c",
+      "engine_sha256": "8e526627f14b32656db2aebde0316efc2d746ae069940d249dd193863475e374",
+      "engine_bytes": 89741828,
+      "precisao": "fp16 pelo ONNX convertido",
+      "conversor": "onnxconverter-common 1.16.0",
+      "saida_renomeada": "output0 -> predictions",
+      "inputs": [
+        {
+          "name": "images",
+          "shape": [
+            1,
+            3,
+            544,
+            960
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "predictions",
+          "shape": [
+            1,
+            92,
+            10710
+          ]
+        }
+      ],
+      "build_s": 248.7,
+      "tensorrt": "11.3.0.99"
+    }
+  },
+  "paridade_bola_piloto": {
+    "quadros": 328,
+    "pytorch_fp16": {
+      "pck_diameter": 0.3028391167192429,
+      "center_error_median_px": 256.65686502763623,
+      "center_error_p95_px": 565.9588019725583,
+      "detected_points": 315,
+      "interpolated_points": 13,
+      "track_switches": 0
+    },
+    "tensorrt_fp16": {
+      "pck_diameter": 0.2996845425867508,
+      "center_error_median_px": 257.1100427459501,
+      "center_error_p95_px": 565.9588019725583,
+      "detected_points": 315,
+      "interpolated_points": 13,
+      "track_switches": 0
+    }
+  },
+  "features_tensorrt_iguais_a_pytorch": {
+    "body_part": "23/24",
+    "type_of_play": "23/24",
+    "looked_before": "22/24",
+    "goalkeeper_position": "22/24"
+  }
+}

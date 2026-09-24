@@ -19,6 +19,7 @@ está em andamento, e a página descreve o estado de hoje, incluindo o que ainda
 | [Bola e trajetória](/docs/sprint-4/modelos/bola-e-trajetoria) | a segunda passada cega do gabarito da bola, que passou no critério da spec e achou um clipe com marcações incompatíveis |
 | [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
 | [Execução com os módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) | a evidência operacional da Sprint 3 repetida sem stub, com render e com as features declarando ausência |
+| [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) | o pipeline de produção medido na placa em fp32, fp16 e TensorRT, com tempo, energia e memória por clipe, e as duas etapas que o fizeram caber na memória |
 | [Análise financeira](/docs/sprint-4/analise-financeira) | custo de desenvolvimento, CAPEX e OPEX da borda e cenários de benefício |
 | [Slides](/docs/sprint-4/slides) | apresentação da sprint |
 
@@ -34,7 +35,7 @@ evidência, e separa o que veio de sprints anteriores do que foi feito agora.
 | S4-AR03 | entrega confiável | parcial: a chave de idempotência existe no contrato, mas fila local persistente, retentativa com espera progressiva e reenvio após queda de rede não existem |
 | S4-AR04 | persistência e consulta | existe desde a Sprint 3: histórico de análises consultável pelo frontend |
 | S4-AR05 | receptor simulado da Footstats | não entregue |
-| S4-AR06 | otimização orientada por gargalo | parcial: o `run.json` agora grava máquina, runtime e precisão por espécie, então a comparação antes e depois passa a ser reproduzível; nenhuma medição nova foi feita na Jetson nesta sprint |
+| S4-AR06 | otimização orientada por gargalo | entregue: o pipeline completo foi medido na Jetson em fp32, fp16 e TensorRT, com tempo, energia e pico de memória por clipe; o gargalo de memória levou o instante para uma etapa própria |
 | S4-AR07 | arquitetura atualizada | não entregue nesta sprint |
 
 O núcleo da sprint, os itens 02, 03 e 05, não tem entrega mesclada até hoje. É a principal lacuna
@@ -80,16 +81,20 @@ sozinha deixaria o próximo commit de configuração repetir tudo.
 | README com campos genéricos | completado |
 | medição sem dado para reprodução | o `run.json` passou a gravar máquina, runtime, precisão, mediana e p95 |
 | evidência operacional com módulos em stub | repetida com os módulos reais, por uma configuração versionada que roda sem CUDA |
-| TensorRT sem configuração versionada | segue aberto: a configuração precisa do sha256 do ONNX exato de que cada plano foi construído na Jetson |
+| TensorRT sem configuração versionada | corrigido: `pipeline.models.jetson.toml` declara os planos de bola e campo e o sha256 do ONNX de origem, que tem manifesto e cópia no Hugging Face |
 
-Três apontamentos seguem abertos, e todos dependem da Jetson: os dados brutos das medições já
-publicadas, que nunca foram salvas; a mesma execução com módulos reais feita no dispositivo, e não
-na estação; e a medição do pipeline completo em meia precisão.
+Os três apontamentos que dependiam da Jetson foram medidos na placa, e o detalhe está na
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson). A execução com módulos reais e o
+pipeline completo em meia precisão foram feitos nos 24 clipes de desenvolvimento. Dos dados brutos
+das medições da Sprint 3, as linhas por etapa foram refeitas e batem com as publicadas (bola em
+TensorRT de 21,8 para 16,3 s por clipe, contra 22 para 16,5 s); os tempos de uma passada isolada
+não foram refeitos, porque o pipeline mede por etapa.
 
 ## O que está bloqueado
 
-**Na Jetson.** A paridade embarcada da bola, o custo do módulo de bola na placa, o custo do
-detector temporal na GPU e as medições que a revisão cobrou. O `run.json` já está pronto para registrar essas execuções com procedência.
+**Na Jetson, o que resta.** O pico de memória sem a interface gráfica, que decide o RNF-04; os 90
+minutos contínuos do RNF-05 e o efeito do instante novo nas features do catálogo, que saem da
+execução noturna dos 363 clipes de desenvolvimento.
 
 **Com o parceiro e a orientação.** O uso de um peso sem licença declarada no produto entregue.
 
