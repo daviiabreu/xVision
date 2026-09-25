@@ -1,0 +1,47 @@
+---
+title: Especificação de testes do instante
+description: Testes da espécie shot, que dá o instante da finalização, com os casos de teste, o critério de aceite fixado antes de medir e o resultado
+---
+
+Esta página especifica os testes da espécie `shot`, que dá o instante da finalização a partir do
+T-DEED, em duas etapas na Jetson. Os níveis de teste, os conjuntos e as regras comuns estão na
+[especificação de testes](/docs/sprint-4/especificacao-de-testes); o critério de aceite vem da spec
+do instante, escrita antes das medidas.
+
+## Testes automatizados
+
+| Grupo | Arquivo | Testes | O que garante |
+| --- | --- | ---: | --- |
+| T-DEED no pipeline | `tests/edge/modules/shot/test_tdeed.py` | 14 | o instante é o pico da classe `SHOT` em quadro nativo; os candidatos são picos separados pela supressão; o apoio da bola vem da espécie `ball`; executor que falha, que demora demais, que devolve outra forma ou que não tem a classe é recusado com mensagem; a configuração de produção escolhe o T-DEED |
+| duas etapas | `tests/mlops/test_spots.py` | 11 | um instante por clipe; a primeira etapa retoma sem refazer; a falha de um clipe não derruba os outros; arquivo inválido é recusado; clipe fora do arquivo sai sem instante; a segunda etapa recalcula o apoio da bola |
+| regra cinemática | `tests/edge/modules/shot/test_kinematics.py` | 16 | a regra que roda na configuração de stubs: um instante por clipe, dentro do clipe, ponto médio declarado quando falta bola e bola parada que não vira finalização |
+| avaliação | `tests/mlops/test_instant.py` | 42 | tolerâncias lidas da configuração; relatório que separa medido de estimado e não carrega identificador; intervalo de Wilson; linhas de base de ponto médio e de acaso; resolução da amostra; taxonomia dos erros |
+
+## Casos de teste
+
+| ID | O que testa | Como rodar | Critério de aceite | Resultado |
+| --- | --- | --- | --- | --- |
+| TI-01 | acerto nos 24 clipes de ajuste | `xvision spots` e `xvision eval-spots var/spots/tdeed.jsonl --dobra ajuste` | gate da spec do instante: pelo menos 2 acertos a mais dentro de 30 quadros que a configuração anterior, nenhum a menos dentro de 90, nenhum `midpoint` a mais e mediana que não piora | passa: 24 de 24 dentro de 30 (IC95 de 0,862 a 1,000), contra 7 de 24 da regra; 24 dentro de 90, contra 17; nenhum `midpoint`; mediana de 5 quadros, contra 46 |
+| TI-02 | linha de base na mesma amostra | o mesmo `eval-spots`, que imprime os nulos | o acerto precisa superar o ponto médio fixo e o quadro ao acaso | passa: 1,000 contra 0,333 e 0,161 |
+| TI-03 | tolerâncias apertadas | o mesmo `eval-spots` | sem critério: com um anotador só, 10 e 5 quadros não têm barra de erro | 0,750 em 10 quadros, 0,542 em 5 |
+| TI-04 | paridade entre Jetson e estação | `xvision spots` nas duas máquinas, mesmos 24 clipes | instantes idênticos | passa: 24 de 24, diferença de zero quadro |
+| TI-05 | integração em duas etapas | `xvision run --config config/pipeline.models.duas-etapas.toml --gabarito --dobra ajuste` | um evento por clipe, sem falha, com a procedência do instante chegando às features | passa: 24 eventos, 0 falha; `procedencia_do_instante = tdeed` nas 23 leituras de `type_of_play` com status `ok`, e a 24ª é `unavailable` por falta de bola |
+| TI-06 | falhas previsíveis | `pytest tests/edge/modules/shot tests/mlops/test_spots.py` | executor ausente, lento ou com saída errada vira erro legível; um clipe com falha não derruba o lote | passa na CI |
+| TI-07 | custo na Jetson | `run.json` e o arquivo ao lado de `var/spots/tdeed.jsonl` | sem critério: RNF-01 ainda não tem orçamento acordado | 13,8 s por clipe na mediana, 15,0 s no p95, na GPU |
+| TI-08 | efeito nas features | catálogo em dois braços, T-DEED e regra, tudo o mais igual; `xvision eval` nos dois | macro-F1 de `type_of_play` e de `body_part` do braço T-DEED pelo menos igual à do braço da regra, com cobertura que não cai | em execução na Jetson |
+| TI-09 | generalização | os 14 reservados, uma vez, depois do congelamento | os mesmos indicadores do TI-01; resultado ruim vira `generalização não demonstrada` | não executado: o pacote segue fechado |
+| TI-10 | concordância entre anotadores | segunda anotação cega de 8 dos 24 clipes | mediana da discordância até 6 quadros e máximo até 12 | não será feito, por decisão de 22/09: o acerto em 30 quadros não depende dela, e as tolerâncias de 10 e 5 ficam sem barra de erro |
+
+## Ainda não medido
+
+| Pendência | Como será testado |
+| --- | --- |
+| TI-08, efeito do T-DEED nas features | ler o `xvision eval` dos dois braços do catálogo quando a execução terminar |
+| TI-09, pacote reservado | uma única execução depois do congelamento da Sprint 5 |
+
+## Referências
+
+1. [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao): medidas do T-DEED, da
+   regra e dos nulos.
+2. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson#instante-na-placa): o instante na
+   placa e as duas etapas.

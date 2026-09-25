@@ -1,0 +1,100 @@
+---
+title: Especificação de testes
+description: Como os modelos do instante e da bola são testados, com os níveis de teste, os conjuntos, as regras comuns e o critério fixado antes de medir
+---
+
+Esta seção especifica os testes de dois modelos do pipeline: a espécie `shot`, que dá o instante
+da finalização, e a espécie `ball`, que detecta e rastreia a bola. Cada modelo tem
+a própria página, com os testes automatizados, os casos de teste, o comando, o critério de aceite e
+o resultado de hoje. Esta página reúne o que vale para os dois.
+
+| Modelo | Página | Casos |
+| --- | --- | --- |
+| instante da finalização | [especificação do instante](/docs/sprint-4/especificacao-de-testes/instante-da-finalizacao) | TI-01 a TI-10 |
+| bola | [especificação da bola](/docs/sprint-4/especificacao-de-testes/bola) | TB-01 a TB-10 |
+
+Os critérios de aceite vêm das specs dos dois modelos, escritas antes de qualquer medida. Onde o
+critério falha ou não foi medido, a página do modelo diz. As medidas estão nas páginas do
+[instante](/docs/sprint-4/modelos/instante-da-finalizacao), da
+[bola](/docs/sprint-4/modelos/bola-e-trajetoria) e da
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
+
+## Onde os testes se encaixam
+
+```text
+MR -> CI: unidade, contrato e regressão (pytest)
+   -> qualidade contra gabarito: eval-spots, eval-instant, eval-ball-trajectory, eval-ball
+   -> paridade: Jetson contra estação, TensorRT contra PyTorch
+   -> integração: xvision spots e xvision run em duas etapas, com as outras espécies
+   -> efeito nas features: catálogo de 363 clipes, dois braços iguais exceto o que mudou
+   -> recursos na Jetson: run.json e tegrastats
+congelamento -> pacote reservado de 14 clipes, uma única vez
+```
+
+| Nível | O que verifica | Onde roda | Quando |
+| --- | --- | --- | --- |
+| unidade e contrato | comportamento de cada componente, o registro que a espécie promete e a recusa de entrada inválida | `pytest`, no job `python:test` da CI | toda MR |
+| qualidade | métrica contra anotação humana, sempre ao lado de uma linha de base e de um intervalo | `xvision eval-*` | toda mudança de modelo, peso ou configuração |
+| paridade | a mesma resposta na Jetson e na estação, e no TensorRT e no PyTorch | Jetson | toda mudança de runtime ou de plano |
+| integração | o modelo dentro do `xvision run`, com as outras espécies e as duas etapas | Jetson e estação | toda entrega |
+| features | macro-F1 e cobertura das features que consomem o modelo | catálogo, na Jetson | quando o modelo muda |
+| recursos | tempo, memória e energia por clipe | Jetson | toda entrega |
+
+## Conjuntos e regras
+
+| Conjunto | Tamanho | Uso |
+| --- | --- | --- |
+| gabarito do instante | 38 clipes anotados à mão: 24 nas dobras de ajuste, 14 nas reservadas | os 24 escolhem e medem; os 14 só rodam depois do congelamento |
+| piloto da bola | 328 quadros de 8 clipes e 6 partidas, 317 com bola visível, só nas dobras de ajuste | posição e continuidade da trajetória |
+| segunda passada cega da bola | 88 quadros do piloto, todos os 8 contatos | quanto do erro medido pode ser do gabarito |
+| contatos da bola | o quadro do contato dos 24 clipes de ajuste do gabarito do instante | acerto da bola onde as features leem |
+| catálogo | 363 clipes das dobras de ajuste | efeito nas features |
+
+Três regras valem para todos os casos. A divisão é por partida, e nenhuma partida aparece em duas
+dobras. Os 14 clipes reservados rodam uma única vez, depois de código, configuração, peso, ONNX e
+tolerâncias congelados, e um resultado ruim ali não autoriza reajuste nos mesmos 14. E nenhum
+relatório carrega vídeo, quadro, identificador de clipe ou marcação do parceiro.
+
+## Rastreabilidade
+
+| Requisito | Instante | Bola |
+| --- | --- | --- |
+| RF03, detectar os elementos da finalização | | TB-01 a TB-06 |
+| RF04, identificar o momento da finalização | TI-01 a TI-06 | |
+| RNF-01, tempo de processamento | TI-07 | TB-07 |
+| RNF-03, qualidade da saída | TI-01, TI-08 | TB-02, TB-03, TB-09 |
+| RNF-04, memória | | TB-08 |
+
+## Decisões
+
+**O critério é fixado antes de medir.** Cada gate desta página estava escrito na spec do modelo, ou
+numa emenda, antes da execução que o julgou. A alternativa descartada era escolher o limite depois
+de ver o número, que faz qualquer mudança parecer aprovada.
+
+**Toda taxa sai com linha de base e intervalo.** O instante é comparado com o ponto médio fixo e o
+acaso; a bola, com a configuração anterior no mesmo piloto, pareada por quadro. A alternativa
+descartada era a taxa sozinha, que na Sprint 3 escondeu uma regra pior que o ponto médio.
+
+**O efeito nas features decide, e não só a métrica do modelo.** O ranking da bola passou em todas
+as condições do piloto e foi desligado porque piorou as features. Por isso TI-08 e TB-09 existem
+ao lado da métrica de cada modelo.
+
+## Riscos e incertezas
+
+**As amostras são pequenas.** São 24 clipes no instante e 8 clipes no piloto da bola. Com 24, o
+conjunto não enxerga mudança menor que uns 4 clipes, e o piloto da bola foi usado para ajustar e
+medir.
+
+**Um anotador só.** A segunda passada da bola é do mesmo anotador, e o instante não terá segunda
+anotação. A concordância mede consistência, e não erro de uma pessoa contra outra.
+
+**Os limites externos não estão acordados.** O RNF-03 depende de limites de precisão, recall e F1
+combinados com a Footstats, que ainda não existem. Os critérios desta página são internos.
+
+## Referências
+
+1. [Requisitos funcionais](/docs/sprint-1/requisitos/funcionais) e
+   [não funcionais](/docs/sprint-1/requisitos/nao-funcionais).
+2. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson): tempo, memória, energia e as duas
+   etapas.
+3. Wilson, E. B. [Probable inference, the law of succession, and statistical inference](https://www.jstor.org/stable/2276774).

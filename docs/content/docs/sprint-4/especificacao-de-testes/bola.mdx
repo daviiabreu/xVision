@@ -1,0 +1,55 @@
+---
+title: Especificação de testes da bola
+description: Testes da espécie ball, que detecta e rastreia a bola, com os casos de teste, o critério de aceite fixado antes de medir e o resultado
+---
+
+Esta página especifica os testes da espécie `ball`, que detecta a bola em ladrilhos e a rastreia no
+tempo. Os níveis de teste, os conjuntos e as regras comuns estão na
+[especificação de testes](/docs/sprint-4/especificacao-de-testes); os critérios de aceite vêm da spec
+da bola e da emenda 15, escritas antes das medidas.
+
+## Testes automatizados
+
+| Grupo | Arquivo | Testes | O que garante |
+| --- | --- | ---: | --- |
+| módulo | `tests/edge/modules/ball/test_module.py` | 34 | a caixa volta para o espaço do quadro original; interpolação não vira caixa de zeros; ajuste do TOML chega ao rastreador e muda a chave do cache; ajuste desconhecido ou inválido é recusado; o estado do rastreador não atravessa clipes; a configuração de produção mantém o ranking rejeitado desligado |
+| detector | `tests/edge/modules/ball/test_detector.py` | 25 | ladrilhos devolvem caixa no quadro inteiro; a mesma bola em dois ladrilhos sai uma vez; candidato fora do quadro é recusado |
+| filtro de forma | `tests/edge/modules/ball/test_ball_shape_filter.py` | 5 | caixa grande ou alongada demais é reprovada |
+| rastreador | `tests/edge/modules/ball/test_ball_tracker.py` | 18 | salto improvável é rejeitado; lacuna curta é interpolada e a longa fica ausente; corte de câmera fecha a lacuna; tempo tem de crescer; a reâncora respeita a última posição conhecida |
+| avaliação da trajetória | `tests/mlops/test_ball_trajectory.py` | 9 | detectado, interpolado e ausente contados à parte; posição errada é falso positivo e falso negativo; partida em uma dobra só |
+| métrica de contato | `tests/mlops/test_ball_quality.py` | 17 | quadro sem bola conta como falha; posição interpolada não conta como percepção; a taxa estrita sai ao lado da frouxa |
+| segunda passada cega | `tests/mlops/test_bola_cega.py` | 21 | a amostra leva todo contato e um quarto dos demais, com semente; a página não mostra a primeira passada; marca incompleta ou fora do esquema é recusada |
+
+## Casos de teste
+
+| ID | O que testa | Como rodar | Critério de aceite | Resultado |
+| --- | --- | --- | --- | --- |
+| TB-01 | confiabilidade do gabarito | `xvision label ball-agreement` | distância mediana do centro até 0,5 diâmetro e visibilidade igual em pelo menos 80% | passa: 0,217 diâmetro e 0,864 |
+| TB-02 | acerto no contato | `xvision eval-ball --config config/pipeline.models.toml --dobra ajuste` | pelo menos 20 de 24 contatos com bola detectada a menos de 20 px, sem contar interpolação | passa no limite: 20 de 24, medido na Sprint 3 em PyTorch; não repetido em fp16 nem em TensorRT |
+| TB-03 | posição e continuidade no piloto | `xvision eval-ball-trajectory --labels ../var/labels/ball-trajectory-v1.jsonl --config config/pipeline.models.toml --dobra ajuste` | para trocar a configuração: pelo menos 10 pontos percentuais a mais de PCK por diâmetro, até 6 visíveis sem previsão, maior lacuna de até 2 quadros, mais ganhos que perdas no pareamento e erro mediano que não piora | linha de base: PCK de 0,3028, erro mediano de 256,7 px, 315 detectados e 13 interpolados |
+| TB-04 | paridade TensorRT contra PyTorch | o TB-03 na Jetson com `pipeline.models.duas-etapas.toml` e com `pipeline.models.jetson.toml` | pelo menos 95% do F1 posicional; nenhuma mudança do ponto escolhido no contato dos 24 clipes; confiança até 0,02 e centro até 1 px entre candidatos pareados | passa no agregado, contra o PyTorch fp16: PCK de 0,3028 para 0,2997, mesma mediana e mesmo p95, os mesmos 315 e 13; contra o fp32 e no nível de candidato não foi medido |
+| TB-05 | integração | `xvision run` nos 24 clipes, em PyTorch e em TensorRT | as features que leem a bola não mudam com o runtime | 23 de 24 iguais em `body_part` e em `type_of_play`, 22 de 24 em `looked_before` e `goalkeeper_position` |
+| TB-06 | falhas previsíveis | `pytest tests/edge/modules/ball` | sem detector, sem tamanho de origem, lacuna longa ou ajuste inválido: saída declarada, sem posição inventada | passa na CI |
+| TB-07 | orçamento na Jetson | `run.json` das execuções limpas, tempo da bola dividido pelos quadros densos do clipe | p95 de até 66,7 ms por quadro a 15 fps | falha: 210,5 ms no p95 em TensorRT e 248,6 ms em PyTorch fp16, com medianas de 162,5 e 213,5 ms |
+| TB-08 | memória | catálogo em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | parcial: a base não cresce; clipes acima de 8 s chegam a 72,8% |
+| TB-09 | efeito nas features | catálogo em dois braços, ranking ligado e desligado, com o instante do T-DEED | macro-F1 de `type_of_play` e `body_part` do braço novo pelo menos igual, com cobertura que não cai | a medir: o ranking dobrou o PCK do piloto e foi desligado em 10/09 porque piorava o instante da regra e as features; com o instante vindo do T-DEED, o motivo pode não valer mais |
+| TB-10 | generalização | os 14 reservados, uma vez, depois do congelamento | pelo menos 13 de 14 contatos com bola detectada | não executado: o pacote segue fechado |
+
+## Ainda não medido
+
+| Pendência | Como será testado |
+| --- | --- |
+| TB-02 em fp16 e TensorRT | rodar o `eval-ball` com as configurações de produção e da Jetson |
+| TB-04 no nível de candidato | comparar candidatos pareados no contato dos 24 clipes, TensorRT contra PyTorch |
+| TB-07, orçamento da bola | medir o p95 por quadro depois de otimizar ladrilhos e pré-processamento, ou rever o orçamento com base no catálogo |
+| TB-09, ranking com o T-DEED | terceiro braço do catálogo com o ranking ligado |
+| TB-10, pacote reservado | uma única execução depois do congelamento da Sprint 5 |
+
+## Referências
+
+1. [Bola e trajetória](/docs/sprint-4/modelos/bola-e-trajetoria): segunda passada e paridade na
+   Jetson.
+2. [Bola e trajetória na Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria): piloto, métrica de
+   contato e a comparação do ranking.
+3. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson): tempo, memória e o plano
+   TensorRT da bola.
