@@ -1,0 +1,454 @@
+{
+  "schema_version": "1.0",
+  "data": "2026-09-25",
+  "descricao": "Catalogo de 363 clipes de desenvolvimento na Jetson, dois bracos (T-DEED e regra cinematica), em duas etapas e fp16. Agregados, sem identificador de clipe.",
+  "dados_privados_copiados": false,
+  "placa": {
+    "modo_de_energia": "MAXN_SUPER",
+    "interface_grafica": "desligada (multi-user.target)",
+    "ram_parada_mb": 663,
+    "ram_total_mb": 7486
+  },
+  "primeira_tentativa": {
+    "data": "2026-09-24",
+    "interface_grafica": "sessao aberta",
+    "clipe_em_que_travou": 24,
+    "ram_antes_mb": 4900,
+    "ram_no_teto_mb": 7330,
+    "minutos_no_teto": 40,
+    "desfecho": "watchdog de hardware reiniciou a placa; sem swap e sem OOM killer",
+    "causa": "FrameProvider guardava quadro decodificado e preparado de cada especie ate o fim do clipe; runner montava todos os lotes da especie antes de inferir"
+  },
+  "correcoes": {
+    "!109": {
+      "commit": "d6b57ec",
+      "clipes_ate_parar": 146,
+      "parou_em": "unico clipe de 18 s, OOM killer no braco T-DEED e protecao de memoria no braco da regra"
+    },
+    "!111": {
+      "commit": "c6fd9fb",
+      "clipe_de_18s_pico_mb": 5450
+    }
+  },
+  "rnf05_execucao_continua": {
+    "amostras": 5987,
+    "duracao_s": 6023.0,
+    "ram_total_mb": 7486,
+    "ram_pico_mb": 7375,
+    "swap_pico_mb": 0,
+    "gpu_ocupada": 0.828,
+    "potencia_media_w": 13.27,
+    "potencia_mediana_w": 13.54,
+    "potencia_pico_w": 19.06,
+    "energia_j": 79926.4,
+    "temperatura_pico_c": 64.562,
+    "clipes": 146,
+    "energia_por_clipe_j": 547.4,
+    "segundos_por_clipe": 41.3,
+    "inicio": "2026-09-24 20:19:12",
+    "fim": "2026-09-24 21:59:35",
+    "commit": "d6b57ec",
+    "temperatura_maxima_c": {
+      "gpu": 64.562,
+      "cpu": 62.343,
+      "tj": 64.562
+    },
+    "primeiro_ponto_passivo_c": 70,
+    "segundos_de_processamento_por_segundo_de_clipe": {
+      "primeiro_terco": 7.17,
+      "ultimo_terco": 7.08,
+      "clipes_sem_cache": 117
+    },
+    "nota": "energia por clipe mistura 23 clipes com percepcao em cache no inicio; use a energia por clipe das execucoes de 24 clipes"
+  },
+  "rnf04_modo_texto": {
+    "commit": "c6fd9fb",
+    "clipes": 102,
+    "ate": "2026-09-25 09:26",
+    "base_pct": 54.7,
+    "pico_mediano_pct": 60.3,
+    "maior_pico_pct": 72.8,
+    "clipes_acima_de_70pct": 10,
+    "por_duracao": {
+      "ate_8s": {
+        "n": 70,
+        "pico_mediano_pct": 59.9,
+        "maior_pico_pct": 61.9
+      },
+      "8_a_11s": {
+        "n": 24,
+        "pico_mediano_pct": 60.9,
+        "maior_pico_pct": 70.9
+      },
+      "acima_de_11s": {
+        "n": 8,
+        "pico_mediano_pct": 70.8,
+        "maior_pico_pct": 72.8
+      }
+    }
+  },
+  "planos_de_producao_por_passada": {
+    "campo": {
+      "git_sha": "dd808ed",
+      "git_dirty": false,
+      "quadros": 50,
+      "referencia": "fp32",
+      "planos": {
+        "fp32": {
+          "entrada": [
+            1,
+            3,
+            544,
+            960
+          ],
+          "ms_por_passada": [
+            19.8,
+            19.664,
+            19.647,
+            19.247,
+            19.247,
+            19.079,
+            19.565,
+            19.491,
+            19.572,
+            19.521,
+            19.692,
+            19.326,
+            19.208,
+            19.541,
+            19.456,
+            19.758,
+            19.84,
+            19.495,
+            19.564,
+            20.122,
+            19.53,
+            19.511,
+            19.409,
+            16.397,
+            16.41,
+            16.514,
+            16.372,
+            16.283,
+            16.471,
+            16.467,
+            15.622,
+            15.892,
+            16.01,
+            16.727,
+            16.683,
+            16.609,
+            16.79,
+            16.69,
+            16.604,
+            16.641,
+            16.732,
+            16.258,
+            16.213,
+            16.587,
+            16.674,
+            16.446,
+            16.132,
+            16.694,
+            16.623,
+            16.268
+          ],
+          "ms_mediana": 16.732,
+          "ms_p95": 19.8,
+          "deteccoes_por_quadro": 1.0
+        },
+        "fp16": {
+          "entrada": [
+            1,
+            3,
+            544,
+            960
+          ],
+          "ms_por_passada": [
+            13.329,
+            13.842,
+            13.273,
+            13.175,
+            13.25,
+            12.825,
+            12.895,
+            12.739,
+            12.724,
+            13.152,
+            13.248,
+            13.003,
+            12.891,
+            12.346,
+            12.456,
+            13.241,
+            13.003,
+            12.762,
+            13.303,
+            13.248,
+            13.177,
+            12.794,
+            13.117,
+            13.013,
+            13.039,
+            12.905,
+            13.062,
+            13.059,
+            13.278,
+            13.023,
+            13.226,
+            12.866,
+            12.494,
+            10.55,
+            10.489,
+            10.441,
+            10.721,
+            10.891,
+            10.665,
+            10.726,
+            10.734,
+            10.782,
+            10.749,
+            10.641,
+            10.72,
+            10.567,
+            10.432,
+            10.492,
+            10.74,
+            10.707
+          ],
+          "ms_mediana": 12.866,
+          "ms_p95": 13.303,
+          "deteccoes_por_quadro": 1.0,
+          "contra_referencia": {
+            "casados": 50,
+            "so_na_referencia": 0,
+            "so_neste": 0,
+            "revocacao": 1.0,
+            "precisao": 1.0,
+            "pontos_distancia_mediana_px": 0.159,
+            "raio_centro_px": 4.0,
+            "revocacao_centro": 1.0,
+            "precisao_centro": 1.0
+          }
+        }
+      },
+      "construcao": {
+        "fp32": {
+          "onnx_sha256": "997c44c7a95bf80721c18a69a2363e386251c41d2f1aacb57055a660173984d8",
+          "engine_bytes": 108983548,
+          "precisao": "fp32",
+          "tensorrt": "11.3.0.99",
+          "inputs": [
+            {
+              "name": "images",
+              "shape": [
+                1,
+                3,
+                544,
+                960
+              ]
+            }
+          ]
+        },
+        "fp16": {
+          "onnx_sha256": "997c44c7a95bf80721c18a69a2363e386251c41d2f1aacb57055a660173984d8",
+          "engine_bytes": 89741828,
+          "precisao": "fp16 pelo ONNX convertido",
+          "tensorrt": "11.3.0.99",
+          "inputs": [
+            {
+              "name": "images",
+              "shape": [
+                1,
+                3,
+                544,
+                960
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "bola": {
+      "git_sha": "dd808ed",
+      "git_dirty": false,
+      "quadros": 50,
+      "referencia": "fp32",
+      "planos": {
+        "fp32": {
+          "entrada": [
+            4,
+            3,
+            992,
+            1600
+          ],
+          "ms_por_passada": [
+            125.576,
+            125.361,
+            125.574,
+            123.512,
+            125.925,
+            124.489,
+            125.716,
+            123.867,
+            126.246,
+            123.875,
+            126.046,
+            123.323,
+            125.535,
+            124.132,
+            125.414,
+            123.743,
+            125.662,
+            123.808,
+            126.209,
+            123.619,
+            125.894,
+            124.005,
+            125.794,
+            123.704,
+            126.098,
+            123.647,
+            125.485,
+            123.868,
+            125.753,
+            123.704,
+            125.996,
+            123.276,
+            125.829,
+            123.609,
+            125.622,
+            123.728,
+            125.44,
+            123.428,
+            126.058,
+            124.212,
+            125.735,
+            123.668,
+            125.973,
+            123.903,
+            125.924,
+            123.733,
+            126.42,
+            124.15,
+            125.669,
+            123.797
+          ],
+          "ms_mediana": 125.414,
+          "ms_p95": 126.209,
+          "deteccoes_por_quadro": 1.72
+        },
+        "fp16": {
+          "entrada": [
+            4,
+            3,
+            992,
+            1600
+          ],
+          "ms_por_passada": [
+            76.429,
+            78.281,
+            76.407,
+            76.175,
+            76.508,
+            78.604,
+            76.11,
+            76.268,
+            76.257,
+            77.91,
+            75.694,
+            75.964,
+            76.465,
+            78.001,
+            76.188,
+            75.605,
+            76.672,
+            78.574,
+            75.895,
+            75.999,
+            76.571,
+            77.771,
+            76.218,
+            75.951,
+            76.126,
+            78.753,
+            75.909,
+            75.926,
+            75.232,
+            78.67,
+            76.25,
+            76.197,
+            76.747,
+            78.549,
+            76.202,
+            76.152,
+            76.507,
+            78.374,
+            76.041,
+            76.051,
+            76.678,
+            78.715,
+            77.185,
+            76.245,
+            76.556,
+            78.664,
+            75.837,
+            76.384,
+            76.563,
+            78.547
+          ],
+          "ms_mediana": 76.407,
+          "ms_p95": 78.67,
+          "deteccoes_por_quadro": 1.72,
+          "contra_referencia": {
+            "casados": 86,
+            "so_na_referencia": 0,
+            "so_neste": 0,
+            "revocacao": 1.0,
+            "precisao": 1.0,
+            "pontos_distancia_mediana_px": null,
+            "raio_centro_px": 4.0,
+            "revocacao_centro": 1.0,
+            "precisao_centro": 1.0
+          }
+        }
+      },
+      "construcao": {
+        "fp32": {
+          "onnx_sha256": "0efa48783923aa6e40af7c6c54bc16850306f4c4068dfde20706e77604d278ca",
+          "engine_bytes": 209676812,
+          "precisao": "fp32",
+          "tensorrt": "11.3.0.99",
+          "inputs": [
+            {
+              "name": "images",
+              "shape": [
+                4,
+                3,
+                992,
+                1600
+              ]
+            }
+          ]
+        },
+        "fp16": {
+          "onnx_sha256": "0efa48783923aa6e40af7c6c54bc16850306f4c4068dfde20706e77604d278ca",
+          "engine_bytes": 154797916,
+          "precisao": "fp16 pelo ONNX convertido",
+          "tensorrt": "11.3.0.99",
+          "inputs": [
+            {
+              "name": "images",
+              "shape": [
+                4,
+                3,
+                992,
+                1600
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

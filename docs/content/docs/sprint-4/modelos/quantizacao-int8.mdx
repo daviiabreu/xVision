@@ -48,17 +48,21 @@ construtor, a mesma da [execução na Jetson](/docs/sprint-4/produto/execucao-na
 A comparação usa 50 quadros reais de 10 clipes das dobras de ajuste, 5 por clipe, com cinco
 passadas de aquecimento antes de medir. O tempo é o de uma passada do plano, com a cópia da entrada
 e da saída entre CPU e GPU, e sem pré e pós-processamento. Duas detecções formam par quando têm a
-mesma classe e IoU de pelo menos 0,5.
+mesma classe e IoU de pelo menos 0,5, ou, na segunda leitura, quando os centros ficam a até 4 px.
+
+A medição rodou duas vezes na mesma noite. A segunda, publicada aqui, acrescentou o par pelo centro
+e saiu de um commit limpo; a primeira deu a mesma concordância por IoU e medianas a até 0,5 ms
+destas.
 
 ## O que a placa mediu
 
 | Mediana de 50 passadas | fp32 | fp16 | INT8 | INT8 contra fp16 |
 | --- | --- | --- | --- | --- |
-| Players, 960x960 | 35,4 ms | 21,9 ms | 16,7 ms | -24% |
-| Ball, 1280x1280 | 36,2 ms | 25,4 ms | 20,2 ms | -21% |
-| Line, 960x960 | 27,5 ms | 18,6 ms | 14,3 ms | -23% |
+| Players, 960x960 | 35,6 ms | 21,6 ms | 16,8 ms | -22% |
+| Ball, 1280x1280 | 36,4 ms | 25,7 ms | 19,7 ms | -23% |
+| Line, 960x960 | 27,5 ms | 18,4 ms | 14,6 ms | -21% |
 
-Contra o fp32, o fp16 corta de 30% a 38% do tempo e o INT8 corta de 44% a 53%. A Sprint 3 publicou
+Contra o fp32, o fp16 corta de 29% a 39% do tempo e o INT8 corta de 46% a 53%. A Sprint 3 publicou
 40% de redução, mas comparava PyTorch fp32 com TensorRT fp16 pelo tempo de processar um vídeo
 inteiro, com leitura, pré e pós-processamento; os números não se comparam diretamente. Os tempos de
 cada passada, com o p95 de cada plano, estão na
@@ -68,30 +72,32 @@ cada passada, com o p95 de cada plano, estão na
 | --- | --- | --- |
 | Players: detecções do fp32 reencontradas | 801 de 801 | 745 de 801 (0,930) |
 | Players: detecções que o fp32 não tem | 1 | 10 |
-| Ball: detecções do fp32 reencontradas | 67 de 67 | 36 de 67 (0,537) |
-| Ball: detecções que o fp32 não tem | 0 | 64 |
+| Ball: detecções do fp32 reencontradas pelo IoU | 67 de 67 | 36 de 67 (0,537) |
+| Ball: detecções do fp32 reencontradas pelo centro | 67 de 67 | 63 de 67 (0,940) |
+| Ball: detecções que o fp32 não tem, pelo centro | 0 | 37 |
 | Line: campo reencontrado | 50 de 50 | 50 de 50 |
-| Line: distância mediana dos pontos | 0,19 px | 11,9 px |
+| Line: distância mediana dos pontos | 0,18 px | 12,1 px |
 
 O fp16 praticamente não muda a resposta. O INT8 muda, e em graus diferentes por modelo. Em Players,
 ele perde 56 das 801 detecções do fp32, 7%. Em Line, acha o campo nos 50 quadros, mas os pontos se
-movem 11,9 px na mediana, cerca de 1,2% da largura da entrada, contra 0,19 px do fp16. Em Ball, a
-diferença é grande: o INT8 devolve 100 detecções onde o fp32 devolve 67, e só 36 formam par.
+movem 12,1 px na mediana, cerca de 1,3% da largura da entrada, contra 0,18 px do fp16. Em Ball, o
+INT8 devolve 100 detecções onde o fp32 devolve 67.
 
 O par por IoU é duro com a bola, cuja caixa tem 8 px de lado na entrada: um deslocamento de 3 px já
-derruba o IoU para 0,45. Parte das 31 bolas que faltam pode ser a mesma bola deslocada. Mesmo que
-todas fossem, sobrariam pelo menos 33 detecções que o fp32 não tem, e o fp16 não tem nenhuma. A
-segunda rodada, com par também pela distância do centro, separa as duas coisas.
+derruba o IoU para 0,45. Pelo centro, o INT8 reencontra 63 das 67 bolas do fp32, e a maior parte da
+diferença por IoU era a caixa mudando de forma. O que não se explica por deslocamento são as 37
+detecções sem par nenhum, em 50 quadros, onde o fp16 não acrescenta nenhuma: bola falsa que entra
+na trajetória.
 
 | Tamanho do plano | fp32 | fp16 | INT8 |
 | --- | --- | --- | --- |
-| Players | 241 MB | 196 MB | 66 MB |
+| Players | 240 MB | 196 MB | 66 MB |
 | Ball | 235 MB | 161 MB | 123 MB |
-| Line | 181 MB | 150 MB | 86 MB |
+| Line | 181 MB | 151 MB | 86 MB |
 
 ## Decisões
 
-**O INT8 não entra no pipeline agora.** Em Ball a resposta muda demais para qualquer uso. Em
+**O INT8 não entra no pipeline agora.** Em Ball ele acrescenta 37 bolas que o fp32 não vê. Em
 Players e em Line o ganho é de cerca de 23% sobre o fp16, e a perda só pode ser julgada contra
 rótulo: 7% das detecções num caso, 12 px de ponto no outro, o que vira erro de homografia. A
 alternativa descartada era adotar o INT8 em Players pelo ganho de tempo. Ela fica para depois da
@@ -104,17 +110,17 @@ produção.
 
 **Concordância no lugar de acurácia, pelo IoU e pelo centro.** Sem o conjunto rotulado de cada modelo
 na placa, a medida é quanto a precisão menor muda a resposta do fp32. O par por IoU de 0,5 é o
-padrão de detecção; o par pela distância do centro entrou no banco por causa da bola, e sai na
-segunda rodada.
+padrão de detecção; o par pela distância do centro entrou no banco por causa da bola, e foi ele que
+separou caixa deslocada de bola nova.
 
 **O plano é construído na placa, com o sha256 do ONNX e a precisão registrados.** Plano não
 atravessa versão de TensorRT nem placa. O construtor registrava o plano INT8 como fp32, porque só
-olhava a flag de fp16; ele passou a ler os nós Q/DQ da rede, e a evidência desta rodada traz a
-correção declarada.
+olhava a flag de fp16; ele passou a ler os nós Q/DQ da rede, e a segunda rodada já saiu com o
+rótulo certo.
 
 ## Trade-offs
 
-O INT8 corta de 44% a 53% do tempo do fp32 e de 21% a 24% do fp16, e deixa o plano de 1,3 a 3 vezes
+O INT8 corta de 46% a 53% do tempo do fp32 e de 21% a 23% do fp16, e deixa o plano de 1,3 a 3 vezes
 menor que o fp16. O tamanho importa, porque o custo do TensorRT no pipeline foi memória: o pico
 chegou a 92% da RAM. A desvantagem principal é que ele muda a resposta, pouco em Players, nos pontos
 em Line e muito em Ball, e que a quantização não pode ser refeita a partir do repositório.
@@ -142,7 +148,6 @@ muito diferentes das do conjunto não foi medida.
 
 | Pendência | Próximo experimento |
 | --- | --- |
-| par pela distância do centro | segunda rodada na placa, na fila depois do catálogo: se o INT8 de Ball reencontrar pelo centro quase todas as 67 bolas do fp32, o problema é de localização; se não, é de detecção |
 | acurácia do INT8 contra rótulo | repetir a validação da Sprint 3 com os planos INT8 no TensorRT, já que o ONNX Runtime não roda o grafo |
 | INT8 dos pesos de produção | quantizar os pesos de `pipeline.models.toml` com uma rota versionada e medir dentro do pipeline em duas etapas |
 | memória no pipeline | hipótese: planos INT8 menores baixam o pico de 92% do TensorRT; medir com o `tegrastats` quando houver INT8 de produção |

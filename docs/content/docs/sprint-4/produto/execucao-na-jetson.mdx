@@ -6,8 +6,9 @@ description: O pipeline de produção medido no dispositivo, com memória, energ
 A revisão da Sprint 3 deixou quatro apontamentos que só o dispositivo fecha: a execução com os
 módulos reais feita na placa, e não na estação; o pipeline completo em meia precisão; os dados
 brutos das medições publicadas; e a configuração TensorRT versionada. Esta página traz as quatro
-medições, feitas em 24/09/2026 nos 24 clipes de desenvolvimento com instante anotado. A lista
-completa dos apontamentos está na [entrada da sprint](/docs/sprint-4#o-que-veio-da-revisão-da-sprint-3).
+medições, feitas em 24/09/2026 nos 24 clipes de desenvolvimento com instante anotado, e o catálogo
+contínuo de 24 e 25/09, que mediu memória e temperatura por mais de 90 minutos. A lista completa
+dos apontamentos está na [entrada da sprint](/docs/sprint-4#o-que-veio-da-revisão-da-sprint-3).
 
 ## A placa
 
@@ -17,7 +18,7 @@ completa dos apontamentos está na [entrada da sprint](/docs/sprint-4#o-que-veio
 | sistema           | Ubuntu 24.04.4, kernel 6.8.12-1021-tegra, L4T R39.2.1                          |
 | modo de energia   | `MAXN_SUPER`                                                                   |
 | runtime           | torch 2.13.0+cu130, ultralytics 8.4.129, TensorRT 11.3.0.99 (pip)              |
-| interface gráfica | ligada durante todas as medições, com 2,4 GB ocupados com a placa parada       |
+| interface gráfica | ligada nas medições de 24 clipes, com 2,4 GB ocupados com a placa parada; desligada no catálogo, com 0,66 GB |
 
 O torch do PyPI foi compilado para `sm_80` e avisa que a Orin, `sm_87`, não está entre as
 arquiteturas da build. Ele roda assim mesmo, e a medida abaixo mostra que o resultado não muda: os
@@ -79,7 +80,7 @@ duas, porque a meia precisão o deixa mais lento, como medido na
 | pico de RAM da placa                          | 6,5 GB  | 6,3 GB          |                      |
 | temperatura máxima (junção)                   | 67,7 °C | 64,7 °C         |                      |
 | jogadores, mediana                            | 35,4 s  | 18,2 s          | -49%                 |
-| bola, mediana                                 | 29,3 s  | 21,8 s          | -26%                 |
+| bola, mediana                                 | 29,3 s  | 21,7 s          | -26%                 |
 | campo, mediana                                | 5,1 s   | 5,2 s           | igual, fp32 nas duas |
 | identidade, pose e rastreio, medianas somadas | 3,8 s   | 3,8 s           |                      |
 
@@ -115,7 +116,7 @@ trabalho, e não no publicado.
 | energia | 670 J | 562 J | -16% |
 | potência média | 13,6 W | 12,8 W | |
 | pico de RAM da placa | 6,3 GB | 6,9 GB | +0,6 GB |
-| bola, mediana | 21,8 s | 16,3 s | -25% |
+| bola, mediana | 21,7 s | 16,3 s | -25% |
 | campo, mediana | 5,2 s | 2,6 s | -50% |
 
 **A bola em TensorRT reproduz a PyTorch.** No piloto anotado de 328 quadros, o PCK por diâmetro
@@ -127,18 +128,69 @@ dos números da bola e do campo, que mudam pouco com o plano.
 **O preço do TensorRT é memória.** Os planos somam 245 MB, cada um reserva a própria memória de
 ativação na GPU, e o pico da placa sobe para 92% da RAM com a interface gráfica ligada.
 
+**A passada isolada não reproduz a da Sprint 3.** Medidos com o `xvision bench-planos` nos mesmos 50
+quadros da [quantização INT8](/docs/sprint-4/modelos/quantizacao-int8), os dois planos de produção
+levam de 1,6 a 1,7 vez o tempo que a Sprint 3 publicou:
+
+| Uma passada, com a cópia de entrada e saída | fp32 | fp16 | Sprint 3, fp16 |
+| --- | --- | --- | --- |
+| campo, 544x960 | 16,7 ms | 12,9 ms | 7,9 ms |
+| bola, lote 4, 992x1600 | 125,4 ms | 76,4 ms | 45,1 ms |
+
+A Sprint 3 não guardou o comando, a versão do TensorRT nem se a cópia entrava na conta. Aqui ela
+entra, e na bola são 76 MB de entrada por passada. A linha por etapa, que é o que o pipeline sente,
+bate com a publicada, então a diferença está no que cada medida inclui, e a passada publicada não
+deve servir de referência. O fp16 concorda com o fp32 nos dois planos: as 86 bolas e os 50 campos
+formam par, e os pontos do campo se movem 0,16 px na mediana.
+
+## O catálogo na placa
+
+O catálogo roda os 363 clipes de desenvolvimento duas vezes, com o instante do T-DEED e com a regra
+cinemática, e todo o resto igual. Foi a primeira execução longa na placa, e ela achou um defeito que
+os 24 clipes não mostravam.
+
+**A placa travou no 24º clipe.** Na primeira tentativa, em 24/09, com uma sessão gráfica aberta, a
+RAM subiu de 4,9 para 7,3 GB com a GPU parada e ficou no teto por 40 minutos, sem swap e sem o OOM
+killer agir, até o watchdog de hardware reiniciar a placa. A causa estava no provedor de quadros:
+por quadro denso, ele guardava até o fim do clipe o quadro decodificado e o preparado de cada
+espécie, uns 17 MB, e o runner montava os lotes da espécie inteira antes de inferir. Num clipe de
+13 s, isso passa de 6 GB. Na estação, com 32 GB, não aparecia.
+
+| Correção | O que muda | Efeito na placa |
+| --- | --- | --- |
+| !109 | um lote por vez, e o preparado só da espécie atual | os clipes de 13 s passaram, com pico de 6,3 a 6,4 GB; o único de 18 s ainda passou do teto |
+| !111 | o preparado vai direto para o lote, sem ser guardado | o clipe de 18 s passou, com pico de 5,4 GB |
+
+Depois da queda, o catálogo rodou em modo texto, sem a interface gráfica, com uma proteção que mata
+o processo se a memória disponível ficar abaixo de 300 MB por 5 s. Ela agiu uma vez, no clipe de
+18 s, antes da !111. Os dois braços foram retomados no mesmo diretório, que confere configuração e
+seleção de clipes.
+
 ## Memória e energia contra os requisitos
 
-**RNF-04 não é atendido com a interface gráfica ligada.** O
-[requisito](/docs/sprint-1/requisitos/nao-funcionais) pede uso de memória abaixo de 70% da
-capacidade, e a segunda etapa chega a 84% no pico em PyTorch e a 92% com TensorRT. Com a placa parada, a interface gráfica já ocupa
-2,4 GB. Um dispositivo de borda operando no campo não teria tela, e a mesma medida sem a interface
-é o primeiro experimento pendente.
+**RNF-04 é atendido nos clipes de até 8 s e estourado por pouco nos longos.** O
+[requisito](/docs/sprint-1/requisitos/nao-funcionais) pede memória abaixo de 70% da capacidade em 90
+minutos contínuos, sem crescimento. Em modo texto e com as duas correções, nos 102 clipes medidos
+na retomada do catálogo até 25/09 às 9h26:
 
-**RNF-05 tem potência média e energia por clipe registradas** para fp32, fp16 e TensorRT, com o
-modo de energia declarado. Os 90 minutos contínuos que ele exige ficaram para a execução do
-catálogo, que roda por horas seguidas com o `tegrastats` ligado. Nas execuções desta página, de 20
-a 30 minutos, a temperatura máxima foi de 67,7 °C, sem sinal de estrangulamento.
+| Clipes | n | Pico mediano | Maior pico |
+| --- | --- | --- | --- |
+| até 8 s | 70 | 59,9% | 61,9% |
+| de 8 a 11 s | 24 | 60,9% | 70,9% |
+| acima de 11 s | 8 | 70,8% | 72,8% |
+
+A base com os modelos carregados fica em 55% e não cresce ao longo da execução. Dez dos 102 clipes
+passam de 70%, todos com mais de 8 s. Nos 24 clipes com a interface gráfica ligada, com o código
+anterior às correções, a segunda etapa chegou a 84% em PyTorch e a 92% com TensorRT; esses picos
+não foram repetidos depois das correções, e o TensorRT ainda não rodou em modo texto.
+
+**RNF-05 é atendido nos 100 minutos medidos.** O braço T-DEED rodou 100 minutos seguidos em modo
+texto, das 20h19 às 21h59 de 24/09, com o `tegrastats` a cada segundo. A GPU ficou ocupada 83% do
+tempo, a potência média foi de 13,3 W, com pico de 19,1 W, e a temperatura máxima foi de 64,6 °C na
+GPU e 62,3 °C na CPU, abaixo dos 70 °C do primeiro ponto de estrangulamento passivo que a placa
+declara. O tempo de processamento por segundo de clipe ficou em 7,17 s no primeiro terço e 7,08 s
+no último, sem degradação. A execução terminou pela memória, no clipe de 18 s, e não pela
+temperatura. A potência e a energia por clipe de cada configuração estão nas tabelas acima.
 
 ## Como reproduzir
 
@@ -152,9 +204,20 @@ xvision run --all --gabarito --dobra ajuste --config config/pipeline.models.duas
 xvision tegrastats ../var/runs/etapa2.tegrastats.log --clipes 24
 ```
 
+O catálogo roda em modo texto, com a mesma primeira etapa sobre as dobras de ajuste inteiras:
+
+```bash
+sudo systemctl isolate multi-user.target
+xvision spots --config config/pipeline.models.toml --dobra ajuste
+tegrastats --interval 1000 --logfile ../var/runs/catalogo.tegrastats.log &
+xvision run --all --dobra ajuste --config config/pipeline.models.duas-etapas.toml
+xvision tegrastats ../var/runs/catalogo.tegrastats.log --clipes 363
+```
+
 Cada `run.json` grava commit, placa, JetPack, CUDA, versões de runtime e o ajuste de cada espécie.
 Os dados brutos agregados, sem identificador de clipe, estão em
-[`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json).
+[`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json) e, para o catálogo, em
+[`jetson-catalogo-20260925.json`](/sprint-4/produto/evidencias/jetson-catalogo-20260925.json).
 
 ## Decisões
 
@@ -170,6 +233,16 @@ que vem da primeira etapa, e a Sprint 3 já tinha medido a concordância das cai
 fp16.** Ele poupa mais 11% do tempo e 16% da energia, e em troca leva a memória a 92%, sem margem
 para um clipe mais longo que os 24 medidos. A alternativa descartada era adotá-lo já, e a troca fica
 para depois do experimento sem interface gráfica, que devolve a margem.
+
+**O catálogo roda em modo texto.** Um dispositivo de borda no campo não tem tela, e a interface
+gráfica ocupava 1,7 GB com uma sessão aberta. A alternativa descartada era manter a tela e tirar os
+clipes longos do catálogo, o que enviesaria a comparação entre os braços justamente nos clipes que
+mais custam.
+
+**A proteção de memória mata o processo antes de a placa travar.** Sem swap, o kernel não matou nada
+em 40 minutos no teto, e só o watchdog tirou a placa do travamento. A alternativa descartada era
+swap: a memória que o CUDA reserva não vai para ele, como a tentativa com 4 GB de swap já tinha
+mostrado.
 
 **O tempo de cada espécie sai do `run.json` com o cache limpo.** A primeira execução em duas etapas
 reaproveitou percepção das tentativas anteriores, e um acerto de cache aparece como tempo quase
@@ -187,16 +260,18 @@ mesmo recorte de clipes, o que o código garante por um único auxiliar de sele�
 próximo `uv lock` pode trazer uma versão que não funcione. A saída está registrada: o JetPack tem
 torch próprio para a Orin.
 
-**Memória no limite.** Mesmo em duas etapas, o pico da segunda etapa é de 84% da RAM com a
-interface gráfica ligada. Uma espécie a mais, ou um modelo maior, volta a faltar memória.
+**A memória cresce com o comprimento do clipe.** O quadro decodificado fica guardado até o fim do
+clipe, porque decodificar de novo por espécie custaria outra passada pelo vídeo. Mesmo em modo
+texto, os clipes acima de 11 s chegam a 71% e 73%, e um clipe mais longo que os 18 s do catálogo
+não foi medido. Uma espécie a mais, ou um modelo maior, volta a faltar memória.
 
 **São 24 clipes.** O tempo por clipe varia com a duração do corte, e o p95 é decidido por dois ou
 três clipes longos.
 
 ## Ainda não implementado
 
-| Pendência                      | Próximo experimento                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| RNF-04 sem a interface gráfica | repetir a segunda etapa em PyTorch e em TensorRT com a placa em modo texto e comparar o pico |
-| RNF-05, 90 minutos contínuos   | ler o `tegrastats` do catálogo noturno: temperatura, frequência e crescimento de memória   |
-| decodificação por hardware     | o OpenCV do lock decodifica na CPU; o NVDEC da placa exige GStreamer, que o wheel não traz |
+| Pendência | Próximo experimento |
+| --- | --- |
+| RNF-04 nos clipes longos | medir o custo de decodificar de novo por espécie, em vez de guardar o quadro, contra os 2,8 pontos percentuais acima do limite |
+| TensorRT em modo texto | repetir a segunda etapa com os planos de bola e campo no catálogo e comparar o pico com o do PyTorch |
+| decodificação por hardware | o OpenCV do lock decodifica na CPU; o NVDEC da placa exige GStreamer, que o wheel não traz |

@@ -19,8 +19,8 @@ está em andamento, e a página descreve o estado de hoje, incluindo o que ainda
 | [Bola e trajetória](/docs/sprint-4/modelos/bola-e-trajetoria) | a segunda passada cega do gabarito da bola, que passou no critério da spec e achou um clipe com marcações incompatíveis |
 | [Procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | o que o `run.json` passou a gravar para uma medição poder ser repetida por outra pessoa |
 | [Execução com os módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) | a evidência operacional da Sprint 3 repetida sem stub, com render e com as features declarando ausência |
-| [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) | o pipeline de produção medido na placa em fp32, fp16 e TensorRT, com tempo, energia e memória por clipe, e as duas etapas que o fizeram caber na memória |
-| [Quantização INT8 na Jetson](/docs/sprint-4/modelos/quantizacao-int8) | os modelos quantizados em INT8 medidos na placa contra fp16 e fp32 do mesmo peso: de 21% a 24% mais rápidos que o fp16, e por que não entram no pipeline agora |
+| [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) | o pipeline de produção medido na placa em fp32, fp16 e TensorRT, com tempo, energia e memória por clipe, as duas etapas que o fizeram caber na memória e o catálogo contínuo contra RNF-04 e RNF-05 |
+| [Quantização INT8 na Jetson](/docs/sprint-4/modelos/quantizacao-int8) | os modelos quantizados em INT8 medidos na placa contra fp16 e fp32 do mesmo peso: de 21% a 23% mais rápidos que o fp16, e por que não entram no pipeline agora |
 | [Análise financeira](/docs/sprint-4/analise-financeira) | custo de desenvolvimento, CAPEX e OPEX da borda e cenários de benefício |
 | [Slides](/docs/sprint-4/slides) | apresentação da sprint |
 
@@ -89,14 +89,21 @@ Os três apontamentos que dependiam da Jetson foram medidos na placa, e o detalh
 [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson). A execução com módulos reais e o
 pipeline completo em meia precisão foram feitos nos 24 clipes de desenvolvimento. Dos dados brutos
 das medições da Sprint 3, as linhas por etapa foram refeitas e batem com as publicadas (bola em
-TensorRT de 21,8 para 16,3 s por clipe, contra 22 para 16,5 s); os tempos de uma passada isolada
-não foram refeitos, porque o pipeline mede por etapa.
+TensorRT de 21,7 para 16,3 s por clipe, contra 22 para 16,5 s). A passada isolada dos planos de
+produção foi refeita com o `xvision bench-planos` e não reproduz a publicada: 12,9 ms no campo e
+76,4 ms na bola, contra 7,9 e 45,1 ms. A Sprint 3 não guardou o que entrava na conta, e a página da
+Jetson declara a divergência em vez de escolher um dos dois números.
+
+O catálogo de 363 clipes na placa mediu os dois requisitos que dependiam de execução longa. O
+RNF-05 é atendido: 100 minutos contínuos, com pico de 64,6 °C, abaixo do ponto de estrangulamento, e
+sem degradação de tempo. O RNF-04 é atendido nos clipes de até 8 s e estourado por pouco nos longos,
+com pico de 72,8% contra o limite de 70%. A primeira tentativa travou a placa por um defeito de
+memória no provedor de quadros, corrigido na !109 e na !111.
 
 ## O que está bloqueado
 
-**Na Jetson, o que resta.** O pico de memória sem a interface gráfica, que decide o RNF-04; os 90
-minutos contínuos do RNF-05 e o efeito do instante novo nas features do catálogo, que saem da
-execução noturna dos 363 clipes de desenvolvimento.
+**Na Jetson, o que resta.** O efeito do instante novo nas features, que sai dos dois braços do
+catálogo quando a execução terminar; o RNF-04 nos clipes acima de 8 s; e o TensorRT em modo texto.
 
 **Com o parceiro e a orientação.** O uso de um peso sem licença declarada no produto entregue.
 
