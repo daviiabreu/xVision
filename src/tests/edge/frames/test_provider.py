@@ -106,6 +106,28 @@ def test_an_empty_batch_carries_the_shape_the_spec_declares() -> None:
     assert lote.tensor.shape == (0, 16, 16, 1)
 
 
+def test_switching_spec_drops_the_prepared_frames_but_keeps_the_decoded_ones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preparos: list[str] = []
+
+    def contado(frame: Frame, spec: PreprocessSpec) -> Frame:
+        preparos.append(spec.color)
+        return prepare(frame, spec)
+
+    monkeypatch.setattr(provider_mod, "prepare", contado)
+    espia = SourceEspia()
+    provider = FrameProvider(espia)
+
+    primeiro = provider.frames([0, 1], RGB)
+    provider.frames([0, 1], GRAY)
+    de_novo = provider.frames([0, 1], RGB)
+
+    assert espia.decodificados == [0, 1]
+    assert preparos == ["rgb", "rgb", "gray", "gray", "rgb", "rgb"]
+    assert iguais(primeiro.tensor, de_novo.tensor)
+
+
 def test_second_spec_over_the_same_indices_does_not_decode_again() -> None:
     espia = SourceEspia()
     provider = FrameProvider(espia)

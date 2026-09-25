@@ -215,6 +215,11 @@ def _infer(
     Sem o `cache` aqui, `edge.cache` inteiro seria infraestrutura sem consumidor de producao: a
     chave, o digest do peso e o `PerceptionCache` existiam e nada os chamava fora dos testes,
     entao `var/cache/perception` ficava vazio depois de uma execucao completa.
+
+    Os lotes saem um de cada vez, e cada um e descartado antes do proximo ser montado. Montados
+    todos antes da primeira inferencia, os tensores da especie inteira ficavam vivos juntos: na
+    bola, 6,3 MB por quadro, 1,2 GB num clipe de 13 s a 15 fps, o que numa Jetson de 7,5 GB
+    compartilhados com a GPU basta para travar a placa.
     """
     spec = modulo.spec
     ctx = {
@@ -222,10 +227,10 @@ def _infer(
         for kind in dict.fromkeys(spec.needs + spec.optional_needs)
         if kind in saidas
     }
-    lotes = [
+    lotes = (
         replace(provider.frames(lote, spec.preprocess), clip_id=clip_id)
         for lote in _batches(indices, spec.batching)
-    ]
+    )
     if cache is None:
         return _merge(spec.kind, [modulo.infer(lote, ctx) for lote in lotes])
     return _merge(

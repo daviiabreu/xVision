@@ -251,6 +251,31 @@ def test_temporal_batching_delivers_consecutive_frames() -> None:
         assert lote[0] >= 0 and lote[-1] < clipe().frame_count
 
 
+def test_each_batch_is_built_only_after_the_previous_one_was_inferred() -> None:
+    ordem: list[str] = []
+
+    class ProviderQueAnota(ProviderFalso):
+        def frames(self, indices: Sequence[int], spec: PreprocessSpec) -> FrameBatch:
+            ordem.append("monta")
+            return super().frames(indices, spec)
+
+    class ModuloQueAnota(ModuloEspia):
+        def infer(self, batch: FrameBatch, ctx: ModuleInputs) -> ModuleOutput:
+            ordem.append("infere")
+            return super().infer(batch, ctx)
+
+    modulo = ModuloQueAnota("tracking", batching=Temporal(size=4, stride=4))
+    run_pipeline(
+        clip=clipe(),
+        modules={"tracking": modulo},
+        framesets=read_framesets(CONFIG),
+        provider=ProviderQueAnota(),  # pyright: ignore[reportArgumentType]
+    )
+
+    assert len(modulo.lotes) > 1
+    assert ordem == ["monta", "infere"] * len(modulo.lotes)
+
+
 def test_a_temporal_window_at_the_end_of_the_frameset_slides_back_instead_of_shrinking() -> None:
     temporal = ModuloEspia("tracking", batching=Temporal(size=8, stride=1))
 

@@ -119,13 +119,25 @@ class VideoSource:
 
 
 class FrameProvider:
+    """Decodifica cada quadro uma vez por clipe e guarda o preparado so do pre-processamento atual.
+
+    O quadro decodificado fica ate o fim do clipe, porque decodificar de novo custa uma passada
+    sequencial pelo video. O preparado nao: guardar o de cada especie somava uns 17 MB por quadro
+    denso (cru, jogadores, bola e campo), 3,3 GB num clipe de 13 s, e travou a Jetson no catalogo.
+    Trocar de pre-processamento descarta o anterior; refazer o letterbox custa milissegundos.
+    """
+
     def __init__(self, source: FrameSource) -> None:
         self._source = source
         self._decoded: dict[int, Frame] = {}
         self._ready: dict[tuple[int, str], Frame] = {}
+        self._ready_spec: str | None = None
 
     def frames(self, indices: Sequence[int], spec: PreprocessSpec) -> FrameBatch:
         impressao = spec.fingerprint
+        if impressao != self._ready_spec:
+            self._ready.clear()
+            self._ready_spec = impressao
         self._prepare_missing(indices, spec, impressao)
         forma = (len(indices), spec.height, spec.width, channels(spec.color))
         tensor = np.empty(forma, dtype=tensor_dtype(spec.normalize))
@@ -163,6 +175,7 @@ class FrameProvider:
         self._source.close()
         self._decoded.clear()
         self._ready.clear()
+        self._ready_spec = None
 
     def _prepare_missing(self, indices: Iterable[int], spec: PreprocessSpec, key: str) -> None:
         faltando = sorted({i for i in indices if (i, key) not in self._ready})
