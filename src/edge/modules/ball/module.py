@@ -68,7 +68,7 @@ from edge.modules.ball.detector import (
     DetectorTelemetry,
     is_ball_shaped,
 )
-from edge.modules.ball.ranking import CandidateRanker, RankerArtifact, load_ranker
+from edge.modules.ball.ranking import ARTIFACTS, CandidateRanker, RankerArtifact, load_ranker
 from edge.modules.ball.tracking import BallObservation, BallTracker, TrackerConfig, TrackPoint
 from edge.modules.base import (
     FrameBatch,
@@ -102,6 +102,8 @@ compartilhada. O compartilhamento ja tinha acabado quando `ball` ganhou peso pro
 `SharedInference` e (peso, impressao do pre-processamento, quadro), e o peso ja era outro.
 """
 
+ARTEFATO_PADRAO = "aparencia-e-camera"
+
 INTERPOLADO = "interpolated"
 DETECTADO = "detected"
 CONFIANCA_INTERPOLADA = 0.0
@@ -133,12 +135,14 @@ class YoloBall:
         tracker_config: TrackerConfig | None = None,
         ranking: bool = False,
         ranking_candidates: int = 1,
+        ranking_artifact: str = ARTEFATO_PADRAO,
     ) -> None:
         self._detector = detector
         self._detector_config = detector_config
         self._tracker_config = tracker_config or TrackerConfig()
         self._ranking = ranking
         self._ranking_candidates = ranking_candidates
+        self._ranking_artifact = _artefato_valido(ranking_artifact)
         self._ranker: RankerArtifact | None = None
         self._ajustes: Mapping[str, object] = {}
         self._efetiva: DetectorConfig | None = detector_config
@@ -165,6 +169,7 @@ class YoloBall:
             ";".join(f"{k}={v}" for k, v in ordenados)
             + f";tracker={asdict(self._tracker_config)!r}"
             + f";ranking={self._ranking!r},{self._ranking_candidates:d}"
+            + ("" if self._ranking_artifact == ARTEFATO_PADRAO else f",{self._ranking_artifact}")
         )
 
     def configure(self, options: Mapping[str, object]) -> None:
@@ -189,6 +194,8 @@ class YoloBall:
             if isinstance(quantos, bool) or not isinstance(quantos, int) or quantos < 1:
                 raise ValueError("ball.ranking_candidates espera inteiro maior ou igual a um")
             self._ranking_candidates = quantos
+        if "ranking_artifact" in detector_options:
+            self._ranking_artifact = _artefato_valido(detector_options.pop("ranking_artifact"))
         if "max_ball_speed_px_per_s" in detector_options:
             speed = detector_options.pop("max_ball_speed_px_per_s")
             if (
@@ -212,7 +219,7 @@ class YoloBall:
             self._detector = YoloBallDetector.from_config(config)
         sem_peso = DetectorConfig(weights="").com_ajustes(self._ajustes)
         self._efetiva = config if config is not None else sem_peso
-        self._ranker = load_ranker() if self._ranking else None
+        self._ranker = load_ranker(ARTIFACTS[self._ranking_artifact]) if self._ranking else None
         self._pronto = True
 
     def _tracker_efetivo(self, ordenado: bool) -> TrackerConfig:
@@ -446,6 +453,12 @@ def chave_do_cache(config: DetectorConfig) -> str:
     return (
         f"{config.weights}#conf={config.conf:g}#imgsz={config.imgsz:d}#quantize={config.quantize}"
     )
+
+
+def _artefato_valido(nome: object) -> str:
+    if not isinstance(nome, str) or nome not in ARTIFACTS:
+        raise ValueError(f"ball.ranking_artifact = {nome!r}, e o aceito e {' ou '.join(ARTIFACTS)}")
+    return nome
 
 
 def _as_tuple(box: Box) -> tuple[float, float, float, float]:

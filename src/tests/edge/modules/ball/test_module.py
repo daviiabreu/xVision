@@ -501,6 +501,42 @@ def test_ranking_candidates_invalido_nao_passa_calado(valor: object) -> None:
         YoloBall().configure({"ranking_candidates": valor})
 
 
+def test_ranking_artifact_escolhe_o_arquivo_carregado(monkeypatch: pytest.MonkeyPatch) -> None:
+    from edge.modules.ball import module as modulo_da_bola
+    from edge.modules.ball.ranking import ARTIFACTS
+
+    carregados: list[object] = []
+    original = modulo_da_bola.load_ranker
+
+    def espia(caminho: object = None) -> object:
+        carregados.append(caminho)
+        return original(caminho)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(modulo_da_bola, "load_ranker", espia)
+    modulo = YoloBall(_duas_caixas(), ranking=True)
+    modulo.configure({"ranking_artifact": "aparencia"})
+
+    modulo.load()
+    modulo.infer(_lote((0,)), {})
+
+    assert carregados == [ARTIFACTS["aparencia"]]
+    assert modulo.telemetry["ranked_frames"] == 1
+
+
+def test_ranking_artifact_desconhecido_nao_passa_calado() -> None:
+    with pytest.raises(ValueError, match="ball.ranking_artifact"):
+        YoloBall().configure({"ranking_artifact": "camera"})
+
+
+def test_o_artefato_entra_na_impressao_so_quando_nao_e_o_padrao() -> None:
+    """A chave do cache de percepcao nao pode servir a bola de um artefato para o outro."""
+    padrao = YoloBall(ranking=True, ranking_candidates=2)
+    aparencia = YoloBall(ranking=True, ranking_candidates=2, ranking_artifact="aparencia")
+
+    assert padrao.fingerprint().endswith(";ranking=True,2")
+    assert aparencia.fingerprint().endswith(";ranking=True,2,aparencia")
+
+
 def test_a_telemetria_do_ranking_soma_entre_clipes() -> None:
     """A pontuacao sai como soma, e nao como mediana, porque `aggregate_telemetry` soma tudo.
 

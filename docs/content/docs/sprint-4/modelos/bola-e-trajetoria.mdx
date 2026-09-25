@@ -1,13 +1,15 @@
 ---
 title: Bola e trajetória
-description: Segunda passada cega do gabarito do piloto e a bola repetida na Jetson em TensorRT
+description: Segunda passada cega do gabarito do piloto, a bola repetida na Jetson em TensorRT e o ranking de candidatos só de aparência, que quase dobra o acerto no piloto
 ---
 
 Esta página continua a [bola e trajetória da Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria)
 e trata de uma pendência dela: o gabarito do piloto nunca tinha sido conferido. Nesta sprint ele
 recebeu uma segunda passada cega, feita pelo mesmo anotador, e passou no critério que a spec definiu.
-O detector, o rastreador e a configuração da bola não mudaram. A bola também foi repetida na Jetson,
-em TensorRT, contra o PyTorch.
+A bola também foi repetida na Jetson, em TensorRT, contra o PyTorch. Por fim, a exploração de
+melhoria achou uma variante do ranking de candidatos que quase dobra o acerto no piloto, avaliada
+fora da partida em que foi ajustada; ela entra no código como opção e só vira padrão se não piorar
+as features no catálogo, o que está em medição.
 
 ## Onde se encaixa no fluxo
 
@@ -95,6 +97,62 @@ rastreador aceita, então essa tabela é a paridade de candidatos e de ponto esc
 deixou pendente. Na etapa completa, a bola passa de 21,7 para 16,3 s por clipe; o custo, a memória
 e a configuração versionada estão na [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
 
+## Melhoria da trajetória
+
+A linha de base foi reproduzida antes de qualquer mudança: 93 acertos em 317 quadros visíveis, PCK
+de 0,2934, igual à Sprint 3 em fp32. O 0,3028 da Jetson é o mesmo modelo em fp16. Para comparar
+variantes sem rodar o detector de novo, os candidatos de cada quadro foram guardados uma vez, com as
+mesmas medidas que a produção extrai, e o cache reproduz exatamente a linha de base e os três
+números publicados na Sprint 3.
+
+**Onde está o erro.** Dos 224 erros em quadros visíveis:
+
+| Classe | Quadros |
+| --- | ---: |
+| o candidato certo estava na lista e o rastreador escolheu outro | 148 |
+| o detector não achou a bola nem com confiança de 0,01 | 44 |
+| o candidato certo só aparece abaixo do limiar de 0,10 | 19 |
+| posição interpolada longe da bola | 12 |
+| sem previsão | 1 |
+
+O gargalo continua sendo a escolha dentro do quadro. Com escolha perfeita no limiar atual, o teto
+seria de 246 acertos, PCK de 0,776. Nenhuma variante acerta os 10 quadros em que a bola passa de
+1.500 px/s, que são os do chute.
+
+**O que foi testado.** Todo parâmetro foi escolhido sem o dado em que é medido: o ranking é ajustado
+deixando de fora a partida avaliada, e os parâmetros do rastreador são escolhidos nos outros sete
+clipes e medidos no clipe de fora.
+
+| Variante | Acertos | PCK | Erro mediano | Interpolados |
+| --- | ---: | ---: | ---: | ---: |
+| linha de base | 93 | 0,293 | 265,3 px | 15 |
+| limiar de confiança escolhido fora do clipe | 90 | 0,284 | | |
+| gate do rastreador escolhido fora do clipe | 127 | 0,401 | 131,5 px | 48 |
+| ranking só de aparência, 1 candidato | 165 | 0,521 | 4,95 px | 81 |
+| **ranking só de aparência, 2 candidatos** | **175** | **0,552** | **3,30 px** | **41** |
+| ranking de aparência e câmera, 1 candidato, da Sprint 3 | 186 | 0,587 | 2,94 px | 88 |
+| ranking de aparência e câmera, 2 candidatos | 177 | 0,558 | 2,93 px | 45 |
+| gate de 1.500 px/s com ranking só de aparência e lista inteira | 196 | 0,618 | 2,30 px | 42 |
+
+A variante só de aparência com 2 candidatos fica a 2 acertos da de câmera com o mesmo número de
+candidatos, e custa 0,33 ms por quadro no Mac, contra 237,6 ms da estimativa de movimento da
+câmera. Na Jetson, o ranking com câmera levou a bola de 21,7 para 76 s por clipe. A última linha é
+a melhor no piloto, mas o acerto dela cai para 152 a 173 com qualquer vizinho do gate escolhido, e o
+pico fica na borda da grade: é hipótese, e não recomendação. O ranking de produção avaliado no
+próprio piloto dá 215, mas foi ajustado nas mesmas seis partidas e não vale como estimativa.
+
+**Por que ele ainda não é padrão.** Em 10/09 o ranking foi desligado pelo critério da emenda 17:
+no catálogo, ele baixou a macro-F1 de `type_of_play` de 0,334 para 0,309 e a de `body_part` de 0,315
+para 0,279, e piorou o instante, que então vinha da trajetória da bola. Hoje o instante vem do
+T-DEED, e essa parte do motivo deixou de existir, mas o efeito nas features precisa ser medido de
+novo. Um teste de 24 clipes na Jetson mudou o valor de `type_of_play` e de `body_part` em 9 dos 24,
+sem direção clara: é preciso o catálogo inteiro. O braço com o ranking só de aparência está rodando
+nos 363 clipes, contra o braço desligado que terminou em 25/09, e o critério é o mesmo de 10/09.
+
+O código ganhou a opção `ranking_artifact`, que escolhe no TOML entre o artefato da Sprint 3 e o só
+de aparência, com os coeficientes versionados e sem dado do parceiro. A produção segue com
+`ranking = false` até o resultado.
+
 ## Decisões
 
 **A segunda passada foi feita pelo mesmo anotador.** A spec pedia outra pessoa. Davi, que fez a
@@ -107,10 +165,13 @@ conferência até alguém estar disponível.
 passada. A alternativa descartada era revisar a primeira passada ponto a ponto, que é mais rápido e
 mede outra coisa: quem revê uma marca tende a aceitá-la.
 
-**O resíduo de movimento fica desligado, sem medida na placa.** Ele só existe dentro do ranking de
-candidatos, que a comparação de 07/09 rejeitou e que está desligado em todas as configurações. Medir
-o custo dele na Jetson responderia a uma pergunta que nenhuma configuração em uso faz; se o ranking
-voltar, a medida volta junto.
+**O resíduo de movimento fica de fora.** Ele só existe dentro do ranking com câmera, que quase dobra
+o custo por clipe do pipeline na Jetson. A variante só de aparência chega a 2 acertos dela no piloto
+sem esse custo, e é a que vai para a comparação nas features.
+
+**O ranking volta a ser julgado pelas features, e não pelo piloto.** O piloto mede a posição da bola;
+a entrega é a feature. A alternativa descartada era ligar o ranking pelo ganho no piloto, que é o
+que a comparação de 10/09 já mostrou ser insuficiente.
 
 **O contexto temporal fica disponível, e a marca só vale no quadro alvo.** A primeira passada teve o
 clipe inteiro. Negar movimento na segunda mediria a falta dele, e não a concordância.
@@ -131,6 +192,10 @@ marcar o centro da mancha borrada e não o da bola, não aparece em nenhuma medi
 **O clipe incompatível ainda não foi resolvido.** Até alguém decidir qual passada está certa, as
 métricas de trajetória da Sprint 3 carregam esses quadros como estão.
 
+**O piloto é pequeno para escolher variantes.** São 8 clipes de 6 partidas; a validação fora da
+partida e fora do clipe reduz o sobreajuste, mas não o elimina, e a variante que mais acerta no
+piloto é justamente a mais sensível ao parâmetro escolhido.
+
 **São 88 quadros, 76 deles com centro nas duas passadas.** A mediana é estável com esse n, e o p95
 não: ele é decidido por três ou quatro quadros.
 
@@ -138,6 +203,8 @@ não: ele é decidido por três ou quatro quadros.
 
 | Pendência                                       | Próximo passo                                                                               |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| ranking só de aparência nas features            | braço de 363 clipes em execução na Jetson; se passar na emenda 17, `ranking = true` com `ranking_artifact = "aparencia"` vira padrão |
+| gate de 1.500 px/s com a lista inteira          | terceiro braço, só se a variante acima passar, porque a sensibilidade ao gate é alta          |
 | clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
 | concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
 

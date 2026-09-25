@@ -17,6 +17,7 @@ from contracts import BallDetection, Box
 from edge.modules.ball.ranking import (
     APPEARANCE_FEATURES,
     ARTIFACT,
+    ARTIFACTS,
     MAX_MOTION_GAP_FRAMES,
     MOTION_FEATURES,
     CandidateRanker,
@@ -107,6 +108,15 @@ class TestRankerArtifact:
         artefato = load_ranker()
         assert artefato.features == APPEARANCE_FEATURES + MOTION_FEATURES
         assert artefato.uses_camera_motion
+
+    def test_artefato_so_de_aparencia_nao_estima_movimento(self) -> None:
+        artefato = load_ranker(ARTIFACTS["aparencia"])
+        assert artefato.features == APPEARANCE_FEATURES
+        assert not artefato.uses_camera_motion
+        assert len(artefato.coefficient) == len(APPEARANCE_FEATURES) + 1
+
+    def test_o_padrao_segue_sendo_o_artefato_com_camera(self) -> None:
+        assert ARTIFACTS["aparencia-e-camera"] == ARTIFACT
 
     def test_ausencia_do_arquivo_e_erro_explicito(self, tmp_path: Any) -> None:
         with pytest.raises(RankerError, match="nao existe"):

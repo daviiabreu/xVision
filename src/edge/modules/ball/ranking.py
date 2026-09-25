@@ -41,6 +41,16 @@ import numpy as np
 from contracts import BallDetection
 
 ARTIFACT = Path(__file__).with_name("candidate-ranker-v1.json")
+ARTIFACTS = {
+    "aparencia-e-camera": ARTIFACT,
+    "aparencia": Path(__file__).with_name("candidate-ranker-aparencia-v1.json"),
+}
+"""Os artefatos que o TOML escolhe por nome em `ball.ranking_artifact`.
+
+O so de aparencia existe porque a estimativa de movimento da camera custa cerca de 15 s por clipe
+no pipeline, e sem ela o ranking fica perto do com camera no piloto: fora da partida, 175 acertos
+com dois candidatos contra 186 com um, e 93 na linha de base, em 317 visiveis.
+"""
 
 APPEARANCE_FEATURES = (
     "confidence_logit",

@@ -17,7 +17,7 @@ da bola e da emenda 15, escritas antes das medidas.
 | linha de base registrada, sem mudança proposta | TB-03 |
 | falha | TB-07, orçamento de tempo na Jetson |
 | parcial | TB-08, memória nos clipes longos |
-| a medir | TB-09, ranking com o instante do T-DEED |
+| em execução na Jetson | TB-09, ranking só de aparência com o instante do T-DEED |
 | não executado | TB-10, pacote reservado, fechado até o congelamento |
 
 ## Testes automatizados
@@ -44,7 +44,7 @@ da bola e da emenda 15, escritas antes das medidas.
 | TB-06 | falhas previsíveis | `pytest tests/edge/modules/ball` | sem detector, sem tamanho de origem, lacuna longa ou ajuste inválido: saída declarada, sem posição inventada | passa na CI |
 | TB-07 | orçamento na Jetson | `run.json` das execuções limpas, tempo da bola dividido pelos quadros densos do clipe | p95 de até 66,7 ms por quadro a 15 fps | falha: 210,5 ms no p95 em TensorRT e 248,6 ms em PyTorch fp16, com medianas de 162,5 e 213,5 ms |
 | TB-08 | memória | catálogo em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | parcial: a base não cresce; 14 dos 223 clipes passam de 70%, todos com mais de 8 s, com pico de 72,8% |
-| TB-09 | efeito nas features | catálogo em dois braços, ranking ligado e desligado, com o instante do T-DEED | macro-F1 de `type_of_play` e `body_part` do braço novo pelo menos igual, com cobertura que não cai | a medir: o ranking dobrou o PCK do piloto e foi desligado em 10/09 porque piorava o instante da regra e as features; com o instante vindo do T-DEED, o motivo pode não valer mais |
+| TB-09 | efeito nas features | catálogo em dois braços, ranking ligado e desligado, com o instante do T-DEED | macro-F1 de `type_of_play` e `body_part` do braço novo pelo menos igual, com cobertura que não cai | em execução: o ranking só de aparência com 2 candidatos leva o piloto de 93 para 175 acertos fora da partida; o braço de 363 clipes roda contra o braço desligado de 25/09 |
 | TB-10 | generalização | os 14 reservados, uma vez, depois do congelamento | pelo menos 13 de 14 contatos com bola detectada | não executado: o pacote segue fechado |
 
 ## Ainda não medido
