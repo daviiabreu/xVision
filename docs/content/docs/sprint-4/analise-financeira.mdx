@@ -17,6 +17,26 @@ resto é estimado, com o método declarado e uma faixa em vez de um número úni
   foram consultados em 25/09/2026, num ano de alta forte de memória e de GPU, e valem por semanas.
 </Callout>
 
+## Resumo executivo
+
+A computação é a menor parte do custo de operar o xVision. A opção mais barata de cada cenário custa
+de R$ 0,19 a R$ 2,40 por partida, enquanto a manutenção dos modelos e o serviço central somam
+R$ 2.960 por mês, fixos: R$ 70,48 por partida no cenário nacional e R$ 2,37 no amplo. A viabilidade
+depende, portanto, do volume. Com o benefício de R$ 54 por partida que as premissas assumem, o custo
+recorrente é coberto a partir de 55 partidas por mês.
+
+Entre as 37 opções de hardware quantificadas, a Jetson Orin Nano Super é o equipamento próprio mais
+barato por partida, e hardware de maior porte custa de 4 a 23 vezes mais sem ganho para este
+pipeline. A recomendação é começar com GPU sob demanda em São Paulo, sem investimento inicial, medir
+a vazão real e o volume da Footstats, e migrar para placas próprias a partir de cerca de 90 partidas
+por mês em fila.
+
+| Cenário | Tempo quase real | Fila pós-jogo |
+| --- | --- | --- |
+| Nacional, 42 partidas por mês | nuvem em São Paulo, R$ 4,83 por partida | nuvem em São Paulo, R$ 0,86 |
+| Intermediário, 100 partidas por mês | quatro Jetson Orin Nano Super, R$ 3,10 | uma Jetson Orin Nano Super, R$ 0,78 |
+| Amplo, 1.250 partidas por mês | nuvem em São Paulo, R$ 1,42, ou 23 Jetson Orin Nano Super, R$ 1,43 | três Jetson Orin Nano Super, R$ 0,19 |
+
 ## Premissas da Footstats
 
 | Premissa | Valor | Origem |
@@ -39,10 +59,10 @@ Três cenários de volume cobrem a decisão. Nenhum é informação da Footstats
 | Cenário | Partidas por mês | Simultâneas no pico | Partidas no dia de pico | Horas de jogo por mês | Como foi formado |
 | --- | ---: | ---: | ---: | ---: | --- |
 | Nacional | 42 | 10 | 10 | 36 | uma liga de 20 clubes em turno e returno, 380 partidas em 9 meses, com a última rodada simultânea |
-| Intermediário | 100 | 10 | 20 | 60 | o cenário-base da versão anterior desta página |
-| Ampla | 1.250 | 60 | 150 | 150 | 50 ligas com média de 300 partidas por ano, concentradas nos fins de semana |
+| Intermediário | 100 | 10 | 20 | 60 | volume entre os dois extremos, mantido como cenário-base do cálculo de retorno |
+| Amplo | 1.250 | 60 | 150 | 150 | 50 ligas com média de 300 partidas por ano, concentradas nos fins de semana |
 
-E dois modos de operação, porque a latência que a Footstats exige muda o hardware:
+O modo de operação também muda o hardware, porque depende da latência que a Footstats exige:
 
 - **Tempo quase real**: cada finalização é processada enquanto a partida acontece. A capacidade é
   dimensionada pelo pico: partidas simultâneas vezes 21,6 finalizações a cada 95 minutos, vezes a
@@ -98,7 +118,7 @@ por_partida = custo_mensal / partidas_do_mes
 | Servidor para GPU de datacenter | US$ 3.000 | hipótese |
 | Potência em carga | medida na Orin Nano Super; nas demais, 70% da potência nominal mais 60 W do PC ou 100 W do servidor | hipótese |
 | Tarifa de energia | R$ 0,789 por kWh | Enel SP, grupo B, vigente desde 04/07/2026 |
-| Amortização | 36 meses | horizonte da versão anterior desta página |
+| Amortização | 36 meses | horizonte usual para comparar investimento e operação |
 | Nuvem em fila | 1,2 vez as horas de GPU | hipótese de sobrecarga de subida e de lote incompleto |
 | Nuvem em tempo real | mais uma instância ligada durante todas as horas de jogo | hipótese: as demais sobem sob demanda |
 
@@ -110,7 +130,7 @@ abaixo. O preço de equipamento próprio é por unidade instalada no Brasil.
 
 **Embarcado.**
 
-| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| Opção | Preço | Segundos por clipe | Por clipe, amplo em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, amplo em tempo real |
 | --- | --- | --- | --- | --- | --- | --- |
 | Jetson Orin Nano Super 8 GB | R$ 2.687 | 65,1 | R$ 0,009 | R$ 1,85 | R$ 3,10 | R$ 1,43 (23 un.) |
 | Jetson Orin NX 16 GB (reComputer J4012) | R$ 9.387 | 52,5 a 58,7 | R$ 0,030 | R$ 6,30 | R$ 10,57 | R$ 4,44 (21 un.) |
@@ -120,7 +140,7 @@ abaixo. O preço de equipamento próprio é por unidade instalada no Brasil.
 
 **GPU própria, em PC ou servidor.**
 
-| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| Opção | Preço | Segundos por clipe | Por clipe, amplo em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, amplo em tempo real |
 | --- | --- | --- | --- | --- | --- | --- |
 | PC + RTX 4060 Ti 16 GB | R$ 12.795 | 19,6 a 27,6 | R$ 0,029 | R$ 9,17 | R$ 7,71 | R$ 3,10 (10 un.) |
 | PC + RTX 5060 Ti 16 GB | R$ 13.394 | 13,6 a 18,7 | R$ 0,016 | R$ 9,56 | R$ 8,03 | R$ 2,26 (7 un.) |
@@ -140,7 +160,7 @@ abaixo. O preço de equipamento próprio é por unidade instalada no Brasil.
 **Nuvem, sob demanda.** Preços das grandes nuvens nos EUA, exceto a linha de São Paulo; RunPod,
 Lambda e Vast.ai pelo preço listado.
 
-| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| Opção | Preço | Segundos por clipe | Por clipe, amplo em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, amplo em tempo real |
 | --- | --- | --- | --- | --- | --- | --- |
 | AWS g4dn.xlarge (T4), us-east-1 | US$ 0,526/h | 18,8 a 25,8 | R$ 0,023 | R$ 0,51 | R$ 2,14 | R$ 0,83 |
 | AWS g4dn.xlarge (T4), São Paulo | US$ 0,894/h | 18,8 a 25,8 | R$ 0,040 | R$ 0,86 | R$ 3,64 | R$ 1,42 |
@@ -161,7 +181,7 @@ Lambda e Vast.ai pelo preço listado.
 | Vast.ai RTX 4090 (mediana) | US$ 0,500/h | 8,4 a 18,5 | R$ 0,016 | R$ 0,35 | R$ 1,90 | R$ 0,66 |
 | AWS c7i.2xlarge (só CPU) | US$ 0,357/h | 501,1 | R$ 0,309 | R$ 6,67 | R$ 7,78 | R$ 6,89 |
 
-## Fora da conta
+## Opções não quantificadas
 
 Estas opções foram cotadas, mas não recebem custo por clipe, porque o pipeline não roda nelas sem
 ser portado. O xVision depende de CUDA e TensorRT nos detectores e de PyTorch no T-DEED, e um NPU
@@ -183,7 +203,7 @@ que anuncia TOPS em INT8 não diz quanto levaria para rodar esses modelos em fp1
 Uma delas pode ser mais barata depois de portada, mas o custo de portar e revalidar cada modelo não
 foi medido e não entra como zero.
 
-## O que os números dizem
+## Análise dos resultados
 
 **A computação é a menor parte do custo.** A opção mais barata de cada cenário custa de R$ 0,19 a
 R$ 2,40 por partida, e até R$ 4,83 com a nuvem restrita a São Paulo. Manutenção de modelos e
@@ -196,18 +216,18 @@ mês. Na nuvem a diferença é a instância que fica ligada durante as horas de 
 
 **A Jetson Orin Nano Super é o equipamento próprio mais barato por partida.** Na fila do cenário
 amplo, três placas saem a R$ 0,19 por partida. Em tempo real no mesmo cenário, são 23 placas a
-R$ 1,43, praticamente o mesmo que a T4 em São Paulo, R$ 1,42, sem os 23 aparelhos para manter.
+R$ 1,43, praticamente o mesmo que a T4 em São Paulo, R$ 1,42, que dispensa operar 23 aparelhos.
 
 **Hardware grande não compensa com este pipeline.** Thor, Spark, AGX Orin, RTX 5090, RTX PRO 6000,
 L40S, A100 e H100 custam de 4 a 23 vezes mais por partida que a Orin Nano Super no tempo real do
-cenário amplo. O pipeline
-processa um clipe por vez e passa parte do tempo em CPU, e a capacidade extra fica ociosa.
+cenário amplo. O pipeline processa um clipe por vez e passa parte do tempo em CPU, e a capacidade
+extra fica ociosa.
 
 **Entre as GPUs de PC, as intermediárias empatam.** RTX 5060 Ti, RTX 5070, RTX 4060 Ti e
 RTX A4000 usada ficam entre R$ 2,14 e R$ 3,10 por partida em tempo real no cenário amplo, com 7 a 10
 máquinas.
 
-**A nuvem mais barata é a fora das grandes.** RTX 4090 no Vast.ai e no RunPod e L4 no RunPod saem a
+**Os provedores menores têm a nuvem mais barata.** RTX 4090 no Vast.ai e no RunPod e L4 no RunPod saem a
 R$ 0,35 a R$ 0,45 por partida em fila. Entre as grandes, a T4 custa R$ 0,51 nos EUA e R$ 0,86 em São
 Paulo, 70% a mais.
 
@@ -217,7 +237,7 @@ Restringindo a nuvem a São Paulo, pela residência do vídeo, a opção mais ba
 | --- | --- | --- |
 | Nacional | nuvem sob demanda em São Paulo, R$ 4,83 por partida, sem CAPEX | nuvem em São Paulo, R$ 0,86, ou uma Jetson Orin Nano Super, R$ 1,85 |
 | Intermediário | quatro Jetson Orin Nano Super, R$ 3,10, ou nuvem em São Paulo, R$ 3,64 | uma Jetson Orin Nano Super, R$ 0,78, ou nuvem em São Paulo, R$ 0,86 |
-| Ampla | 23 Jetson Orin Nano Super, R$ 1,43, ou nuvem em São Paulo, R$ 1,42 | três Jetson Orin Nano Super, R$ 0,19 |
+| Amplo | 23 Jetson Orin Nano Super, R$ 1,43, ou nuvem em São Paulo, R$ 1,42 | três Jetson Orin Nano Super, R$ 0,19 |
 
 Uma Jetson Orin Nano Super própria custa R$ 77,52 por mês parada, entre amortização e consumo ocioso,
 e quase nada por partida. Contra a T4 em São Paulo, em fila, ela passa a valer a partir de 91
@@ -299,7 +319,7 @@ placa, que escolheria a mais barata sem saber quantas a operação exige.
 pipeline. A alternativa descartada era estimar pela razão de TFLOPS, que nas placas medidas erra
 mais que a banda de memória e superestima GPUs grandes.
 
-**Hardware que exige portar o pipeline fica fora da conta.** Estimar essas opções pelos TOPS do NPU
+**Hardware que exige portar o pipeline não é quantificado.** Estimar essas opções pelos TOPS do NPU
 mediria outro modelo, em outra precisão, e esconderia o custo de portar.
 
 **Começar na nuvem, em São Paulo, e migrar para Jetson própria com volume medido.** A nuvem não pede
