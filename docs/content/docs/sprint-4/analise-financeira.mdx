@@ -1,61 +1,227 @@
 ---
 title: Análise financeira
-description: Custos, cenários de benefício e critérios para avaliar a viabilidade econômica do xVision
+description: Quanto custa operar o xVision em produção na Footstats, por clipe e por partida, em cada opção de hardware, e em que volume a automação se paga
 ---
 
-Esta análise estima a viabilidade econômica do xVision sem transformar hipóteses em resultados. O
-projeto é uma prova de conceito acadêmica: a plataforma de borda é disponibilizada pelo Inteli, não
-há implantação na infraestrutura da Footstats e o tempo e o custo atuais da marcação humana ainda
-não foram informados. Portanto, o desembolso direto do parceiro durante a PoC pode ser baixo ou
-nulo, mas isso não significa que desenvolver, reproduzir e operar a solução tenha custo zero.
+Esta análise responde quanto custaria operar o xVision em produção na Footstats: custo por clipe e
+por partida em cada opção de hardware, de placas embarcadas a GPU em nuvem, e em que volume a
+automação se paga. Durante o projeto a placa foi cedida pelo Inteli e o parceiro não teve
+desembolso, mas esse custo zero não serve para decidir uma operação. A única vazão medida é a da
+Jetson Orin Nano Super, na [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson); todo o
+resto é estimado, com o método declarado e uma faixa em vez de um número único.
 
-O objeto analisado também precisa ser delimitado. O xVision recebe clipes de finalização, executa
-sete módulos de percepção, extrai características do lance e disponibiliza o resultado para revisão.
-Não existe, até esta entrega, um modelo final de xG validado e integrado. Assim, os benefícios desta
-página dizem respeito à automação da extração de características, e não a uma receita atribuída a um
-cálculo de xG já concluído.
-
-<Callout type="warn" title="O ROI calculado é um cenário, não uma medição">
-  A [matriz de risco](/docs/sprint-1/matriz-de-risco) já registra no R02 que faltam o tempo de
-  marcação por partida e o custo dessa atividade. Para permitir uma análise completa, esta página
-  fecha um cenário hipotético com essas e outras premissas declaradas. Os resultados permitem testar
-  a sensibilidade da decisão, mas não representam retorno observado pela Footstats.
+<Callout type="warn" title="Custos de cenário, não fatura">
+  O volume de partidas, o pico de partidas simultâneas, o tempo de marcação e o custo-hora do
+  analista não foram informados pela Footstats. A página fecha cenários com essas premissas
+  declaradas, como a [matriz de risco](/docs/sprint-1/matriz-de-risco) já previa no R02. Os preços
+  foram consultados em 25/09/2026, num ano de alta forte de memória e de GPU, e valem por semanas.
 </Callout>
 
-## Base da análise
+## Premissas da Footstats
 
-Os números abaixo têm origens e graus de confiança diferentes. Valores observados vêm do projeto;
-valores de catálogo são referências para cotação; variáveis pendentes precisam ser medidas no
-piloto.
-
-| Dado | Valor usado | Natureza e limite |
+| Premissa | Valor | Origem |
 | --- | --- | --- |
-| Amostra de desenvolvimento | 604 clipes completos de 28 partidas, média de 21,6 clipes por partida | observado no conjunto usado pelo projeto; não é previsão do volume comercial |
-| Hardware de referência | Jetson Orin Nano Super Developer Kit, 8 GB | decisão inicial de engenharia, ainda sujeita ao benchmark completo na placa |
-| Potência configurável do módulo | 7 W a 25 W | especificação da NVIDIA; não equivale ao consumo medido na tomada com armazenamento e periféricos |
-| Preço de referência | US$ 249 a US$ 399 por kit | páginas oficiais da NVIDIA consultadas em 14/09/2026 publicavam valores diferentes; é uma faixa de cotação, sem impostos, frete ou câmbio |
-| Infraestrutura central | API, frontend e SQLite executáveis localmente; topologia futura com PostgreSQL apenas declarada | nenhum provedor foi escolhido e nenhum recurso de nuvem foi aplicado, portanto não há fatura real a extrapolar |
-| Trabalho manual atual | tempo por lance, custo-hora e taxa de retrabalho não informados | variável crítica para benefício e prazo de retorno |
-| Qualidade útil da automação | ainda incompleta | há módulos e características não finalizados, e parte das métricas ainda não foi validada em amostra representativa |
+| Cobertura | mais de 50 ligas no Brasil e no mundo | apresentação pública da Footstats, no [problema](/docs/sprint-1/problema) |
+| Finalizações por partida | 21,6 | observado: 604 clipes completos de 28 partidas do conjunto do parceiro, de 12 a 39 por partida |
+| Duração do clipe | 7 s na mediana, 19 s no máximo | observado no mesmo conjunto |
+| Onde está o vídeo | os clipes chegam recortados pela Footstats, um por finalização | observado na ingestão do conjunto |
+| Duração de uma partida | 95 minutos | hipótese: 90 minutos e acréscimos |
+| Folga de pico | 1,5 vez a média de finalizações por minuto | hipótese: finalizações não chegam em ritmo uniforme |
+| Tempo líquido evitado | 3 minutos por finalização | hipótese, já descontando revisão e retrabalho |
+| Custo-hora do analista | R$ 50 | hipótese de custo carregado |
 
-A média de 21,6 clipes por partida serve somente para transformar tempo por lance em tempo por
-partida nos exemplos. O volume comercial deve vir da quantidade de partidas processadas pela
-Footstats, e não do tamanho do conjunto de desenvolvimento.
+O dado de entrada importa para a arquitetura. Como os clipes já estão centralizados na Footstats, a
+borda em produção não precisa ficar no estádio: pode ser uma máquina no escritório da Footstats ou
+uma instância de nuvem. Por isso as opções abaixo disputam o mesmo papel.
 
-## O que já foi construído
+Três cenários de volume cobrem a decisão. Nenhum é informação da Footstats:
 
-O custo de reprodução não se limita aos pesos dos modelos. O projeto inclui ingestão e decode,
-detecção de jogadores, bola e campo, tracking, pose, identificação de equipes, homografia, regras de
-características, contrato de evento, API, autenticação, persistência, frontend, testes e integração
-contínua. O [estado da Sprint 3](/docs/sprint-3) mostra que as sete espécies de percepção já apontam
-para implementações reais, enquanto o módulo de marcação ainda é stub e a qualidade de algumas
-saídas permanece abaixo do necessário ou sem validação suficiente.
+| Cenário | Partidas por mês | Simultâneas no pico | Partidas no dia de pico | Horas de jogo por mês | Como foi formado |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Nacional | 42 | 10 | 10 | 36 | uma liga de 20 clubes em turno e returno, 380 partidas em 9 meses, com a última rodada simultânea |
+| Intermediário | 100 | 10 | 20 | 60 | o cenário-base da versão anterior desta página |
+| Ampla | 1.250 | 60 | 150 | 150 | 50 ligas com média de 300 partidas por ano, concentradas nos fins de semana |
 
-A [execução e validação do produto](/docs/sprint-3/produto/execucao-e-validacao) comprova o fluxo de
-cadastro, envio, processamento, histórico e persistência em Docker Compose. Essa evidência reduz o
-risco de integração, mas não equivale a uma implantação de produção nem prova a qualidade de todos
-os modelos. Da mesma forma, a topologia em Terraform declara API, frontend e banco, porém usa
-`terraform_data`, sem provedor e sem `apply`. Não existe custo de nuvem medido hoje.
+E dois modos de operação, porque a latência que a Footstats exige muda o hardware:
+
+- **Tempo quase real**: cada finalização é processada enquanto a partida acontece. A capacidade é
+  dimensionada pelo pico: partidas simultâneas vezes 21,6 finalizações a cada 95 minutos, vezes a
+  folga de 1,5.
+- **Fila pós-jogo**: o dia de pico precisa ser processado em até 20 horas. A capacidade é
+  dimensionada pelo volume do dia, e não pelo pico.
+
+## Vazão por hardware
+
+Na Jetson Orin Nano Super, em fp16 e nas duas etapas, um clipe leva 65,1 s e 766 J. Desse tempo,
+59,7 s ficam nas espécies que usam a GPU (jogadores, bola, campo, pose e T-DEED) e 5,4 s em CPU
+(identidade, rastreio, marcação e a decodificação da primeira etapa). Uma placa processa 0,92
+clipe por minuto e acompanha, sem formar fila, cerca de quatro partidas simultâneas.
+
+Para os outros hardwares, a parte de GPU é dividida pela razão de desempenho contra a Orin Nano
+Super, e a parte de CPU por uma razão de CPU: 1 a 1,1 nas Jetson menores, 1,5 a 2 nas maiores e
+nos PCs, e 1,5 nas instâncias de nuvem de 4 vCPUs. A razão de GPU sai da banda de memória, que prevê
+bem a razão medida pela Ultralytics com o mesmo modelo nas placas em que há medida:
+
+| Placa | Razão medida, YOLO26n em TensorRT fp16 | Razão de banda de memória |
+| --- | ---: | ---: |
+| Jetson Orin NX 16 GB | 1,11 | 1,00 |
+| Jetson AGX Orin 64 GB | 1,74 | 2,01 |
+| Jetson AGX Thor | 3,29 | 2,68 |
+| NVIDIA T4 | 2,69 | 3,14 |
+
+A banda erra de -14% a +23% nessas quatro. Onde existe medida, ela é o limite conservador; sem
+medida, o conservador é 0,85 da razão de banda, limitado a 4, e o otimista é 1,25 dela. O teto de 4
+vem de a maior razão medida com o modelo pequeno ser 3,3: acima disso, o pipeline passa a esperar
+lançamento de kernel e CPU, e uma GPU muito maior não se converte em clipe mais rápido. As tabelas
+usam o limite conservador para o custo e mostram a faixa no tempo por clipe.
+
+## Como o custo é calculado
+
+```text
+segundos_por_clipe = 59,7 / razao_de_gpu + 5,4 / razao_de_cpu
+
+unidades_tempo_real = teto(1,5 x simultaneas x 21,6 / 95 / (60 / segundos_por_clipe))
+unidades_fila       = teto(partidas_no_dia_de_pico x 21,6 x segundos_por_clipe / (20 x 3600))
+
+proprio: custo_mensal = unidades x preco_instalado / 36 + energia_kWh x R$ 0,789
+nuvem:   custo_mensal = (horas_de_GPU x 1,2 + horas_de_jogo, so em tempo real) x preco_hora x cambio
+
+por_clipe   = custo_mensal / clipes_do_mes
+por_partida = custo_mensal / partidas_do_mes
+```
+
+| Parâmetro | Valor | Origem |
+| --- | --- | --- |
+| Câmbio | R$ 5,18 por dólar | PTAX de venda do Banco Central, 24/09/2026 |
+| Fator Brasil sobre o preço em dólar | 1,3 | varejo brasileiro dividido pelo preço de rua nos EUA convertido: 1,01 na RTX 5060 Ti e 1,27 na RTX 5090; arredondado para cima para cobrir frete e acessórios |
+| PC hospedeiro de uma GPU | US$ 1.200 | hipótese: não se achou montagem datada de 2026 |
+| Servidor para GPU de datacenter | US$ 3.000 | hipótese |
+| Potência em carga | medida na Orin Nano Super; nas demais, 70% da potência nominal mais 60 W do PC ou 100 W do servidor | hipótese |
+| Tarifa de energia | R$ 0,789 por kWh | Enel SP, grupo B, vigente desde 04/07/2026 |
+| Amortização | 36 meses | horizonte da versão anterior desta página |
+| Nuvem em fila | 1,2 vez as horas de GPU | hipótese de sobrecarga de subida e de lote incompleto |
+| Nuvem em tempo real | mais uma instância ligada durante todas as horas de jogo | hipótese: as demais sobem sob demanda |
+
+## Custo por opção
+
+Nos custos por clipe e por partida entra só a computação: equipamento amortizado e energia, ou hora
+de nuvem. Manutenção e serviço central são iguais em todas as opções e entram no custo total, mais
+abaixo. O preço de equipamento próprio é por unidade instalada no Brasil.
+
+**Embarcado.**
+
+| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| --- | --- | --- | --- | --- | --- | --- |
+| Jetson Orin Nano Super 8 GB | R$ 2.687 | 65,1 | R$ 0,009 | R$ 1,85 | R$ 3,10 | R$ 1,43 (23 un.) |
+| Jetson Orin NX 16 GB (reComputer J4012) | R$ 9.387 | 52,5 a 58,7 | R$ 0,030 | R$ 6,30 | R$ 10,57 | R$ 4,44 (21 un.) |
+| Jetson AGX Orin 64 GB | R$ 23.562 | 27,4 a 37,9 | R$ 0,049 | R$ 15,76 | R$ 19,85 | R$ 6,89 (13 un.) |
+| Jetson AGX Thor | R$ 37.030 | 20,5 a 20,8 | R$ 0,039 | R$ 24,84 | R$ 20,87 | R$ 6,68 (8 un.) |
+| DGX Spark | R$ 31.643 | 20,5 a 28,9 | R$ 0,067 | R$ 21,36 | R$ 17,94 | R$ 7,19 (10 un.) |
+
+**GPU própria, em PC ou servidor.**
+
+| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| --- | --- | --- | --- | --- | --- | --- |
+| PC + RTX 4060 Ti 16 GB | R$ 12.795 | 19,6 a 27,6 | R$ 0,029 | R$ 9,17 | R$ 7,71 | R$ 3,10 (10 un.) |
+| PC + RTX 5060 Ti 16 GB | R$ 13.394 | 13,6 a 18,7 | R$ 0,016 | R$ 9,56 | R$ 8,03 | R$ 2,26 (7 un.) |
+| PC + RTX 5070 12 GB | R$ 13.461 | 9,9 a 17,6 | R$ 0,016 | R$ 9,61 | R$ 8,07 | R$ 2,27 (7 un.) |
+| PC + RTX 5070 Ti 16 GB | R$ 16.162 | 8,1 a 17,6 | R$ 0,019 | R$ 11,40 | R$ 9,58 | R$ 2,70 (7 un.) |
+| PC + RTX 5080 16 GB | R$ 18.788 | 7,8 a 17,6 | R$ 0,022 | R$ 13,14 | R$ 11,04 | R$ 3,11 (7 un.) |
+| PC + RTX 5090 32 GB | R$ 39.266 | 5,4 a 17,6 | R$ 0,043 | R$ 26,69 | R$ 22,43 | R$ 6,31 (7 un.) |
+| PC + RTX 4090 24 GB (usada) | R$ 24.909 | 7,5 a 17,6 | R$ 0,028 | R$ 17,19 | R$ 14,45 | R$ 4,07 (7 un.) |
+| PC + RTX A4000 16 GB (usada) | R$ 12.660 | 13,6 a 18,7 | R$ 0,015 | R$ 9,07 | R$ 7,62 | R$ 2,14 (7 un.) |
+| PC + RTX PRO 4000 Blackwell 24 GB | R$ 30.236 | 9,9 a 17,6 | R$ 0,033 | R$ 20,70 | R$ 17,39 | R$ 4,88 (7 un.) |
+| PC + RTX PRO 6000 Blackwell 96 GB | R$ 64.882 | 5,4 a 17,6 | R$ 0,070 | R$ 43,64 | R$ 36,66 | R$ 10,29 (7 un.) |
+| Servidor + L4 24 GB | R$ 43.751 | 18,9 a 26,6 | R$ 0,096 | R$ 30,60 | R$ 25,71 | R$ 10,29 (10 un.) |
+| Servidor + L40S 48 GB | R$ 79.124 | 8,3 a 17,6 | R$ 0,085 | R$ 54,01 | R$ 45,37 | R$ 12,72 (7 un.) |
+| Servidor + A100 80 GB (usada) | R$ 63.973 | 5,2 a 17,6 | R$ 0,070 | R$ 43,98 | R$ 36,95 | R$ 10,36 (7 un.) |
+| Servidor + H100 PCIe 80 GB | R$ 208.754 | 5,1 a 17,6 | R$ 0,219 | R$ 139,74 | R$ 117,39 | R$ 32,89 (7 un.) |
+
+**Nuvem, sob demanda.** Preços das grandes nuvens nos EUA, exceto a linha de São Paulo; RunPod,
+Lambda e Vast.ai pelo preço listado.
+
+| Opção | Preço | Segundos por clipe | Por clipe, ampla em fila | Por partida, nacional em fila | Por partida, intermediário em tempo real | Por partida, ampla em tempo real |
+| --- | --- | --- | --- | --- | --- | --- |
+| AWS g4dn.xlarge (T4), us-east-1 | US$ 0,526/h | 18,8 a 25,8 | R$ 0,023 | R$ 0,51 | R$ 2,14 | R$ 0,83 |
+| AWS g4dn.xlarge (T4), São Paulo | US$ 0,894/h | 18,8 a 25,8 | R$ 0,040 | R$ 0,86 | R$ 3,64 | R$ 1,42 |
+| GCP n1-standard-4 + T4 | US$ 0,540/h | 18,8 a 25,8 | R$ 0,024 | R$ 0,52 | R$ 2,20 | R$ 0,86 |
+| Azure NC4as_T4_v3 (T4) | US$ 0,526/h | 18,8 a 25,8 | R$ 0,023 | R$ 0,51 | R$ 2,14 | R$ 0,83 |
+| GCP g2-standard-4 (L4) | US$ 0,710/h | 19,8 a 27,5 | R$ 0,034 | R$ 0,73 | R$ 2,93 | R$ 1,17 |
+| AWS g6.xlarge (L4) | US$ 0,805/h | 19,8 a 27,5 | R$ 0,038 | R$ 0,83 | R$ 3,33 | R$ 1,33 |
+| AWS g5.xlarge (A10G) | US$ 1,01/h | 11,7 a 18,5 | R$ 0,032 | R$ 0,70 | R$ 3,82 | R$ 1,32 |
+| AWS g6e.xlarge (L40S) | US$ 1,86/h | 9,2 a 18,5 | R$ 0,059 | R$ 1,29 | R$ 7,07 | R$ 2,44 |
+| GCP a2-highgpu-1g (A100 40 GB) | US$ 3,67/h | 6,7 a 18,5 | R$ 0,117 | R$ 2,54 | R$ 13,95 | R$ 4,82 |
+| AWS p5 (H100), por GPU | US$ 6,88/h | 5,1 a 18,5 | R$ 0,220 | R$ 4,75 | R$ 26,14 | R$ 9,03 |
+| RunPod L4 | US$ 0,440/h | 19,8 a 27,5 | R$ 0,021 | R$ 0,45 | R$ 1,82 | R$ 0,72 |
+| RunPod RTX 4090 | US$ 0,540/h | 8,4 a 18,5 | R$ 0,017 | R$ 0,37 | R$ 2,05 | R$ 0,71 |
+| RunPod RTX 5090 | US$ 0,840/h | 6,3 a 18,5 | R$ 0,027 | R$ 0,58 | R$ 3,19 | R$ 1,10 |
+| RunPod A100 80 GB | US$ 1,59/h | 6,1 a 18,5 | R$ 0,051 | R$ 1,10 | R$ 6,04 | R$ 2,09 |
+| RunPod H100 | US$ 3,19/h | 5,1 a 18,5 | R$ 0,102 | R$ 2,20 | R$ 12,12 | R$ 4,19 |
+| Lambda A10 | US$ 1,29/h | 11,7 a 18,5 | R$ 0,041 | R$ 0,89 | R$ 4,90 | R$ 1,69 |
+| Vast.ai RTX 4090 (mediana) | US$ 0,500/h | 8,4 a 18,5 | R$ 0,016 | R$ 0,35 | R$ 1,90 | R$ 0,66 |
+| AWS c7i.2xlarge (só CPU) | US$ 0,357/h | 501,1 | R$ 0,309 | R$ 6,67 | R$ 7,78 | R$ 6,89 |
+
+## Fora da conta
+
+Estas opções foram cotadas, mas não recebem custo por clipe, porque o pipeline não roda nelas sem
+ser portado. O xVision depende de CUDA e TensorRT nos detectores e de PyTorch no T-DEED, e um NPU
+que anuncia TOPS em INT8 não diz quanto levaria para rodar esses modelos em fp16.
+
+| Opção | Preço | Por que não entra |
+| --- | --- | --- |
+| Raspberry Pi 5 8 GB com AI HAT+ (Hailo-8, 26 TOPS) | cerca de US$ 200 mais US$ 110 | exige compilar cada modelo para o Hailo e não comporta o T-DEED nem os 7 modelos ao mesmo tempo |
+| Hailo-8 M.2 e Hailo-10H | US$ 199 e cerca de US$ 130 | mesma exigência de compilação por modelo |
+| RK3588 (Radxa ROCK 5B) | US$ 129 a US$ 189 | NPU de 6 TOPS, runtime próprio do fabricante |
+| Google Coral | descontinuado em 2026 | Edge TPU de 4 TOPS, sem manutenção |
+| Qualcomm QCS6490 (Radxa Dragon Q6A) | US$ 59,50 a US$ 141 | NPU de 12 TOPS, runtime próprio |
+| Mini PC Intel Core Ultra | cerca de US$ 599 | NPU sem CUDA; exigiria OpenVINO |
+| Mini PC AMD Ryzen AI Max+ 395 | US$ 2.349 a US$ 3.299 | sem CUDA; exigiria ROCm ou ONNX Runtime |
+| Mac mini M4 e M4 Pro | descontinuados em 2026 | sem CUDA nem TensorRT |
+| AMD Radeon RX 9070 XT | US$ 768 a US$ 800 | sem CUDA; exigiria ROCm |
+| Intel Arc B580 | cerca de US$ 249 | sem CUDA; exigiria oneAPI ou OpenVINO |
+
+Uma delas pode ser mais barata depois de portada, mas o custo de portar e revalidar cada modelo não
+foi medido e não entra como zero.
+
+## O que os números dizem
+
+**A computação é a menor parte do custo.** A opção mais barata de cada cenário custa de R$ 0,19 a
+R$ 2,40 por partida, e até R$ 4,83 com a nuvem restrita a São Paulo. Manutenção de modelos e
+serviço central somam R$ 2.960 por mês, o que dá R$ 70,48 por partida no cenário nacional, R$ 29,60
+no intermediário e R$ 2,37 no amplo. Quem decide a viabilidade é o volume, e não a placa.
+
+**Fila é mais barata que tempo real.** No equipamento próprio, a fila custa de duas a oito vezes
+menos por partida, porque o tempo real paga capacidade dimensionada pelo pico e parada no resto do
+mês. Na nuvem a diferença é a instância que fica ligada durante as horas de jogo.
+
+**A Jetson Orin Nano Super é o equipamento próprio mais barato por partida.** Na fila do cenário
+amplo, três placas saem a R$ 0,19 por partida. Em tempo real no mesmo cenário, são 23 placas a
+R$ 1,43, praticamente o mesmo que a T4 em São Paulo, R$ 1,42, sem os 23 aparelhos para manter.
+
+**Hardware grande não compensa com este pipeline.** Thor, Spark, AGX Orin, RTX 5090, RTX PRO 6000,
+L40S, A100 e H100 custam de 4 a 23 vezes mais por partida que a Orin Nano Super no tempo real do
+cenário amplo. O pipeline
+processa um clipe por vez e passa parte do tempo em CPU, e a capacidade extra fica ociosa.
+
+**Entre as GPUs de PC, as intermediárias empatam.** RTX 5060 Ti, RTX 5070, RTX 4060 Ti e
+RTX A4000 usada ficam entre R$ 2,14 e R$ 3,10 por partida em tempo real no cenário amplo, com 7 a 10
+máquinas.
+
+**A nuvem mais barata é a fora das grandes.** RTX 4090 no Vast.ai e no RunPod e L4 no RunPod saem a
+R$ 0,35 a R$ 0,45 por partida em fila. Entre as grandes, a T4 custa R$ 0,51 nos EUA e R$ 0,86 em São
+Paulo, 70% a mais.
+
+Restringindo a nuvem a São Paulo, pela residência do vídeo, a opção mais barata de cada cenário é:
+
+| Cenário | Em tempo real | Em fila |
+| --- | --- | --- |
+| Nacional | nuvem sob demanda em São Paulo, R$ 4,83 por partida, sem CAPEX | nuvem em São Paulo, R$ 0,86, ou uma Jetson Orin Nano Super, R$ 1,85 |
+| Intermediário | quatro Jetson Orin Nano Super, R$ 3,10, ou nuvem em São Paulo, R$ 3,64 | uma Jetson Orin Nano Super, R$ 0,78, ou nuvem em São Paulo, R$ 0,86 |
+| Ampla | 23 Jetson Orin Nano Super, R$ 1,43, ou nuvem em São Paulo, R$ 1,42 | três Jetson Orin Nano Super, R$ 0,19 |
+
+Uma Jetson Orin Nano Super própria custa R$ 77,52 por mês parada, entre amortização e consumo ocioso,
+e quase nada por partida. Contra a T4 em São Paulo, em fila, ela passa a valer a partir de 91
+partidas por mês; com uma segunda placa de reserva, a partir de 181.
 
 ## Custo de desenvolvimento
 
@@ -68,139 +234,23 @@ benefícios, gestão e estrutura da organização.
 C_desenvolvimento = pessoas x meses x salario_mensal x fator_de_encargos
 ```
 
-Para manter a comparação com análises anteriores do Inteli, considera-se a equipe de sete pessoas
-durante cinco sprints, equivalentes a 2,5 meses. O fator 1,7 adiciona ao salário 70% de encargos,
-benefícios e estrutura. Como não há folha salarial do projeto, os dois salários são premissas de
-planejamento:
+Considera-se a equipe de sete pessoas durante cinco sprints, equivalentes a 2,5 meses. O fator 1,7
+adiciona ao salário 70% de encargos, benefícios e estrutura. Como não há folha salarial do projeto,
+os dois salários são premissas de planejamento:
 
 | Composição | Cálculo | Custo equivalente |
 | --- | ---: | ---: |
 | Equipe júnior | 7 x 2,5 meses x R$ 4.500 x 1,7 | R$ 133.875 |
 | Equipe plena | 7 x 2,5 meses x R$ 7.400 x 1,7 | R$ 220.150 |
 
-O cenário-base de retorno usa R$ 220.150, correspondente à equipe plena. Esse valor não representa
-desembolso da Footstats durante o projeto acadêmico. Ele estima quanto uma organização precisaria
-reservar para reproduzir o trabalho com uma equipe remunerada. O cenário júnior aparece como
-sensibilidade e os dois devem ser substituídos por salários ou horas reais numa contratação.
+## Custo total e retorno
 
-## Investimento em infraestrutura
-
-O investimento inicial, ou CAPEX, depende do cenário de implantação. Na PoC, o hardware é
-disponibilizado conforme o escopo acadêmico, então sua compra não é um desembolso incremental do
-parceiro. Em produção, a conta precisa considerar o conjunto completo e não somente o módulo.
-
-| Item | Como estimar | Situação atual |
-| --- | --- | --- |
-| Computação de borda | número de unidades x preço cotado do conjunto | Jetson Orin Nano é a referência; cotação oficial observada entre US$ 249 e US$ 399 por kit |
-| Armazenamento | NVMe por unidade, dimensionado pela retenção dos clipes | capacidade e prazo de retenção não foram acordados |
-| Captura e conectividade | interface de vídeo ou rede, cabos e adaptação à fonte | fora do protótipo atual; depende de onde a borda será instalada |
-| Proteção e operação | gabinete, refrigeração, fonte e eventual nobreak | cotar para o ambiente real, sobretudo se a unidade ficar em campo |
-| Unidade de reserva | política de reposição x custo do conjunto | necessária somente depois de definir disponibilidade exigida |
-| Serviço central | banco, API, frontend, domínio, observabilidade e backup | não há provedor nem dimensionamento de produção escolhido |
-
-O kit citado pela NVIDIA é destinado a desenvolvimento e prototipagem. Uma implantação comercial
-precisa confirmar disponibilidade, garantia, ciclo de vida e preço do módulo ou equipamento de
-produção equivalente. Também não se deve assumir uma unidade por partida. A quantidade de placas é
-determinada pela simultaneidade, pela vazão sustentada do pipeline e pela proximidade física das
-fontes de vídeo.
+O benefício direto é o tempo humano evitado na extração das características, já descontadas a
+revisão e o retrabalho:
 
 ```text
-unidades_de_borda = teto(carga_simultanea / capacidade_sustentada_por_unidade) + reserva
+beneficio_por_partida = 21,6 x tempo_liquido_evitado_por_lance / 60 x custo_hora_do_analista
 ```
-
-A [pesquisa de hardware](/docs/sprint-1/pesquisa/benchmarking) recomenda a Orin Nano por
-compatibilidade com TensorRT, memória e custo de engenharia. A alternativa RK3588 pode custar menos
-em aquisição, mas transfere custo para migração de runtime, kernel de fabricante e validação. Comprar
-uma Orin NX preventivamente também não é econômico: ela só passa a fazer sentido se as medições
-mostrarem limite de memória ou de vazão na Nano.
-
-## Custo recorrente
-
-O custo operacional, ou OPEX, reúne energia, manutenção, armazenamento, rede e serviços centrais.
-A revisão humana também é recorrente, mas nesta análise ela é descontada do tempo evitado para não
-ser contabilizada duas vezes. O modo de potência da placa permite apenas calcular um limite teórico.
-Em operação contínua durante 730 horas por mês, o módulo consumiria:
-
-| Modo de referência | Energia mensal teórica | Observação |
-| ---: | ---: | --- |
-| 7 W | 5,11 kWh | valor do módulo, sem perdas da fonte ou periféricos |
-| 15 W | 10,95 kWh | cenário intermediário |
-| 25 W | 18,25 kWh | limite superior configurável, se mantido continuamente |
-
-```text
-energia_mensal_kWh = potencia_media_W x horas_ligado / 1000
-custo_de_energia = energia_mensal_kWh x tarifa_total_R$_por_kWh
-```
-
-O xVision trabalha em rajadas de clipes. Por isso, multiplicar 25 W por todas as horas do mês tende
-a superestimar a carga de inferência, enquanto ignorar consumo ocioso, armazenamento e perdas da
-fonte tende a subestimá-la. A medida financeira útil é energia por clipe e por partida, obtida na
-tomada durante uma fila representativa, acompanhada do tempo ocioso entre partidas.
-
-Os demais custos recorrentes não podem ser tratados como zero:
-
-| Componente | Principal direcionador de custo | Medição necessária |
-| --- | --- | --- |
-| Revisão humana | minutos revisando saídas e corrigindo indisponibilidades ou erros | tempo médio por lance e taxa de retrabalho, descontados no benefício líquido |
-| Manutenção dos modelos | novas câmeras, campeonatos, uniformes, drift e regressões | horas mensais de curadoria, anotação, treino e validação |
-| Armazenamento local | volume de clipes retidos e prazo de retenção | GB por partida, dias retidos e política de exclusão |
-| Serviço central | usuários, partidas, histórico, disponibilidade e backup | perfil de uso e orçamento do provedor escolhido |
-| Rede | vídeo enviado até a borda e evento enviado ao backend | bytes de entrada e saída no arranjo real |
-| Reposição | falhas e vida útil do conjunto | prazo de garantia e política de reserva |
-
-O processamento na borda reduz tráfego somente quando o dispositivo está próximo da fonte e envia
-ao backend o evento estruturado. No protótipo, os clipes podem chegar pela rede já recortados. Nesse
-arranjo, não é correto contabilizar como economia todo o vídeo de uma partida, pois o descarte dos
-trechos sem finalização aconteceu antes do xVision.
-
-## Cenário-base assumido
-
-Para fechar a conta, esta análise adota um cenário de produção hipotético. Ele não descreve o
-contrato atual da Footstats e deve ser atualizado depois do piloto.
-
-| Premissa | Valor adotado | Como foi formada |
-| --- | ---: | --- |
-| Volume | 100 partidas por mês | hipótese intermediária para analisar escala |
-| Finalizações | 21,6 por partida | média observada nos 604 clipes completos de 28 partidas |
-| Tempo líquido evitado | 3 minutos por finalização | hipótese já descontando revisão e retrabalho |
-| Custo-hora operacional | R$ 50 | hipótese de custo carregado da atividade manual |
-| Desenvolvimento | R$ 220.150 | sete pessoas, 2,5 meses, salário de R$ 7.400 e fator 1,7 |
-| Unidade de borda instalada | R$ 3.500 | kit a US$ 399, câmbio de R$ 5,50 e reserva aproximada de 60% para NVMe, captura, proteção, impostos e frete |
-| Serviço central | R$ 600 por mês | US$ 20 para aplicação, US$ 60 para PostgreSQL e US$ 10 para armazenamento, logs e rede; câmbio de R$ 5,50 e reserva de 20% |
-| Manutenção | R$ 2.400 por mês | 20 horas mensais a R$ 120/h para dados, modelos, testes e atualização |
-| Energia | R$ 20 por mês | 18,25 kWh no limite de 25 W contínuos e tarifa arredondada de R$ 1/kWh |
-| OPEX mensal | R$ 3.020 | serviço central, manutenção e energia |
-| Horizonte | 36 meses | período comum para comparar investimento e operação |
-
-O orçamento do serviço central usa GCP apenas como referência financeira. A documentação oficial
-do Cloud Run confirma cobrança por uso e escala a zero; o Cloud SQL cobra CPU, memória,
-armazenamento e rede separadamente. Isso não altera a arquitetura atual nem afirma que o Terraform
-já implanta esses serviços. A região, disponibilidade e retenção escolhidas podem mudar a cotação.
-
-A reserva da unidade instalada é deliberadamente conservadora, porque o preço de catálogo não
-inclui todos os itens necessários no Brasil. Antes de uma compra, ela deve ser substituída por uma
-cotação de kit ou módulo de produção, NVMe, interface de captura, fonte, proteção, impostos, frete e
-garantia.
-
-## Benefício operacional
-
-O benefício direto é o tempo humano evitado na extração das características. Uma saída automática
-que precisa ser refeita não economiza o lance inteiro. Por isso, o cálculo desconta revisão e
-retrabalho:
-
-```text
-tempo_liquido_evitado_por_lance =
-  tempo_manual
-  - tempo_de_revisao
-  - (taxa_de_retrabalho x tempo_de_retrabalho)
-
-beneficio_por_partida =
-  lances_por_partida x tempo_liquido_evitado_por_lance / 60 x custo_hora_do_analista
-```
-
-A tabela abaixo é uma análise de sensibilidade, não uma promessa de economia. Ela usa a média
-observada de 21,6 clipes por partida e mostra o benefício bruto antes de energia, manutenção e
-infraestrutura. O "tempo evitado" já deve ser líquido da revisão e do retrabalho.
 
 | Tempo líquido evitado por lance | Analista a R$ 30/h | Analista a R$ 50/h | Analista a R$ 80/h |
 | ---: | ---: | ---: | ---: |
@@ -208,139 +258,131 @@ infraestrutura. O "tempo evitado" já deve ser líquido da revisão e do retraba
 | 3 minutos | R$ 32,40/partida | R$ 54,00/partida | R$ 86,40/partida |
 | 5 minutos | R$ 54,00/partida | R$ 90,00/partida | R$ 144,00/partida |
 
-Mantendo apenas o cenário intermediário, com 3 minutos líquidos evitados por lance e custo-hora de
-R$ 50, o efeito do volume seria:
-
-| Partidas por mês | Horas humanas evitadas | Benefício bruto mensal | Benefício após OPEX de R$ 3.020 |
-| ---: | ---: | ---: | ---: |
-| 50 | 54 horas | R$ 2.700 | -R$ 320 |
-| 100 | 108 horas | R$ 5.400 | R$ 2.380 |
-| 300 | 324 horas | R$ 16.200 | R$ 13.180 |
-
-As três linhas são cenários ilustrativos, não o volume informado pela Footstats. A última coluna
-ainda não desconta o investimento inicial. Ela também supõe que uma unidade e a mesma equipe de
-manutenção suportam os três volumes. Se o benchmark exigir mais placas ou mais horas de operação, o
-OPEX e o investimento devem crescer junto com a carga.
-
-Consistência também pode gerar valor, mas ele não deve ser somado em reais sem uma consequência
-financeira observável. Para monetizá-la, seria necessário medir, por exemplo, o custo de corrigir
-uma marcação inconsistente, o atraso que ela causa na entrega ao cliente ou a receita associada a
-um nível de serviço mais rápido.
-
-## Custo total, retorno e ponto de equilíbrio
-
-Para comparar alternativas, recomenda-se um horizonte comum de 36 meses, ajustável à política da
-Footstats. O custo total de propriedade, ou TCO, deve incluir desenvolvimento e implantação, não
-somente a placa.
+No cenário intermediário, com uma Jetson Orin Nano Super em fila, o custo recorrente é de R$ 2.963
+por mês: R$ 560 de serviço central (US$ 90 de aplicação, banco e armazenamento, com câmbio de
+R$ 5,18 e reserva de 20%), R$ 2.400 de manutenção (20 horas a R$ 120 para dados, modelos e testes) e
+R$ 3 de energia medida. O equipamento custa R$ 2.687. Com 3 minutos evitados a R$ 50 por hora, o
+benefício é de R$ 5.400 por mês, e em 36 meses:
 
 ```text
-TCO_36 =
-  desenvolvimento
-  + hardware_e_instalacao
-  + 36 x (energia + manutencao + armazenamento + servico_central + rede)
-
-ROI_36 = (beneficios_36 - TCO_36) / TCO_36
-
-payback_em_meses = investimento_inicial / beneficio_liquido_mensal
+TCO_36 = desenvolvimento + equipamento + 36 x custo_recorrente
+ROI_36 = (beneficio_36 - TCO_36) / TCO_36
+payback_em_meses = (desenvolvimento + equipamento) / (beneficio_mensal - custo_recorrente)
 ```
 
-O prazo de retorno só existe quando o benefício líquido mensal é positivo. O ponto de equilíbrio
-em partidas pode ser calculado depois que o custo variável por partida e o investimento inicial
-forem conhecidos:
-
-```text
-partidas_para_equilibrio =
-  investimento_inicial / (beneficio_por_partida - custo_variavel_por_partida)
-```
-
-Aplicando as premissas do cenário-base, o benefício em 36 meses é R$ 194.400 e o OPEX acumulado é
-R$ 108.720:
-
-| Visão da decisão | Desenvolvimento | Hardware | OPEX em 36 meses | TCO em 36 meses | ROI em 36 meses | Payback |
+| Visão da decisão | Desenvolvimento | Equipamento | Recorrente em 36 meses | TCO em 36 meses | ROI em 36 meses | Payback |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Continuar o ativo acadêmico | R$ 0 incremental | R$ 3.500 | R$ 108.720 | R$ 112.220 | 73,2% | 1,5 mês |
-| Reproduzir com equipe júnior | R$ 133.875 | R$ 3.500 | R$ 108.720 | R$ 246.095 | -21,0% | 57,7 meses |
-| Reproduzir com equipe plena | R$ 220.150 | R$ 3.500 | R$ 108.720 | R$ 332.370 | -41,5% | 94,0 meses |
+| Continuar o ativo acadêmico | R$ 0 incremental | R$ 2.687 | R$ 106.676 | R$ 109.363 | 77,8% | 1,1 mês |
+| Reproduzir com equipe júnior | R$ 133.875 | R$ 2.687 | R$ 106.676 | R$ 243.238 | -20,1% | 56,0 meses |
+| Reproduzir com equipe plena | R$ 220.150 | R$ 2.687 | R$ 106.676 | R$ 329.513 | -41,0% | 91,4 meses |
 
-O payback divide desenvolvimento e hardware pelo benefício mensal depois do OPEX, que é R$ 2.380
-no cenário de 100 partidas. A visão incremental se paga rapidamente porque recebe o software
-acadêmico como ativo já construído. A reprodução comercial completa não recupera o investimento
-dentro de 36 meses nesse volume.
+A visão incremental se paga rápido porque recebe o software como ativo pronto; a reprodução
+completa não se paga em 36 meses com 100 partidas. Com 300 partidas por mês e as demais premissas
+iguais, a equipe plena chega a ROI de 77,0% e payback de 16,8 meses. Os pontos de equilíbrio são:
 
-O volume muda a conclusão. Mantidas as demais premissas, 300 partidas por mês geram R$ 583.200 em
-benefícios durante 36 meses. Nesse caso, o cenário de equipe plena alcança ROI de 75,5% e payback de
-17 meses. Essa projeção só vale se uma unidade e o OPEX adotado sustentarem o volume, hipótese que o
-benchmark precisa confirmar.
+- 55 partidas por mês cobrem o custo recorrente;
+- 57 partidas por mês cobrem o recorrente e amortizam o equipamento em 36 meses;
+- 170 partidas por mês cobrem o recorrente e amortizam desenvolvimento pleno e equipamento no mesmo
+  prazo.
 
-Há três pontos de equilíbrio úteis:
+O custo de desenvolvimento só entra quando a decisão é construir do zero. Para continuar o ativo já
+desenvolvido, a visão incremental é a que decide; misturar as duas faz uma solução existente parecer
+gratuita ou faz um custo já incorrido decidir uma compra futura.
 
-- 56 partidas mensais cobrem apenas o OPEX de R$ 3.020;
-- 58 partidas mensais cobrem o OPEX e amortizam os R$ 3.500 de hardware em 36 meses;
-- 171 partidas mensais cobrem o OPEX e amortizam desenvolvimento pleno e hardware no mesmo prazo.
+## Decisões
 
-O custo de desenvolvimento deve entrar quando a análise representar a decisão de construir a
-solução do zero. Se a decisão for somente continuar um ativo já desenvolvido no projeto acadêmico,
-é útil mostrar duas visões: custo econômico total, incluindo o trabalho já realizado, e desembolso
-incremental a partir do piloto. Misturar essas duas visões faz uma solução existente parecer
-gratuita ou, no extremo oposto, faz um custo já incorrido decidir uma compra futura.
+**O custo é por partida, e não por dispositivo.** A Footstats vende dado por partida, e a pergunta
+útil é quanto a automação acrescenta a cada uma. A alternativa descartada era comparar preços de
+placa, que escolheria a mais barata sem saber quantas a operação exige.
 
-## Comparação dos cenários
+**Vazão estimada em faixa, calibrada por medida pública.** Só a Orin Nano Super foi medida com o
+pipeline. A alternativa descartada era estimar pela razão de TFLOPS, que nas placas medidas erra
+mais que a banda de memória e superestima GPUs grandes.
 
-| Cenário | Investimento inicial | Custo recorrente | Evidência atual | Decisão recomendada |
-| --- | --- | --- | --- | --- |
-| Processo manual atual | sem novo hardware | cresce com partidas, lances e tempo por marcação | o processo existe, mas tempo e custo não foram medidos | medir como baseline do piloto |
-| PoC na Jetson disponível pelo Inteli | sem compra incremental do kit para o parceiro | energia, revisão e esforço da equipe durante o experimento | fluxo integrado existe; qualidade e execução completa na placa ainda têm lacunas | continuar para produzir as medidas faltantes |
-| Borda com Jetson adquirida | kit entre US$ 249 e US$ 399 como referência, mais NVMe, captura, proteção, impostos e frete | energia baixa, revisão, manutenção e serviço central | compatibilidade é favorável e o TCO de cenário foi calculado, mas os custos reais não foram medidos | cotar somente após benchmark e definição de simultaneidade |
-| GPU centralizada | servidor próprio ou instância com GPU, armazenamento e upload dos clipes | computação por tempo, armazenamento, rede e operação | não está implementada nem dimensionada no projeto | usar como comparação, não como arquitetura presumida |
+**Hardware que exige portar o pipeline fica fora da conta.** Estimar essas opções pelos TOPS do NPU
+mediria outro modelo, em outra precisão, e esconderia o custo de portar.
 
-A melhor decisão para a fase atual é concluir o piloto sobre a Jetson já disponível. Isso preserva
-o investimento incremental baixo e produz as medidas que realmente decidem uma aquisição. Não há
-base para comprar hardware mais potente, contratar uma nuvem com GPU ou declarar retorno financeiro
-antes desse experimento.
+**Começar na nuvem, em São Paulo, e migrar para Jetson própria com volume medido.** A nuvem não pede
+CAPEX, absorve o pico dos fins de semana e permite trocar a estimativa de vazão por medida em uma
+hora de uso. Acima de umas 90 partidas por mês em fila, uma Jetson Orin Nano Super própria sai mais
+barata. A alternativa descartada era comprar placas já, antes de saber o volume e a latência que a
+Footstats exige.
 
-## Plano de validação financeira
+## Trade-offs
 
-O piloto deve usar uma amostra representativa e registrar, para a mesma partida, o processo manual e
-o automático. Nenhum dado restrito precisa entrar na documentação; bastam resultados agregados.
+A nuvem troca CAPEX e manutenção de aparelhos por um custo por partida até cinco vezes maior em fila
+e pela dependência de um provedor, com o vídeo do parceiro saindo da Footstats. A Jetson própria é a
+mais barata por partida e a que menos consome, e a desvantagem principal é operar muitas placas no
+tempo real: 23 no cenário amplo, cada uma com a memória no limite medido no RNF-04.
+
+## Riscos e incertezas
+
+**A vazão fora da Orin Nano Super é estimada.** A faixa vem de uma medida pública com um modelo
+menor. Se o ganho real de uma GPU for metade do conservador, o custo por partida dela dobra, e a
+ordem entre nuvem e Jetson pode mudar no tempo real do cenário amplo.
+
+**Preços de 2026 mudam em semanas.** A falta de memória subiu a linha Jetson de 33% a 101% em julho,
+o DGX Spark em 18% em fevereiro e as GPUs de consumo acima do preço sugerido. Toda cotação deve ser
+refeita perto da compra.
+
+**Só há um preço de nuvem em São Paulo.** A T4 na AWS custa 70% mais em São Paulo que nos EUA; as
+outras regiões brasileiras não expuseram preço, e a relação pode não valer para L4 ou A10G.
+
+**Contrato e residência do vídeo.** Processar em nuvem fora do país, ou até em nuvem no país, depende
+do que a Footstats pode fazer com o vídeo que licencia. Isso não foi consultado.
+
+**A manutenção domina o custo e é hipótese.** As 20 horas mensais são uma estimativa; na cobertura
+ampla, mais ligas trazem mais câmeras, uniformes e deriva de modelo, e esse número tende a crescer.
+
+## Ainda não medido
 
 | Medida | Como coletar | Decisão que habilita |
 | --- | --- | --- |
-| Tempo manual por lance | cronometração de marcação e revisão por analistas da Footstats | custo atual por partida |
-| Tempo de revisão do xVision | cronometração da aceitação ou correção de cada saída | economia líquida de trabalho |
-| Taxa de aceitação sem retrabalho | saídas aceitas divididas pelas saídas revisadas, por característica | desconto de qualidade aplicado ao benefício |
-| Vazão sustentada | fila de clipes na Jetson, com p95 e estado térmico | quantidade de unidades para o volume simultâneo |
-| Energia por clipe e por partida | medidor na tomada e telemetria da placa durante carga e ociosidade | OPEX de energia |
-| Volume e retenção | partidas mensais, GB por partida e dias de armazenamento | NVMe, backup e serviço central |
-| Manutenção | horas mensais de anotação, treino, validação e atualização | OPEX de modelo |
-| Cotação instalada | kit ou módulo, NVMe, captura, fonte, proteção, impostos, frete e garantia | CAPEX real no Brasil |
+| Vazão numa GPU de nuvem | rodar o mesmo `xvision run` por uma hora numa T4 e numa L4 em São Paulo, a menos de US$ 2 | trocar a estimativa pela medida nas opções de nuvem e de PC |
+| Volume e pico reais | partidas por mês, partidas simultâneas e latência exigida, informadas pela Footstats | cenário e modo de operação |
+| Tempo manual por lance | cronometração de marcação e revisão pelos analistas da Footstats | benefício por partida |
+| Taxa de aceitação sem retrabalho | saídas aceitas divididas pelas revisadas, por característica | desconto de qualidade no benefício |
+| Manutenção | horas mensais de anotação, treino, validação e atualização | custo recorrente que domina a conta |
+| Cotação instalada | placa ou GPU, armazenamento, fonte, impostos, frete e garantia no Brasil | CAPEX real |
 
-Com esses dados, a equipe consegue preencher o TCO, comparar borda e GPU centralizada sob a mesma
-carga e calcular retorno sem extrapolar o corpus de desenvolvimento. Até lá, a conclusão financeira
-é condicional: a arquitetura de borda é coerente para o piloto e tem baixo consumo nominal, mas a
-viabilidade de produção depende principalmente do tempo humano efetivamente economizado, da taxa de
-aceitação das características e do número de partidas simultâneas.
+Com essas medidas, a comparação deixa de ser de cenário. Até lá, a conclusão é condicional: a
+computação custa centavos por partida em qualquer opção sensata, e a viabilidade depende do volume,
+do tempo humano economizado e da manutenção dos modelos.
 
 ## Referências
 
-- [Escopo e limites do produto](/docs/sprint-1/limites-do-produto), que define o caráter acadêmico,
-  a plataforma disponibilizada e a ausência de implantação na Footstats.
-- [Matriz de risco](/docs/sprint-1/matriz-de-risco), especialmente R02, R08 e R09, sobre baseline
-  operacional, retenção e disponibilidade do hardware.
-- [Benchmarking de hardware embarcado](/docs/sprint-1/pesquisa/benchmarking), origem da decisão
-  técnica e das ressalvas sobre energia, disponibilidade e proximidade da fonte.
-- [Estado dos modelos na Sprint 3](/docs/sprint-3), que separa implementação, medição e pendências.
-- [Execução e validação](/docs/sprint-3/produto/execucao-e-validacao), evidência do fluxo integrado e
-  limite da demonstração atual.
-- NVIDIA, [Jetson Orin Nano Developer Kit User Guide](https://docs.nvidia.com/jetson/orin-nano-devkit/user-guide/latest/),
-  referência oficial para a faixa de potência de 7 W a 25 W.
-- NVIDIA, [página de compra dos produtos Jetson](https://developer.nvidia.com/embedded/buy-jetson),
-  que publicava US$ 249 para o kit em 14/09/2026.
-- NVIDIA, [Jetson FAQ](https://developer.nvidia.com/embedded/faq) e
-  [NVIDIA Marketplace](https://marketplace.nvidia.com/en-us/enterprise/robotics-edge/jetson-orin-nano-super-developer-kit/),
-  que publicavam US$ 399 para o mesmo kit em 14/09/2026 e motivam o uso de cotação em faixa.
-- Google Cloud, [preços do Cloud Run](https://cloud.google.com/run/pricing), referência do modelo de
-  cobrança por uso e dos exemplos de custo da aplicação.
-- Google Cloud, [preços do Cloud SQL](https://cloud.google.com/sql/pricing), referência para CPU,
-  memória, armazenamento e rede do PostgreSQL gerenciado.
-- Google Cloud, [preços do Cloud Storage](https://cloud.google.com/storage/pricing), referência dos
-  componentes de armazenamento, operações e tráfego.
+- [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson): vazão, energia e memória medidas
+  na Orin Nano Super, e as evidências em
+  [`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json).
+- Entradas e resultados desta página, sem dado do parceiro, em
+  [`custo-de-producao-20260925.json`](/sprint-4/evidencias/custo-de-producao-20260925.json).
+- [Escopo e limites do produto](/docs/sprint-1/limites-do-produto) e
+  [matriz de risco](/docs/sprint-1/matriz-de-risco), especialmente R02, R08 e R09.
+- [Benchmarking de hardware embarcado](/docs/sprint-1/pesquisa/benchmarking), origem da escolha da
+  Jetson.
+- Ultralytics, [guia da NVIDIA Jetson](https://docs.ultralytics.com/guides/nvidia-jetson/) e
+  [YOLO26](https://docs.ultralytics.com/models/yolo26/): YOLO26n em TensorRT fp16 nas quatro Jetson e
+  na T4, consultados em 25/09/2026.
+- CNX Software, [reajuste da linha Jetson](https://www.cnx-software.com/2026/07/22/nvidia-increases-the-price-of-jetson-modules-and-devkits-by-up-to-101/),
+  22/07/2026.
+- Tom's Hardware, [reajuste do DGX Spark](https://www.tomshardware.com/desktops/mini-pcs/nvidia-dgx-spark-gets-18-percent-price-increase-as-memory-shortages-bite-founders-edition-now-usd4-699-up-from-usd3-999),
+  23/02/2026.
+- Seeed Studio, [reComputer J4012](https://www.seeedstudio.com/reComputer-J4012-w-o-power-adapter-p-5628.html),
+  25/09/2026.
+- NVIDIA, páginas de produto da [série RTX 50](https://www.nvidia.com/en-us/geforce/graphics-cards/50-series/rtx-5090/),
+  da [L4](https://www.nvidia.com/en-us/data-center/l4/), da [L40S](https://www.nvidia.com/en-us/data-center/l40s/)
+  e da [H100](https://www.nvidia.com/en-us/data-center/h100/), para banda e potência.
+- Preços de rua de GPU em [bestvaluegpu.com](https://bestvaluegpu.com/history/new-and-used-rtx-4060-price-history-and-specs/),
+  [videocardprices.com](https://videocardprices.com/card/nvidia-rtx-5090/) e
+  [Newegg](https://www.newegg.com/nvidia-blackwell-900-5g147-2270-000-rtx-pro-4000-24gb-graphics-card/p/N82E16814132109),
+  e no varejo brasileiro em [hardwarebarato.com](https://www.hardwarebarato.com/produtos/placas-de-video/rtx-5090),
+  setembro de 2026.
+- Preços de nuvem em [Vantage](https://instances.vantage.sh/aws/ec2/g4dn.xlarge),
+  [aws-pricing.com](https://aws-pricing.com/g4dn.xlarge.html) para São Paulo,
+  [RunPod](https://www.runpod.io/pricing), [Lambda](https://lambda.ai/service/gpu-cloud) e
+  [Vast.ai](https://vast.ai/pricing/gpu/RTX-4090), 25/09/2026.
+- Banco Central do Brasil, [PTAX](https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia),
+  24/09/2026; Enel SP, [tabela de tarifas](https://www.enel.com.br/pt-saopaulo/Corporativo_e_Governo/tabela-de-tarifas.html),
+  vigente desde 04/07/2026.
+- Google Cloud, [preços do Cloud Run](https://cloud.google.com/run/pricing) e do
+  [Cloud SQL](https://cloud.google.com/sql/pricing), referência do serviço central.

@@ -1,0 +1,5065 @@
+{
+  "schema_version": "1.0",
+  "data": "2026-09-25",
+  "descricao": "Custo de producao do xVision por hardware: entradas (premissas, cenarios, precos e razoes de desempenho) e resultados por cenario e modo. Precos consultados em 25/09/2026; so a Jetson Orin Nano Super tem vazao medida.",
+  "dados_privados_copiados": false,
+  "entradas": {
+    "premissas": {
+      "t_gpu_s": 59.7,
+      "t_cpu_s": 5.4,
+      "banda_orin_nano_super_gbs": 102,
+      "teto_conservador": 4.0,
+      "finalizacoes_por_partida": 21.6,
+      "minutos_por_partida": 95,
+      "folga_de_pico": 1.5,
+      "horas_de_fila_por_dia": 20,
+      "sobrecarga_nuvem": 1.2,
+      "cambio": 5.18,
+      "fator_brasil": 1.3,
+      "tarifa_kwh": 0.789,
+      "horizonte_meses": 36
+    },
+    "cenarios": {
+      "nacional": {
+        "partidas_por_mes": 42,
+        "simultaneas": 10,
+        "partidas_no_dia_de_pico": 10,
+        "horas_de_janela_por_mes": 36
+      },
+      "intermediario": {
+        "partidas_por_mes": 100,
+        "simultaneas": 10,
+        "partidas_no_dia_de_pico": 20,
+        "horas_de_janela_por_mes": 60
+      },
+      "ampla": {
+        "partidas_por_mes": 1250,
+        "simultaneas": 60,
+        "partidas_no_dia_de_pico": 150,
+        "horas_de_janela_por_mes": 150
+      }
+    },
+    "hardware": {
+      "Jetson Orin Nano Super 8 GB": {
+        "tipo": "proprio",
+        "usd": 399,
+        "banda_gbs": 102,
+        "razao_fixa": 1.0,
+        "joules_por_clipe": 766,
+        "watts_ocioso": 5
+      },
+      "Jetson Orin NX 16 GB (reComputer J4012)": {
+        "tipo": "proprio",
+        "usd": 1394,
+        "banda_gbs": 102.4,
+        "razao_medida": 1.11,
+        "razao_cpu": 1.1,
+        "watts_carga": 20,
+        "watts_ocioso": 6
+      },
+      "Jetson AGX Orin 64 GB": {
+        "tipo": "proprio",
+        "usd": 3499,
+        "banda_gbs": 204.8,
+        "razao_medida": 1.74,
+        "razao_cpu": 1.5,
+        "watts_carga": 40,
+        "watts_ocioso": 12
+      },
+      "Jetson AGX Thor": {
+        "tipo": "proprio",
+        "usd": 5499,
+        "banda_gbs": 273,
+        "razao_medida": 3.29,
+        "razao_cpu": 2.0,
+        "watts_carga": 80,
+        "watts_ocioso": 25
+      },
+      "DGX Spark": {
+        "tipo": "proprio",
+        "usd": 4699,
+        "banda_gbs": 273,
+        "razao_cpu": 2.0,
+        "watts_carga": 120,
+        "watts_ocioso": 30
+      },
+      "PC + RTX 4060 Ti 16 GB": {
+        "tipo": "proprio",
+        "usd": 700,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 288,
+        "razao_cpu": 2.0,
+        "watts_carga": 172,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 5060 Ti 16 GB": {
+        "tipo": "proprio",
+        "usd": 789,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 448,
+        "razao_cpu": 2.0,
+        "watts_carga": 186,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 5070 12 GB": {
+        "tipo": "proprio",
+        "usd": 799,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 672,
+        "razao_cpu": 2.0,
+        "watts_carga": 235,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 5070 Ti 16 GB": {
+        "tipo": "proprio",
+        "usd": 1200,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 896,
+        "razao_cpu": 2.0,
+        "watts_carga": 270,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 5080 16 GB": {
+        "tipo": "proprio",
+        "usd": 1590,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 960,
+        "razao_cpu": 2.0,
+        "watts_carga": 312,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 5090 32 GB": {
+        "tipo": "proprio",
+        "usd": 4631,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 1792,
+        "razao_cpu": 2.0,
+        "watts_carga": 462,
+        "watts_ocioso": 50
+      },
+      "PC + RTX 4090 24 GB (usada)": {
+        "tipo": "proprio",
+        "usd": 2499,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 1008,
+        "razao_cpu": 2.0,
+        "watts_carga": 375,
+        "watts_ocioso": 50
+      },
+      "PC + RTX A4000 16 GB (usada)": {
+        "tipo": "proprio",
+        "usd": 680,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 448,
+        "razao_cpu": 2.0,
+        "watts_carga": 158,
+        "watts_ocioso": 50
+      },
+      "PC + RTX PRO 4000 Blackwell 24 GB": {
+        "tipo": "proprio",
+        "usd": 3290,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 672,
+        "razao_cpu": 2.0,
+        "watts_carga": 158,
+        "watts_ocioso": 50
+      },
+      "PC + RTX PRO 6000 Blackwell 96 GB": {
+        "tipo": "proprio",
+        "usd": 8435,
+        "usd_hospedeiro": 1200,
+        "banda_gbs": 1792,
+        "razao_cpu": 2.0,
+        "watts_carga": 480,
+        "watts_ocioso": 50
+      },
+      "Servidor + L4 24 GB": {
+        "tipo": "proprio",
+        "usd": 3497,
+        "usd_hospedeiro": 3000,
+        "banda_gbs": 300,
+        "razao_cpu": 2.0,
+        "watts_carga": 150,
+        "watts_ocioso": 120
+      },
+      "Servidor + L40S 48 GB": {
+        "tipo": "proprio",
+        "usd": 8750,
+        "usd_hospedeiro": 3000,
+        "banda_gbs": 864,
+        "razao_cpu": 2.0,
+        "watts_carga": 345,
+        "watts_ocioso": 120
+      },
+      "Servidor + A100 80 GB (usada)": {
+        "tipo": "proprio",
+        "usd": 6500,
+        "usd_hospedeiro": 3000,
+        "banda_gbs": 1935,
+        "razao_cpu": 2.0,
+        "watts_carga": 310,
+        "watts_ocioso": 120
+      },
+      "Servidor + H100 PCIe 80 GB": {
+        "tipo": "proprio",
+        "usd": 28000,
+        "usd_hospedeiro": 3000,
+        "banda_gbs": 2000,
+        "razao_cpu": 2.0,
+        "watts_carga": 345,
+        "watts_ocioso": 120
+      },
+      "AWS g4dn.xlarge (T4), us-east-1": {
+        "tipo": "nuvem",
+        "usd_hora": 0.526,
+        "banda_gbs": 320,
+        "razao_cpu": 1.5,
+        "razao_medida": 2.69
+      },
+      "AWS g4dn.xlarge (T4), São Paulo": {
+        "tipo": "nuvem",
+        "usd_hora": 0.894,
+        "banda_gbs": 320,
+        "razao_cpu": 1.5,
+        "razao_medida": 2.69
+      },
+      "GCP n1-standard-4 + T4": {
+        "tipo": "nuvem",
+        "usd_hora": 0.54,
+        "banda_gbs": 320,
+        "razao_cpu": 1.5,
+        "razao_medida": 2.69
+      },
+      "Azure NC4as_T4_v3 (T4)": {
+        "tipo": "nuvem",
+        "usd_hora": 0.526,
+        "banda_gbs": 320,
+        "razao_cpu": 1.5,
+        "razao_medida": 2.69
+      },
+      "GCP g2-standard-4 (L4)": {
+        "tipo": "nuvem",
+        "usd_hora": 0.71,
+        "banda_gbs": 300,
+        "razao_cpu": 1.5
+      },
+      "AWS g6.xlarge (L4)": {
+        "tipo": "nuvem",
+        "usd_hora": 0.805,
+        "banda_gbs": 300,
+        "razao_cpu": 1.5
+      },
+      "AWS g5.xlarge (A10G)": {
+        "tipo": "nuvem",
+        "usd_hora": 1.006,
+        "banda_gbs": 600,
+        "razao_cpu": 1.5
+      },
+      "AWS g6e.xlarge (L40S)": {
+        "tipo": "nuvem",
+        "usd_hora": 1.861,
+        "banda_gbs": 864,
+        "razao_cpu": 1.5
+      },
+      "GCP a2-highgpu-1g (A100 40 GB)": {
+        "tipo": "nuvem",
+        "usd_hora": 3.6734,
+        "banda_gbs": 1555,
+        "razao_cpu": 1.5
+      },
+      "AWS p5 (H100), por GPU": {
+        "tipo": "nuvem",
+        "usd_hora": 6.88,
+        "banda_gbs": 3350,
+        "razao_cpu": 1.5
+      },
+      "RunPod L4": {
+        "tipo": "nuvem",
+        "usd_hora": 0.44,
+        "banda_gbs": 300,
+        "razao_cpu": 1.5
+      },
+      "RunPod RTX 4090": {
+        "tipo": "nuvem",
+        "usd_hora": 0.54,
+        "banda_gbs": 1008,
+        "razao_cpu": 1.5
+      },
+      "RunPod RTX 5090": {
+        "tipo": "nuvem",
+        "usd_hora": 0.84,
+        "banda_gbs": 1792,
+        "razao_cpu": 1.5
+      },
+      "RunPod A100 80 GB": {
+        "tipo": "nuvem",
+        "usd_hora": 1.59,
+        "banda_gbs": 1935,
+        "razao_cpu": 1.5
+      },
+      "RunPod H100": {
+        "tipo": "nuvem",
+        "usd_hora": 3.19,
+        "banda_gbs": 3350,
+        "razao_cpu": 1.5
+      },
+      "Lambda A10": {
+        "tipo": "nuvem",
+        "usd_hora": 1.29,
+        "banda_gbs": 600,
+        "razao_cpu": 1.5
+      },
+      "Vast.ai RTX 4090 (mediana)": {
+        "tipo": "nuvem",
+        "usd_hora": 0.5,
+        "banda_gbs": 1008,
+        "razao_cpu": 1.5
+      },
+      "AWS c7i.2xlarge (só CPU)": {
+        "tipo": "nuvem",
+        "usd_hora": 0.357,
+        "banda_gbs": 0,
+        "razao_fixa": 0.12,
+        "razao_cpu": 1.5
+      }
+    }
+  },
+  "resultados": {
+    "Jetson Orin Nano Super 8 GB": {
+      "razao": [
+        1.0,
+        1.0
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 4,
+            "capex_brl": 10747,
+            "energia_kwh_mes": 14.8,
+            "computacao_mensal_brl": 310.21,
+            "por_clipe_brl": 0.3419,
+            "por_partida_brl": 7.39
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 4,
+            "capex_brl": 10747,
+            "energia_kwh_mes": 14.8,
+            "computacao_mensal_brl": 310.21,
+            "por_clipe_brl": 0.3419,
+            "por_partida_brl": 7.39
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 1,
+            "capex_brl": 2687,
+            "energia_kwh_mes": 3.8,
+            "computacao_mensal_brl": 77.67,
+            "por_clipe_brl": 0.0856,
+            "por_partida_brl": 1.85
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 1,
+            "capex_brl": 2687,
+            "energia_kwh_mes": 3.8,
+            "computacao_mensal_brl": 77.67,
+            "por_clipe_brl": 0.0856,
+            "por_partida_brl": 1.85
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 4,
+            "capex_brl": 10747,
+            "energia_kwh_mes": 15.1,
+            "computacao_mensal_brl": 310.42,
+            "por_clipe_brl": 0.1437,
+            "por_partida_brl": 3.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 4,
+            "capex_brl": 10747,
+            "energia_kwh_mes": 15.1,
+            "computacao_mensal_brl": 310.42,
+            "por_clipe_brl": 0.1437,
+            "por_partida_brl": 3.1
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 1,
+            "capex_brl": 2687,
+            "energia_kwh_mes": 4.1,
+            "computacao_mensal_brl": 77.88,
+            "por_clipe_brl": 0.0361,
+            "por_partida_brl": 0.78
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 1,
+            "capex_brl": 2687,
+            "energia_kwh_mes": 4.1,
+            "computacao_mensal_brl": 77.88,
+            "por_clipe_brl": 0.0361,
+            "por_partida_brl": 0.78
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 23,
+            "capex_brl": 61798,
+            "energia_kwh_mes": 89.7,
+            "computacao_mensal_brl": 1787.38,
+            "por_clipe_brl": 0.0662,
+            "por_partida_brl": 1.43
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 23,
+            "capex_brl": 61798,
+            "energia_kwh_mes": 89.7,
+            "computacao_mensal_brl": 1787.38,
+            "por_clipe_brl": 0.0662,
+            "por_partida_brl": 1.43
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 3,
+            "capex_brl": 8061,
+            "energia_kwh_mes": 16.7,
+            "computacao_mensal_brl": 237.08,
+            "por_clipe_brl": 0.0088,
+            "por_partida_brl": 0.19
+          },
+          "otimista": {
+            "segundos_por_clipe": 65.1,
+            "unidades": 3,
+            "capex_brl": 8061,
+            "energia_kwh_mes": 16.7,
+            "computacao_mensal_brl": 237.08,
+            "por_clipe_brl": 0.0088,
+            "por_partida_brl": 0.19
+          }
+        }
+      }
+    },
+    "Jetson Orin NX 16 GB (reComputer J4012)": {
+      "razao": [
+        1.11,
+        1.25
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 4,
+            "capex_brl": 37549,
+            "energia_kwh_mes": 17.8,
+            "computacao_mensal_brl": 1057.08,
+            "por_clipe_brl": 1.1652,
+            "por_partida_brl": 25.17
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 3,
+            "capex_brl": 28162,
+            "energia_kwh_mes": 13.4,
+            "computacao_mensal_brl": 792.84,
+            "por_clipe_brl": 0.8739,
+            "por_partida_brl": 18.88
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 1,
+            "capex_brl": 9387,
+            "energia_kwh_mes": 4.7,
+            "computacao_mensal_brl": 264.44,
+            "por_clipe_brl": 0.2915,
+            "por_partida_brl": 6.3
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 1,
+            "capex_brl": 9387,
+            "energia_kwh_mes": 4.6,
+            "computacao_mensal_brl": 264.42,
+            "por_clipe_brl": 0.2915,
+            "por_partida_brl": 6.3
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 4,
+            "capex_brl": 37549,
+            "energia_kwh_mes": 18.2,
+            "computacao_mensal_brl": 1057.4,
+            "por_clipe_brl": 0.4895,
+            "por_partida_brl": 10.57
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 3,
+            "capex_brl": 28162,
+            "energia_kwh_mes": 13.8,
+            "computacao_mensal_brl": 793.13,
+            "por_clipe_brl": 0.3672,
+            "por_partida_brl": 7.93
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 1,
+            "capex_brl": 9387,
+            "energia_kwh_mes": 5.1,
+            "computacao_mensal_brl": 264.77,
+            "por_clipe_brl": 0.1226,
+            "por_partida_brl": 2.65
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 1,
+            "capex_brl": 9387,
+            "energia_kwh_mes": 5.0,
+            "computacao_mensal_brl": 264.71,
+            "por_clipe_brl": 0.1226,
+            "por_partida_brl": 2.65
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 21,
+            "capex_brl": 197131,
+            "energia_kwh_mes": 100.8,
+            "computacao_mensal_brl": 5555.38,
+            "por_clipe_brl": 0.2058,
+            "por_partida_brl": 4.44
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 18,
+            "capex_brl": 168970,
+            "energia_kwh_mes": 86.7,
+            "computacao_mensal_brl": 4762.01,
+            "por_clipe_brl": 0.1764,
+            "por_partida_brl": 3.81
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 58.7,
+            "unidades": 3,
+            "capex_brl": 28162,
+            "energia_kwh_mes": 21.9,
+            "computacao_mensal_brl": 799.58,
+            "por_clipe_brl": 0.0296,
+            "por_partida_brl": 0.64
+          },
+          "otimista": {
+            "segundos_por_clipe": 52.5,
+            "unidades": 3,
+            "capex_brl": 28162,
+            "energia_kwh_mes": 21.0,
+            "computacao_mensal_brl": 798.85,
+            "por_clipe_brl": 0.0296,
+            "por_partida_brl": 0.64
+          }
+        }
+      }
+    },
+    "Jetson AGX Orin 64 GB": {
+      "razao": [
+        1.74,
+        2.51
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 3,
+            "capex_brl": 70687,
+            "energia_kwh_mes": 26.7,
+            "computacao_mensal_brl": 1984.56,
+            "por_clipe_brl": 2.1876,
+            "por_partida_brl": 47.25
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 2,
+            "capex_brl": 47125,
+            "energia_kwh_mes": 17.8,
+            "computacao_mensal_brl": 1323.06,
+            "por_clipe_brl": 1.4584,
+            "por_partida_brl": 31.5
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 1,
+            "capex_brl": 23562,
+            "energia_kwh_mes": 9.1,
+            "computacao_mensal_brl": 661.72,
+            "por_clipe_brl": 0.7294,
+            "por_partida_brl": 15.76
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 1,
+            "capex_brl": 23562,
+            "energia_kwh_mes": 9.0,
+            "computacao_mensal_brl": 661.64,
+            "por_clipe_brl": 0.7293,
+            "por_partida_brl": 15.75
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 3,
+            "capex_brl": 70687,
+            "energia_kwh_mes": 27.2,
+            "computacao_mensal_brl": 1984.97,
+            "por_clipe_brl": 0.919,
+            "por_partida_brl": 19.85
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 2,
+            "capex_brl": 47125,
+            "energia_kwh_mes": 18.2,
+            "computacao_mensal_brl": 1323.36,
+            "por_clipe_brl": 0.6127,
+            "por_partida_brl": 13.23
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 1,
+            "capex_brl": 23562,
+            "energia_kwh_mes": 9.7,
+            "computacao_mensal_brl": 662.14,
+            "por_clipe_brl": 0.3065,
+            "por_partida_brl": 6.62
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 1,
+            "capex_brl": 23562,
+            "energia_kwh_mes": 9.4,
+            "computacao_mensal_brl": 661.94,
+            "por_clipe_brl": 0.3065,
+            "por_partida_brl": 6.62
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 13,
+            "capex_brl": 306309,
+            "energia_kwh_mes": 125.3,
+            "computacao_mensal_brl": 8607.42,
+            "por_clipe_brl": 0.3188,
+            "por_partida_brl": 6.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 10,
+            "capex_brl": 235623,
+            "energia_kwh_mes": 95.8,
+            "computacao_mensal_brl": 6620.67,
+            "por_clipe_brl": 0.2452,
+            "por_partida_brl": 5.3
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 37.9,
+            "unidades": 2,
+            "capex_brl": 47125,
+            "energia_kwh_mes": 28.9,
+            "computacao_mensal_brl": 1331.81,
+            "por_clipe_brl": 0.0493,
+            "por_partida_brl": 1.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 27.4,
+            "unidades": 2,
+            "capex_brl": 47125,
+            "energia_kwh_mes": 25.7,
+            "computacao_mensal_brl": 1329.32,
+            "por_clipe_brl": 0.0492,
+            "por_partida_brl": 1.06
+          }
+        }
+      }
+    },
+    "Jetson AGX Thor": {
+      "razao": [
+        3.29,
+        3.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 2,
+            "capex_brl": 74061,
+            "energia_kwh_mes": 36.9,
+            "computacao_mensal_brl": 2086.37,
+            "por_clipe_brl": 2.2998,
+            "por_partida_brl": 49.68
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 2,
+            "capex_brl": 74061,
+            "energia_kwh_mes": 36.9,
+            "computacao_mensal_brl": 2086.36,
+            "por_clipe_brl": 2.2998,
+            "por_partida_brl": 49.68
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 18.7,
+            "computacao_mensal_brl": 1043.35,
+            "por_clipe_brl": 1.1501,
+            "por_partida_brl": 24.84
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 18.7,
+            "computacao_mensal_brl": 1043.34,
+            "por_clipe_brl": 1.1501,
+            "por_partida_brl": 24.84
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 2,
+            "capex_brl": 74061,
+            "energia_kwh_mes": 37.5,
+            "computacao_mensal_brl": 2086.82,
+            "por_clipe_brl": 0.9661,
+            "por_partida_brl": 20.87
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 2,
+            "capex_brl": 74061,
+            "energia_kwh_mes": 37.5,
+            "computacao_mensal_brl": 2086.81,
+            "por_clipe_brl": 0.9661,
+            "por_partida_brl": 20.87
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 19.3,
+            "computacao_mensal_brl": 1043.81,
+            "por_clipe_brl": 0.4832,
+            "por_partida_brl": 10.44
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 19.2,
+            "computacao_mensal_brl": 1043.8,
+            "por_clipe_brl": 0.4832,
+            "por_partida_brl": 10.44
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 8,
+            "capex_brl": 296242,
+            "energia_kwh_mes": 158.5,
+            "computacao_mensal_brl": 8354.01,
+            "por_clipe_brl": 0.3094,
+            "por_partida_brl": 6.68
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 8,
+            "capex_brl": 296242,
+            "energia_kwh_mes": 158.3,
+            "computacao_mensal_brl": 8353.87,
+            "por_clipe_brl": 0.3094,
+            "por_partida_brl": 6.68
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 20.8,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 30.8,
+            "computacao_mensal_brl": 1052.89,
+            "por_clipe_brl": 0.039,
+            "por_partida_brl": 0.84
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 37030,
+            "energia_kwh_mes": 30.6,
+            "computacao_mensal_brl": 1052.74,
+            "por_clipe_brl": 0.039,
+            "por_partida_brl": 0.84
+          }
+        }
+      }
+    },
+    "DGX Spark": {
+      "razao": [
+        2.27,
+        3.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 2,
+            "capex_brl": 63286,
+            "energia_kwh_mes": 44.7,
+            "computacao_mensal_brl": 1793.2,
+            "por_clipe_brl": 1.9766,
+            "por_partida_brl": 42.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 2,
+            "capex_brl": 63286,
+            "energia_kwh_mes": 44.4,
+            "computacao_mensal_brl": 1793.0,
+            "por_clipe_brl": 1.9764,
+            "por_partida_brl": 42.69
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 1,
+            "capex_brl": 31643,
+            "energia_kwh_mes": 22.8,
+            "computacao_mensal_brl": 896.94,
+            "por_clipe_brl": 0.9887,
+            "por_partida_brl": 21.36
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 31643,
+            "energia_kwh_mes": 22.5,
+            "computacao_mensal_brl": 896.74,
+            "por_clipe_brl": 0.9885,
+            "por_partida_brl": 21.35
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 2,
+            "capex_brl": 63286,
+            "energia_kwh_mes": 45.9,
+            "computacao_mensal_brl": 1794.15,
+            "por_clipe_brl": 0.8306,
+            "por_partida_brl": 17.94
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 2,
+            "capex_brl": 63286,
+            "energia_kwh_mes": 45.3,
+            "computacao_mensal_brl": 1793.67,
+            "por_clipe_brl": 0.8304,
+            "por_partida_brl": 17.94
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 1,
+            "capex_brl": 31643,
+            "energia_kwh_mes": 24.0,
+            "computacao_mensal_brl": 897.9,
+            "por_clipe_brl": 0.4157,
+            "por_partida_brl": 8.98
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 31643,
+            "energia_kwh_mes": 23.4,
+            "computacao_mensal_brl": 897.42,
+            "por_clipe_brl": 0.4155,
+            "por_partida_brl": 8.97
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 10,
+            "capex_brl": 316431,
+            "energia_kwh_mes": 245.0,
+            "computacao_mensal_brl": 8983.08,
+            "por_clipe_brl": 0.3327,
+            "por_partida_brl": 7.19
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 8,
+            "capex_brl": 253145,
+            "energia_kwh_mes": 193.7,
+            "computacao_mensal_brl": 7184.61,
+            "por_clipe_brl": 0.2661,
+            "por_partida_brl": 5.75
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 28.9,
+            "unidades": 2,
+            "capex_brl": 63286,
+            "energia_kwh_mes": 69.8,
+            "computacao_mensal_brl": 1813.06,
+            "por_clipe_brl": 0.0672,
+            "por_partida_brl": 1.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 20.5,
+            "unidades": 1,
+            "capex_brl": 31643,
+            "energia_kwh_mes": 40.4,
+            "computacao_mensal_brl": 910.84,
+            "por_clipe_brl": 0.0337,
+            "por_partida_brl": 0.73
+          }
+        }
+      }
+    },
+    "PC + RTX 4060 Ti 16 GB": {
+      "razao": [
+        2.4,
+        3.53
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 2,
+            "capex_brl": 25589,
+            "energia_kwh_mes": 74.2,
+            "computacao_mensal_brl": 769.35,
+            "por_clipe_brl": 0.8481,
+            "por_partida_brl": 18.32
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 2,
+            "capex_brl": 25589,
+            "energia_kwh_mes": 73.9,
+            "computacao_mensal_brl": 769.08,
+            "por_clipe_brl": 0.8478,
+            "por_partida_brl": 18.31
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 1,
+            "capex_brl": 12795,
+            "energia_kwh_mes": 37.7,
+            "computacao_mensal_brl": 385.15,
+            "por_clipe_brl": 0.4245,
+            "por_partida_brl": 9.17
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 1,
+            "capex_brl": 12795,
+            "energia_kwh_mes": 37.4,
+            "computacao_mensal_brl": 384.87,
+            "por_clipe_brl": 0.4242,
+            "por_partida_brl": 9.16
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 2,
+            "capex_brl": 25589,
+            "energia_kwh_mes": 75.8,
+            "computacao_mensal_brl": 770.65,
+            "por_clipe_brl": 0.3568,
+            "por_partida_brl": 7.71
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 2,
+            "capex_brl": 25589,
+            "energia_kwh_mes": 75.0,
+            "computacao_mensal_brl": 770.01,
+            "por_clipe_brl": 0.3565,
+            "por_partida_brl": 7.7
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 1,
+            "capex_brl": 12795,
+            "energia_kwh_mes": 39.3,
+            "computacao_mensal_brl": 386.45,
+            "por_clipe_brl": 0.1789,
+            "por_partida_brl": 3.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 1,
+            "capex_brl": 12795,
+            "energia_kwh_mes": 38.5,
+            "computacao_mensal_brl": 385.8,
+            "por_clipe_brl": 0.1786,
+            "por_partida_brl": 3.86
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 10,
+            "capex_brl": 127946,
+            "energia_kwh_mes": 400.6,
+            "computacao_mensal_brl": 3870.11,
+            "por_clipe_brl": 0.1433,
+            "por_partida_brl": 3.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 7,
+            "capex_brl": 89562,
+            "energia_kwh_mes": 280.8,
+            "computacao_mensal_brl": 2709.39,
+            "por_clipe_brl": 0.1003,
+            "por_partida_brl": 2.17
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.6,
+            "unidades": 2,
+            "capex_brl": 25589,
+            "energia_kwh_mes": 108.6,
+            "computacao_mensal_brl": 796.47,
+            "por_clipe_brl": 0.0295,
+            "por_partida_brl": 0.64
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.6,
+            "unidades": 1,
+            "capex_brl": 12795,
+            "energia_kwh_mes": 61.8,
+            "computacao_mensal_brl": 404.17,
+            "por_clipe_brl": 0.015,
+            "por_partida_brl": 0.32
+          }
+        }
+      }
+    },
+    "PC + RTX 5060 Ti 16 GB": {
+      "razao": [
+        3.73,
+        5.49
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 2,
+            "capex_brl": 26788,
+            "energia_kwh_mes": 73.9,
+            "computacao_mensal_brl": 802.4,
+            "por_clipe_brl": 0.8845,
+            "por_partida_brl": 19.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 401.35,
+            "por_clipe_brl": 0.4424,
+            "por_partida_brl": 9.56
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 37.4,
+            "computacao_mensal_brl": 401.54,
+            "por_clipe_brl": 0.4426,
+            "por_partida_brl": 9.56
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 401.35,
+            "por_clipe_brl": 0.4424,
+            "por_partida_brl": 9.56
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 2,
+            "capex_brl": 26788,
+            "energia_kwh_mes": 75.1,
+            "computacao_mensal_brl": 803.35,
+            "por_clipe_brl": 0.3719,
+            "por_partida_brl": 8.03
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 402.05,
+            "por_clipe_brl": 0.1861,
+            "por_partida_brl": 4.02
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 38.6,
+            "computacao_mensal_brl": 402.5,
+            "por_clipe_brl": 0.1863,
+            "por_partida_brl": 4.02
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 402.05,
+            "por_clipe_brl": 0.1861,
+            "por_partida_brl": 4.02
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 7,
+            "capex_brl": 93757,
+            "energia_kwh_mes": 281.6,
+            "computacao_mensal_brl": 2826.54,
+            "por_clipe_brl": 0.1047,
+            "por_partida_brl": 2.26
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 5,
+            "capex_brl": 66970,
+            "energia_kwh_mes": 201.4,
+            "computacao_mensal_brl": 2019.2,
+            "por_clipe_brl": 0.0748,
+            "por_partida_brl": 1.62
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 62.6,
+            "computacao_mensal_brl": 421.42,
+            "por_clipe_brl": 0.0156,
+            "por_partida_brl": 0.34
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 13394,
+            "energia_kwh_mes": 55.4,
+            "computacao_mensal_brl": 415.79,
+            "por_clipe_brl": 0.0154,
+            "por_partida_brl": 0.33
+          }
+        }
+      }
+    },
+    "PC + RTX 5070 12 GB": {
+      "razao": [
+        4.0,
+        8.24
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 26923,
+            "energia_kwh_mes": 74.0,
+            "computacao_mensal_brl": 806.27,
+            "por_clipe_brl": 0.8887,
+            "por_partida_brl": 19.2
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 403.19,
+            "por_clipe_brl": 0.4444,
+            "por_partida_brl": 9.6
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 37.5,
+            "computacao_mensal_brl": 403.55,
+            "por_clipe_brl": 0.4448,
+            "por_partida_brl": 9.61
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 403.19,
+            "por_clipe_brl": 0.4444,
+            "por_partida_brl": 9.6
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 26923,
+            "energia_kwh_mes": 75.5,
+            "computacao_mensal_brl": 807.41,
+            "por_clipe_brl": 0.3738,
+            "por_partida_brl": 8.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 37.9,
+            "computacao_mensal_brl": 403.83,
+            "por_clipe_brl": 0.187,
+            "por_partida_brl": 4.04
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 39.0,
+            "computacao_mensal_brl": 404.68,
+            "por_clipe_brl": 0.1874,
+            "por_partida_brl": 4.05
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 37.9,
+            "computacao_mensal_brl": 403.83,
+            "por_clipe_brl": 0.187,
+            "por_partida_brl": 4.04
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 94229,
+            "energia_kwh_mes": 286.6,
+            "computacao_mensal_brl": 2843.57,
+            "por_clipe_brl": 0.1053,
+            "por_partida_brl": 2.27
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 4,
+            "capex_brl": 53845,
+            "energia_kwh_mes": 163.5,
+            "computacao_mensal_brl": 1624.73,
+            "por_clipe_brl": 0.0602,
+            "por_partida_brl": 1.3
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 67.6,
+            "computacao_mensal_brl": 427.23,
+            "por_clipe_brl": 0.0158,
+            "por_partida_brl": 0.34
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 13461,
+            "energia_kwh_mes": 54.0,
+            "computacao_mensal_brl": 416.56,
+            "por_clipe_brl": 0.0154,
+            "por_partida_brl": 0.33
+          }
+        }
+      }
+    },
+    "PC + RTX 5070 Ti 16 GB": {
+      "razao": [
+        4.0,
+        10.98
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 32323,
+            "energia_kwh_mes": 74.2,
+            "computacao_mensal_brl": 956.41,
+            "por_clipe_brl": 1.0542,
+            "por_partida_brl": 22.77
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 478.17,
+            "por_clipe_brl": 0.5271,
+            "por_partida_brl": 11.38
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 37.7,
+            "computacao_mensal_brl": 478.68,
+            "por_clipe_brl": 0.5276,
+            "por_partida_brl": 11.4
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 478.17,
+            "por_clipe_brl": 0.5271,
+            "por_partida_brl": 11.38
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 32323,
+            "energia_kwh_mes": 75.9,
+            "computacao_mensal_brl": 957.72,
+            "por_clipe_brl": 0.4434,
+            "por_partida_brl": 9.58
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 37.8,
+            "computacao_mensal_brl": 478.77,
+            "por_clipe_brl": 0.2217,
+            "por_partida_brl": 4.79
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 39.4,
+            "computacao_mensal_brl": 479.98,
+            "por_clipe_brl": 0.2222,
+            "por_partida_brl": 4.8
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 37.8,
+            "computacao_mensal_brl": 478.77,
+            "por_clipe_brl": 0.2217,
+            "por_partida_brl": 4.79
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 113131,
+            "energia_kwh_mes": 291.2,
+            "computacao_mensal_brl": 3372.28,
+            "por_clipe_brl": 0.1249,
+            "por_partida_brl": 2.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 3,
+            "capex_brl": 48485,
+            "energia_kwh_mes": 126.0,
+            "computacao_mensal_brl": 1446.2,
+            "por_clipe_brl": 0.0536,
+            "por_partida_brl": 1.16
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 72.2,
+            "computacao_mensal_brl": 505.89,
+            "por_clipe_brl": 0.0187,
+            "por_partida_brl": 0.4
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.1,
+            "unidades": 1,
+            "capex_brl": 16162,
+            "energia_kwh_mes": 53.0,
+            "computacao_mensal_brl": 490.73,
+            "por_clipe_brl": 0.0182,
+            "por_partida_brl": 0.39
+          }
+        }
+      }
+    },
+    "PC + RTX 5080 16 GB": {
+      "razao": [
+        4.0,
+        11.76
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 37576,
+            "energia_kwh_mes": 74.4,
+            "computacao_mensal_brl": 1102.46,
+            "por_clipe_brl": 1.2152,
+            "por_partida_brl": 26.25
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 551.17,
+            "por_clipe_brl": 0.6075,
+            "por_partida_brl": 13.12
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 37.9,
+            "computacao_mensal_brl": 551.78,
+            "por_clipe_brl": 0.6082,
+            "por_partida_brl": 13.14
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 551.17,
+            "por_clipe_brl": 0.6075,
+            "por_partida_brl": 13.12
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 37576,
+            "energia_kwh_mes": 76.3,
+            "computacao_mensal_brl": 1103.97,
+            "por_clipe_brl": 0.5111,
+            "por_partida_brl": 11.04
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 551.83,
+            "por_clipe_brl": 0.2555,
+            "por_partida_brl": 5.52
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 39.8,
+            "computacao_mensal_brl": 553.29,
+            "por_clipe_brl": 0.2562,
+            "por_partida_brl": 5.53
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 551.83,
+            "por_clipe_brl": 0.2555,
+            "por_partida_brl": 5.52
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 131515,
+            "energia_kwh_mes": 296.7,
+            "computacao_mensal_brl": 3887.32,
+            "por_clipe_brl": 0.144,
+            "por_partida_brl": 3.11
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 3,
+            "capex_brl": 56364,
+            "energia_kwh_mes": 127.7,
+            "computacao_mensal_brl": 1666.4,
+            "por_clipe_brl": 0.0617,
+            "por_partida_brl": 1.33
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 77.7,
+            "computacao_mensal_brl": 583.22,
+            "por_clipe_brl": 0.0216,
+            "por_partida_brl": 0.47
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.8,
+            "unidades": 1,
+            "capex_brl": 18788,
+            "energia_kwh_mes": 54.7,
+            "computacao_mensal_brl": 565.04,
+            "por_clipe_brl": 0.0209,
+            "por_partida_brl": 0.45
+          }
+        }
+      }
+    },
+    "PC + RTX 5090 32 GB": {
+      "razao": [
+        4.0,
+        21.96
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 78532,
+            "energia_kwh_mes": 75.1,
+            "computacao_mensal_brl": 2240.66,
+            "por_clipe_brl": 2.4699,
+            "por_partida_brl": 53.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 1120.02,
+            "por_clipe_brl": 1.2346,
+            "por_partida_brl": 26.67
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 38.6,
+            "computacao_mensal_brl": 1121.14,
+            "por_clipe_brl": 1.2358,
+            "por_partida_brl": 26.69
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 37.1,
+            "computacao_mensal_brl": 1120.02,
+            "por_clipe_brl": 1.2346,
+            "por_partida_brl": 26.67
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 78532,
+            "energia_kwh_mes": 77.9,
+            "computacao_mensal_brl": 2242.89,
+            "por_clipe_brl": 1.0384,
+            "por_partida_brl": 22.43
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 1120.7,
+            "por_clipe_brl": 0.5188,
+            "por_partida_brl": 11.21
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 41.4,
+            "computacao_mensal_brl": 1123.37,
+            "por_clipe_brl": 0.5201,
+            "por_partida_brl": 11.23
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 38.0,
+            "computacao_mensal_brl": 1120.7,
+            "por_clipe_brl": 0.5188,
+            "por_partida_brl": 11.21
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 274862,
+            "energia_kwh_mes": 316.6,
+            "computacao_mensal_brl": 7884.82,
+            "por_clipe_brl": 0.292,
+            "por_partida_brl": 6.31
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 2,
+            "capex_brl": 78532,
+            "energia_kwh_mes": 91.8,
+            "computacao_mensal_brl": 2253.85,
+            "por_clipe_brl": 0.0835,
+            "por_partida_brl": 1.8
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 97.6,
+            "computacao_mensal_brl": 1167.7,
+            "por_clipe_brl": 0.0432,
+            "por_partida_brl": 0.93
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 39266,
+            "energia_kwh_mes": 55.3,
+            "computacao_mensal_brl": 1134.33,
+            "por_clipe_brl": 0.042,
+            "por_partida_brl": 0.91
+          }
+        }
+      }
+    },
+    "PC + RTX 4090 24 GB (usada)": {
+      "razao": [
+        4.0,
+        12.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 49818,
+            "energia_kwh_mes": 74.7,
+            "computacao_mensal_brl": 1442.75,
+            "por_clipe_brl": 1.5903,
+            "por_partida_brl": 34.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 721.28,
+            "por_clipe_brl": 0.7951,
+            "por_partida_brl": 17.17
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 38.2,
+            "computacao_mensal_brl": 722.03,
+            "por_clipe_brl": 0.7959,
+            "por_partida_brl": 17.19
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 721.28,
+            "por_clipe_brl": 0.7951,
+            "por_partida_brl": 17.17
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 49818,
+            "energia_kwh_mes": 77.0,
+            "computacao_mensal_brl": 1444.56,
+            "por_clipe_brl": 0.6688,
+            "por_partida_brl": 14.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 38.2,
+            "computacao_mensal_brl": 722.05,
+            "por_clipe_brl": 0.3343,
+            "por_partida_brl": 7.22
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 40.5,
+            "computacao_mensal_brl": 723.85,
+            "por_clipe_brl": 0.3351,
+            "por_partida_brl": 7.24
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 38.2,
+            "computacao_mensal_brl": 722.05,
+            "por_clipe_brl": 0.3343,
+            "por_partida_brl": 7.22
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 174363,
+            "energia_kwh_mes": 305.1,
+            "computacao_mensal_brl": 5084.13,
+            "por_clipe_brl": 0.1883,
+            "por_partida_brl": 4.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 3,
+            "capex_brl": 74727,
+            "energia_kwh_mes": 130.7,
+            "computacao_mensal_brl": 2178.87,
+            "por_clipe_brl": 0.0807,
+            "por_partida_brl": 1.74
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 86.1,
+            "computacao_mensal_brl": 759.83,
+            "por_clipe_brl": 0.0281,
+            "por_partida_brl": 0.61
+          },
+          "otimista": {
+            "segundos_por_clipe": 7.5,
+            "unidades": 1,
+            "capex_brl": 24909,
+            "energia_kwh_mes": 57.7,
+            "computacao_mensal_brl": 737.43,
+            "por_clipe_brl": 0.0273,
+            "por_partida_brl": 0.59
+          }
+        }
+      }
+    },
+    "PC + RTX A4000 16 GB (usada)": {
+      "razao": [
+        3.73,
+        5.49
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 2,
+            "capex_brl": 25320,
+            "energia_kwh_mes": 73.7,
+            "computacao_mensal_brl": 761.51,
+            "por_clipe_brl": 0.8394,
+            "por_partida_brl": 18.13
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 37.0,
+            "computacao_mensal_brl": 380.89,
+            "por_clipe_brl": 0.4199,
+            "por_partida_brl": 9.07
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 381.05,
+            "por_clipe_brl": 0.42,
+            "por_partida_brl": 9.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 37.0,
+            "computacao_mensal_brl": 380.89,
+            "por_clipe_brl": 0.4199,
+            "por_partida_brl": 9.07
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 2,
+            "capex_brl": 25320,
+            "energia_kwh_mes": 74.8,
+            "computacao_mensal_brl": 762.32,
+            "por_clipe_brl": 0.3529,
+            "por_partida_brl": 7.62
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 37.8,
+            "computacao_mensal_brl": 381.48,
+            "por_clipe_brl": 0.1766,
+            "por_partida_brl": 3.81
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 38.3,
+            "computacao_mensal_brl": 381.86,
+            "por_clipe_brl": 0.1768,
+            "por_partida_brl": 3.82
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 37.8,
+            "computacao_mensal_brl": 381.48,
+            "por_clipe_brl": 0.1766,
+            "por_partida_brl": 3.81
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 7,
+            "capex_brl": 88619,
+            "energia_kwh_mes": 277.6,
+            "computacao_mensal_brl": 2680.72,
+            "por_clipe_brl": 0.0993,
+            "por_partida_brl": 2.14
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 5,
+            "capex_brl": 63300,
+            "energia_kwh_mes": 198.6,
+            "computacao_mensal_brl": 1915.01,
+            "por_clipe_brl": 0.0709,
+            "por_partida_brl": 1.53
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.7,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 58.6,
+            "computacao_mensal_brl": 397.94,
+            "por_clipe_brl": 0.0147,
+            "por_partida_brl": 0.32
+          },
+          "otimista": {
+            "segundos_por_clipe": 13.6,
+            "unidades": 1,
+            "capex_brl": 12660,
+            "energia_kwh_mes": 52.6,
+            "computacao_mensal_brl": 393.15,
+            "por_clipe_brl": 0.0146,
+            "por_partida_brl": 0.31
+          }
+        }
+      }
+    },
+    "PC + RTX PRO 4000 Blackwell 24 GB": {
+      "razao": [
+        4.0,
+        8.24
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 60471,
+            "energia_kwh_mes": 73.7,
+            "computacao_mensal_brl": 1737.91,
+            "por_clipe_brl": 1.9157,
+            "por_partida_brl": 41.38
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 36.9,
+            "computacao_mensal_brl": 868.99,
+            "por_clipe_brl": 0.9579,
+            "por_partida_brl": 20.69
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 869.23,
+            "por_clipe_brl": 0.9581,
+            "por_partida_brl": 20.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 36.9,
+            "computacao_mensal_brl": 868.99,
+            "por_clipe_brl": 0.9579,
+            "por_partida_brl": 20.69
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 60471,
+            "energia_kwh_mes": 74.7,
+            "computacao_mensal_brl": 1738.67,
+            "por_clipe_brl": 0.8049,
+            "por_partida_brl": 17.39
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 37.4,
+            "computacao_mensal_brl": 869.42,
+            "por_clipe_brl": 0.4025,
+            "por_partida_brl": 8.69
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 38.2,
+            "computacao_mensal_brl": 870.0,
+            "por_clipe_brl": 0.4028,
+            "por_partida_brl": 8.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 37.4,
+            "computacao_mensal_brl": 869.42,
+            "por_clipe_brl": 0.4025,
+            "por_partida_brl": 8.69
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 211650,
+            "energia_kwh_mes": 276.4,
+            "computacao_mensal_brl": 6097.22,
+            "por_clipe_brl": 0.2258,
+            "por_partida_brl": 4.88
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 4,
+            "capex_brl": 120943,
+            "energia_kwh_mes": 157.8,
+            "computacao_mensal_brl": 3484.01,
+            "por_clipe_brl": 0.129,
+            "por_partida_brl": 2.79
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 57.4,
+            "computacao_mensal_brl": 885.16,
+            "por_clipe_brl": 0.0328,
+            "por_partida_brl": 0.71
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.9,
+            "unidades": 1,
+            "capex_brl": 30236,
+            "energia_kwh_mes": 48.3,
+            "computacao_mensal_brl": 877.98,
+            "por_clipe_brl": 0.0325,
+            "por_partida_brl": 0.7
+          }
+        }
+      }
+    },
+    "PC + RTX PRO 6000 Blackwell 96 GB": {
+      "razao": [
+        4.0,
+        21.96
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 129764,
+            "energia_kwh_mes": 75.1,
+            "computacao_mensal_brl": 3663.84,
+            "por_clipe_brl": 4.0386,
+            "por_partida_brl": 87.23
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 1831.6,
+            "por_clipe_brl": 2.019,
+            "por_partida_brl": 43.61
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 38.6,
+            "computacao_mensal_brl": 1832.76,
+            "por_clipe_brl": 2.0202,
+            "por_partida_brl": 43.64
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 37.2,
+            "computacao_mensal_brl": 1831.6,
+            "por_clipe_brl": 2.019,
+            "por_partida_brl": 43.61
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 129764,
+            "energia_kwh_mes": 78.1,
+            "computacao_mensal_brl": 3666.16,
+            "por_clipe_brl": 1.6973,
+            "por_partida_brl": 36.66
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 38.1,
+            "computacao_mensal_brl": 1832.31,
+            "por_clipe_brl": 0.8483,
+            "por_partida_brl": 18.32
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 41.6,
+            "computacao_mensal_brl": 1835.08,
+            "por_clipe_brl": 0.8496,
+            "por_partida_brl": 18.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 38.1,
+            "computacao_mensal_brl": 1832.31,
+            "por_clipe_brl": 0.8483,
+            "por_partida_brl": 18.32
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 454175,
+            "energia_kwh_mes": 318.9,
+            "computacao_mensal_brl": 12867.61,
+            "por_clipe_brl": 0.4766,
+            "por_partida_brl": 10.29
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 2,
+            "capex_brl": 129764,
+            "energia_kwh_mes": 92.5,
+            "computacao_mensal_brl": 3677.55,
+            "por_clipe_brl": 0.1362,
+            "por_partida_brl": 2.94
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 100.0,
+            "computacao_mensal_brl": 1881.14,
+            "por_clipe_brl": 0.0697,
+            "por_partida_brl": 1.5
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.4,
+            "unidades": 1,
+            "capex_brl": 64882,
+            "energia_kwh_mes": 56.0,
+            "computacao_mensal_brl": 1846.47,
+            "por_clipe_brl": 0.0684,
+            "por_partida_brl": 1.48
+          }
+        }
+      }
+    },
+    "Servidor + L4 24 GB": {
+      "razao": [
+        2.5,
+        3.68
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 2,
+            "capex_brl": 87502,
+            "energia_kwh_mes": 176.2,
+            "computacao_mensal_brl": 2569.63,
+            "por_clipe_brl": 2.8325,
+            "por_partida_brl": 61.18
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 2,
+            "capex_brl": 87502,
+            "energia_kwh_mes": 175.9,
+            "computacao_mensal_brl": 2569.4,
+            "por_clipe_brl": 2.8322,
+            "por_partida_brl": 61.18
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 1,
+            "capex_brl": 43751,
+            "energia_kwh_mes": 88.6,
+            "computacao_mensal_brl": 1285.21,
+            "por_clipe_brl": 1.4167,
+            "por_partida_brl": 30.6
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 1,
+            "capex_brl": 43751,
+            "energia_kwh_mes": 88.3,
+            "computacao_mensal_brl": 1284.98,
+            "por_clipe_brl": 1.4164,
+            "por_partida_brl": 30.59
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 2,
+            "capex_brl": 87502,
+            "energia_kwh_mes": 177.6,
+            "computacao_mensal_brl": 2570.72,
+            "por_clipe_brl": 1.1901,
+            "por_partida_brl": 25.71
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 2,
+            "capex_brl": 87502,
+            "energia_kwh_mes": 176.9,
+            "computacao_mensal_brl": 2570.18,
+            "por_clipe_brl": 1.1899,
+            "por_partida_brl": 25.7
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 1,
+            "capex_brl": 43751,
+            "energia_kwh_mes": 90.0,
+            "computacao_mensal_brl": 1286.3,
+            "por_clipe_brl": 0.5955,
+            "por_partida_brl": 12.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 1,
+            "capex_brl": 43751,
+            "energia_kwh_mes": 89.3,
+            "computacao_mensal_brl": 1285.76,
+            "por_clipe_brl": 0.5953,
+            "por_partida_brl": 12.86
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 10,
+            "capex_brl": 437508,
+            "energia_kwh_mes": 905.9,
+            "computacao_mensal_brl": 12867.76,
+            "por_clipe_brl": 0.4766,
+            "por_partida_brl": 10.29
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 7,
+            "capex_brl": 306256,
+            "energia_kwh_mes": 634.5,
+            "computacao_mensal_brl": 9007.72,
+            "por_clipe_brl": 0.3336,
+            "por_partida_brl": 7.21
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 26.6,
+            "unidades": 2,
+            "capex_brl": 87502,
+            "energia_kwh_mes": 205.1,
+            "computacao_mensal_brl": 2592.43,
+            "por_clipe_brl": 0.096,
+            "por_partida_brl": 2.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.9,
+            "unidades": 1,
+            "capex_brl": 43751,
+            "energia_kwh_mes": 108.9,
+            "computacao_mensal_brl": 1301.23,
+            "por_clipe_brl": 0.0482,
+            "por_partida_brl": 1.04
+          }
+        }
+      }
+    },
+    "Servidor + L40S 48 GB": {
+      "razao": [
+        4.0,
+        10.59
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 158249,
+            "energia_kwh_mes": 176.7,
+            "computacao_mensal_brl": 4535.25,
+            "por_clipe_brl": 4.9992,
+            "por_partida_brl": 107.98
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 88.3,
+            "computacao_mensal_brl": 2267.59,
+            "por_clipe_brl": 2.4995,
+            "por_partida_brl": 53.99
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 89.1,
+            "computacao_mensal_brl": 2268.23,
+            "por_clipe_brl": 2.5003,
+            "por_partida_brl": 54.01
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 88.3,
+            "computacao_mensal_brl": 2267.59,
+            "por_clipe_brl": 2.4995,
+            "por_partida_brl": 53.99
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 158249,
+            "energia_kwh_mes": 178.8,
+            "computacao_mensal_brl": 4536.92,
+            "por_clipe_brl": 2.1004,
+            "por_partida_brl": 45.37
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 89.3,
+            "computacao_mensal_brl": 2268.38,
+            "por_clipe_brl": 1.0502,
+            "por_partida_brl": 22.68
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 91.2,
+            "computacao_mensal_brl": 2269.9,
+            "por_clipe_brl": 1.0509,
+            "por_partida_brl": 22.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 89.3,
+            "computacao_mensal_brl": 2268.38,
+            "por_clipe_brl": 1.0502,
+            "por_partida_brl": 22.68
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 553872,
+            "energia_kwh_mes": 658.8,
+            "computacao_mensal_brl": 15905.12,
+            "por_clipe_brl": 0.5891,
+            "por_partida_brl": 12.72
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 3,
+            "capex_brl": 237374,
+            "energia_kwh_mes": 284.4,
+            "computacao_mensal_brl": 6818.08,
+            "por_clipe_brl": 0.2525,
+            "por_partida_brl": 5.45
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 133.2,
+            "computacao_mensal_brl": 2303.0,
+            "por_clipe_brl": 0.0853,
+            "por_partida_brl": 1.84
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.3,
+            "unidades": 1,
+            "capex_brl": 79124,
+            "energia_kwh_mes": 109.2,
+            "computacao_mensal_brl": 2284.04,
+            "por_clipe_brl": 0.0846,
+            "por_partida_brl": 1.83
+          }
+        }
+      }
+    },
+    "Servidor + A100 80 GB (usada)": {
+      "razao": [
+        4.0,
+        23.71
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 127946,
+            "energia_kwh_mes": 176.6,
+            "computacao_mensal_brl": 3693.37,
+            "por_clipe_brl": 4.0712,
+            "por_partida_brl": 87.94
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 88.0,
+            "computacao_mensal_brl": 1846.47,
+            "por_clipe_brl": 2.0353,
+            "por_partida_brl": 43.96
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 89.0,
+            "computacao_mensal_brl": 1847.23,
+            "por_clipe_brl": 2.0362,
+            "por_partida_brl": 43.98
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 88.0,
+            "computacao_mensal_brl": 1846.47,
+            "por_clipe_brl": 2.0353,
+            "por_partida_brl": 43.96
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 127946,
+            "energia_kwh_mes": 178.5,
+            "computacao_mensal_brl": 3694.87,
+            "por_clipe_brl": 1.7106,
+            "por_partida_brl": 36.95
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 88.6,
+            "computacao_mensal_brl": 1846.91,
+            "por_clipe_brl": 0.8551,
+            "por_partida_brl": 18.47
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 90.9,
+            "computacao_mensal_brl": 1848.73,
+            "por_clipe_brl": 0.8559,
+            "por_partida_brl": 18.49
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 88.6,
+            "computacao_mensal_brl": 1846.91,
+            "por_clipe_brl": 0.8551,
+            "por_partida_brl": 18.47
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 447811,
+            "energia_kwh_mes": 654.2,
+            "computacao_mensal_brl": 12955.34,
+            "por_clipe_brl": 0.4798,
+            "por_partida_brl": 10.36
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 2,
+            "capex_brl": 127946,
+            "energia_kwh_mes": 187.3,
+            "computacao_mensal_brl": 3701.86,
+            "por_clipe_brl": 0.1371,
+            "por_partida_brl": 2.96
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 128.6,
+            "computacao_mensal_brl": 1878.48,
+            "por_clipe_brl": 0.0696,
+            "por_partida_brl": 1.5
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.2,
+            "unidades": 1,
+            "capex_brl": 63973,
+            "energia_kwh_mes": 99.7,
+            "computacao_mensal_brl": 1855.72,
+            "por_clipe_brl": 0.0687,
+            "por_partida_brl": 1.48
+          }
+        }
+      }
+    },
+    "Servidor + H100 PCIe 80 GB": {
+      "razao": [
+        4.0,
+        24.51
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 417508,
+            "energia_kwh_mes": 176.7,
+            "computacao_mensal_brl": 11736.89,
+            "por_clipe_brl": 12.9375,
+            "por_partida_brl": 279.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 88.0,
+            "computacao_mensal_brl": 5868.19,
+            "por_clipe_brl": 6.4685,
+            "por_partida_brl": 139.72
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 89.1,
+            "computacao_mensal_brl": 5869.05,
+            "por_clipe_brl": 6.4694,
+            "por_partida_brl": 139.74
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 88.0,
+            "computacao_mensal_brl": 5868.19,
+            "por_clipe_brl": 6.4685,
+            "por_partida_brl": 139.72
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 2,
+            "capex_brl": 417508,
+            "energia_kwh_mes": 178.8,
+            "computacao_mensal_brl": 11738.56,
+            "por_clipe_brl": 5.4345,
+            "por_partida_brl": 117.39
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 88.7,
+            "computacao_mensal_brl": 5868.68,
+            "por_clipe_brl": 2.717,
+            "por_partida_brl": 58.69
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 91.2,
+            "computacao_mensal_brl": 5870.72,
+            "por_clipe_brl": 2.7179,
+            "por_partida_brl": 58.71
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 88.7,
+            "computacao_mensal_brl": 5868.68,
+            "por_clipe_brl": 2.717,
+            "por_partida_brl": 58.69
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 7,
+            "capex_brl": 1461278,
+            "energia_kwh_mes": 658.8,
+            "computacao_mensal_brl": 41110.85,
+            "por_clipe_brl": 1.5226,
+            "por_partida_brl": 32.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 2,
+            "capex_brl": 417508,
+            "energia_kwh_mes": 188.5,
+            "computacao_mensal_brl": 11746.16,
+            "por_clipe_brl": 0.435,
+            "por_partida_brl": 9.4
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 17.6,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 133.2,
+            "computacao_mensal_brl": 5903.82,
+            "por_clipe_brl": 0.2187,
+            "por_partida_brl": 4.72
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": 1,
+            "capex_brl": 208754,
+            "energia_kwh_mes": 100.9,
+            "computacao_mensal_brl": 5878.32,
+            "por_clipe_brl": 0.2177,
+            "por_partida_brl": 4.7
+          }
+        }
+      }
+    },
+    "AWS g4dn.xlarge (T4), us-east-1": {
+      "razao": [
+        2.69,
+        3.92
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 119.34,
+            "por_clipe_brl": 0.1315,
+            "por_partida_brl": 2.84
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 113.6,
+            "por_clipe_brl": 0.1252,
+            "por_partida_brl": 2.7
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 21.25,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.51,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 214.08,
+            "por_clipe_brl": 0.0991,
+            "por_partida_brl": 2.14
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 200.41,
+            "por_clipe_brl": 0.0928,
+            "por_partida_brl": 2.0
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 50.6,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 36.93,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1041.21,
+            "por_clipe_brl": 0.0386,
+            "por_partida_brl": 0.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 870.29,
+            "por_clipe_brl": 0.0322,
+            "por_partida_brl": 0.7
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 632.51,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 461.59,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        }
+      }
+    },
+    "AWS g4dn.xlarge (T4), São Paulo": {
+      "razao": [
+        2.69,
+        3.92
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 202.83,
+            "por_clipe_brl": 0.2236,
+            "por_partida_brl": 4.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 193.07,
+            "por_clipe_brl": 0.2128,
+            "por_partida_brl": 4.6
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 36.12,
+            "por_clipe_brl": 0.0398,
+            "por_partida_brl": 0.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 26.36,
+            "por_clipe_brl": 0.0291,
+            "por_partida_brl": 0.63
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 363.86,
+            "por_clipe_brl": 0.1685,
+            "por_partida_brl": 3.64
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 340.62,
+            "por_clipe_brl": 0.1577,
+            "por_partida_brl": 3.41
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 86.0,
+            "por_clipe_brl": 0.0398,
+            "por_partida_brl": 0.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 62.76,
+            "por_clipe_brl": 0.0291,
+            "por_partida_brl": 0.63
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1769.66,
+            "por_clipe_brl": 0.0655,
+            "por_partida_brl": 1.42
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1479.17,
+            "por_clipe_brl": 0.0548,
+            "por_partida_brl": 1.18
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1075.02,
+            "por_clipe_brl": 0.0398,
+            "por_partida_brl": 0.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 784.53,
+            "por_clipe_brl": 0.0291,
+            "por_partida_brl": 0.63
+          }
+        }
+      }
+    },
+    "GCP n1-standard-4 + T4": {
+      "razao": [
+        2.69,
+        3.92
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 122.52,
+            "por_clipe_brl": 0.135,
+            "por_partida_brl": 2.92
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 116.62,
+            "por_clipe_brl": 0.1286,
+            "por_partida_brl": 2.78
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 21.82,
+            "por_clipe_brl": 0.024,
+            "por_partida_brl": 0.52
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.92,
+            "por_clipe_brl": 0.0176,
+            "por_partida_brl": 0.38
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 219.78,
+            "por_clipe_brl": 0.1017,
+            "por_partida_brl": 2.2
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 205.74,
+            "por_clipe_brl": 0.0953,
+            "por_partida_brl": 2.06
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 51.95,
+            "por_clipe_brl": 0.024,
+            "por_partida_brl": 0.52
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 37.91,
+            "por_clipe_brl": 0.0176,
+            "por_partida_brl": 0.38
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1068.92,
+            "por_clipe_brl": 0.0396,
+            "por_partida_brl": 0.86
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 893.46,
+            "por_clipe_brl": 0.0331,
+            "por_partida_brl": 0.71
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 649.34,
+            "por_clipe_brl": 0.024,
+            "por_partida_brl": 0.52
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 473.88,
+            "por_clipe_brl": 0.0176,
+            "por_partida_brl": 0.38
+          }
+        }
+      }
+    },
+    "Azure NC4as_T4_v3 (T4)": {
+      "razao": [
+        2.69,
+        3.92
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 119.34,
+            "por_clipe_brl": 0.1315,
+            "por_partida_brl": 2.84
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 113.6,
+            "por_clipe_brl": 0.1252,
+            "por_partida_brl": 2.7
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 21.25,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.51,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 214.08,
+            "por_clipe_brl": 0.0991,
+            "por_partida_brl": 2.14
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 200.41,
+            "por_clipe_brl": 0.0928,
+            "por_partida_brl": 2.0
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 50.6,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 36.93,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1041.21,
+            "por_clipe_brl": 0.0386,
+            "por_partida_brl": 0.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 870.29,
+            "por_clipe_brl": 0.0322,
+            "por_partida_brl": 0.7
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 25.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 632.51,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          },
+          "otimista": {
+            "segundos_por_clipe": 18.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 461.59,
+            "por_clipe_brl": 0.0171,
+            "por_partida_brl": 0.37
+          }
+        }
+      }
+    },
+    "GCP g2-standard-4 (L4)": {
+      "razao": [
+        2.5,
+        3.68
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 162.96,
+            "por_clipe_brl": 0.1796,
+            "por_partida_brl": 3.88
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 154.46,
+            "por_clipe_brl": 0.1703,
+            "por_partida_brl": 3.68
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 30.56,
+            "por_clipe_brl": 0.0337,
+            "por_partida_brl": 0.73
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 22.06,
+            "por_clipe_brl": 0.0243,
+            "por_partida_brl": 0.53
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 293.44,
+            "por_clipe_brl": 0.1358,
+            "por_partida_brl": 2.93
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 273.2,
+            "por_clipe_brl": 0.1265,
+            "por_partida_brl": 2.73
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 72.77,
+            "por_clipe_brl": 0.0337,
+            "por_partida_brl": 0.73
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 52.53,
+            "por_clipe_brl": 0.0243,
+            "por_partida_brl": 0.53
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1461.26,
+            "por_clipe_brl": 0.0541,
+            "por_partida_brl": 1.17
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1208.33,
+            "por_clipe_brl": 0.0448,
+            "por_partida_brl": 0.97
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 909.59,
+            "por_clipe_brl": 0.0337,
+            "por_partida_brl": 0.73
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 656.66,
+            "por_clipe_brl": 0.0243,
+            "por_partida_brl": 0.53
+          }
+        }
+      }
+    },
+    "AWS g6.xlarge (L4)": {
+      "razao": [
+        2.5,
+        3.68
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 184.77,
+            "por_clipe_brl": 0.2037,
+            "por_partida_brl": 4.4
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 175.13,
+            "por_clipe_brl": 0.193,
+            "por_partida_brl": 4.17
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 34.65,
+            "por_clipe_brl": 0.0382,
+            "por_partida_brl": 0.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 25.02,
+            "por_clipe_brl": 0.0276,
+            "por_partida_brl": 0.6
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 332.7,
+            "por_clipe_brl": 0.154,
+            "por_partida_brl": 3.33
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 309.76,
+            "por_clipe_brl": 0.1434,
+            "por_partida_brl": 3.1
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 82.5,
+            "por_clipe_brl": 0.0382,
+            "por_partida_brl": 0.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 59.56,
+            "por_clipe_brl": 0.0276,
+            "por_partida_brl": 0.6
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1656.78,
+            "por_clipe_brl": 0.0614,
+            "por_partida_brl": 1.33
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1370.0,
+            "por_clipe_brl": 0.0507,
+            "por_partida_brl": 1.1
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1031.3,
+            "por_clipe_brl": 0.0382,
+            "por_partida_brl": 0.83
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 744.52,
+            "por_clipe_brl": 0.0276,
+            "por_partida_brl": 0.6
+          }
+        }
+      }
+    },
+    "AWS g5.xlarge (A10G)": {
+      "razao": [
+        4.0,
+        7.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 216.79,
+            "por_clipe_brl": 0.239,
+            "por_partida_brl": 5.16
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 206.07,
+            "por_clipe_brl": 0.2271,
+            "por_partida_brl": 4.91
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 29.19,
+            "por_clipe_brl": 0.0322,
+            "por_partida_brl": 0.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 18.47,
+            "por_clipe_brl": 0.0204,
+            "por_partida_brl": 0.44
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 382.17,
+            "por_clipe_brl": 0.1769,
+            "por_partida_brl": 3.82
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 356.63,
+            "por_clipe_brl": 0.1651,
+            "por_partida_brl": 3.57
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 69.51,
+            "por_clipe_brl": 0.0322,
+            "por_partida_brl": 0.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 43.97,
+            "por_clipe_brl": 0.0204,
+            "por_partida_brl": 0.44
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1650.48,
+            "por_clipe_brl": 0.0611,
+            "por_partida_brl": 1.32
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1331.29,
+            "por_clipe_brl": 0.0493,
+            "por_partida_brl": 1.07
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 868.82,
+            "por_clipe_brl": 0.0322,
+            "por_partida_brl": 0.7
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 549.63,
+            "por_clipe_brl": 0.0204,
+            "por_partida_brl": 0.44
+          }
+        }
+      }
+    },
+    "AWS g6e.xlarge (L40S)": {
+      "razao": [
+        4.0,
+        10.59
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 401.04,
+            "por_clipe_brl": 0.4421,
+            "por_partida_brl": 9.55
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 373.97,
+            "por_clipe_brl": 0.4122,
+            "por_partida_brl": 8.9
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 54.0,
+            "por_clipe_brl": 0.0595,
+            "por_partida_brl": 1.29
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 26.93,
+            "por_clipe_brl": 0.0297,
+            "por_partida_brl": 0.64
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 706.98,
+            "por_clipe_brl": 0.3273,
+            "por_partida_brl": 7.07
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 642.52,
+            "por_clipe_brl": 0.2975,
+            "por_partida_brl": 6.43
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 128.58,
+            "por_clipe_brl": 0.0595,
+            "por_partida_brl": 1.29
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 64.12,
+            "por_clipe_brl": 0.0297,
+            "por_partida_brl": 0.64
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 3053.22,
+            "por_clipe_brl": 0.1131,
+            "por_partida_brl": 2.44
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2247.51,
+            "por_clipe_brl": 0.0832,
+            "por_partida_brl": 1.8
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1607.23,
+            "por_clipe_brl": 0.0595,
+            "por_partida_brl": 1.29
+          },
+          "otimista": {
+            "segundos_por_clipe": 9.2,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 801.52,
+            "por_clipe_brl": 0.0297,
+            "por_partida_brl": 0.64
+          }
+        }
+      }
+    },
+    "GCP a2-highgpu-1g (A100 40 GB)": {
+      "razao": [
+        4.0,
+        19.06
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 791.61,
+            "por_clipe_brl": 0.8726,
+            "por_partida_brl": 18.85
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 723.76,
+            "por_clipe_brl": 0.7978,
+            "por_partida_brl": 17.23
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 106.6,
+            "por_clipe_brl": 0.1175,
+            "por_partida_brl": 2.54
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 38.74,
+            "por_clipe_brl": 0.0427,
+            "por_partida_brl": 0.92
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1395.49,
+            "por_clipe_brl": 0.6461,
+            "por_partida_brl": 13.95
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1233.93,
+            "por_clipe_brl": 0.5713,
+            "por_partida_brl": 12.34
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 253.8,
+            "por_clipe_brl": 0.1175,
+            "por_partida_brl": 2.54
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 92.24,
+            "por_clipe_brl": 0.0427,
+            "por_partida_brl": 0.92
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 6026.71,
+            "por_clipe_brl": 0.2232,
+            "por_partida_brl": 4.82
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 4007.25,
+            "por_clipe_brl": 0.1484,
+            "por_partida_brl": 3.21
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 3172.48,
+            "por_clipe_brl": 0.1175,
+            "por_partida_brl": 2.54
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1153.02,
+            "por_clipe_brl": 0.0427,
+            "por_partida_brl": 0.92
+          }
+        }
+      }
+    },
+    "AWS p5 (H100), por GPU": {
+      "razao": [
+        4.0,
+        41.05
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1482.63,
+            "por_clipe_brl": 1.6343,
+            "por_partida_brl": 35.3
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1337.45,
+            "por_clipe_brl": 1.4743,
+            "por_partida_brl": 31.84
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 199.64,
+            "por_clipe_brl": 0.2201,
+            "por_partida_brl": 4.75
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 54.47,
+            "por_clipe_brl": 0.06,
+            "por_partida_brl": 1.3
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2613.65,
+            "por_clipe_brl": 1.21,
+            "por_partida_brl": 26.14
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2267.99,
+            "por_clipe_brl": 1.05,
+            "por_partida_brl": 22.68
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 475.34,
+            "por_clipe_brl": 0.2201,
+            "por_partida_brl": 4.75
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 129.69,
+            "por_clipe_brl": 0.06,
+            "por_partida_brl": 1.3
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 11287.57,
+            "por_clipe_brl": 0.4181,
+            "por_partida_brl": 9.03
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 6966.87,
+            "por_clipe_brl": 0.258,
+            "por_partida_brl": 5.57
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 5941.81,
+            "por_clipe_brl": 0.2201,
+            "por_partida_brl": 4.75
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1621.11,
+            "por_clipe_brl": 0.06,
+            "por_partida_brl": 1.3
+          }
+        }
+      }
+    },
+    "RunPod L4": {
+      "razao": [
+        2.5,
+        3.68
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 100.99,
+            "por_clipe_brl": 0.1113,
+            "por_partida_brl": 2.4
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 95.72,
+            "por_clipe_brl": 0.1055,
+            "por_partida_brl": 2.28
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 18.94,
+            "por_clipe_brl": 0.0209,
+            "por_partida_brl": 0.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 13.67,
+            "por_clipe_brl": 0.0151,
+            "por_partida_brl": 0.33
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 181.85,
+            "por_clipe_brl": 0.0842,
+            "por_partida_brl": 1.82
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 169.31,
+            "por_clipe_brl": 0.0784,
+            "por_partida_brl": 1.69
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 45.1,
+            "por_clipe_brl": 0.0209,
+            "por_partida_brl": 0.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 32.56,
+            "por_clipe_brl": 0.0151,
+            "por_partida_brl": 0.33
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 905.57,
+            "por_clipe_brl": 0.0335,
+            "por_partida_brl": 0.72
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 748.82,
+            "por_clipe_brl": 0.0277,
+            "por_partida_brl": 0.6
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 27.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 563.69,
+            "por_clipe_brl": 0.0209,
+            "por_partida_brl": 0.45
+          },
+          "otimista": {
+            "segundos_por_clipe": 19.8,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 406.94,
+            "por_clipe_brl": 0.0151,
+            "por_partida_brl": 0.33
+          }
+        }
+      }
+    },
+    "RunPod RTX 4090": {
+      "razao": [
+        4.0,
+        12.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 116.37,
+            "por_clipe_brl": 0.1283,
+            "por_partida_brl": 2.77
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 107.83,
+            "por_clipe_brl": 0.1189,
+            "por_partida_brl": 2.57
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.67,
+            "por_clipe_brl": 0.0173,
+            "por_partida_brl": 0.37
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 7.13,
+            "por_clipe_brl": 0.0079,
+            "por_partida_brl": 0.17
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 205.14,
+            "por_clipe_brl": 0.095,
+            "por_partida_brl": 2.05
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 184.82,
+            "por_clipe_brl": 0.0856,
+            "por_partida_brl": 1.85
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 37.31,
+            "por_clipe_brl": 0.0173,
+            "por_partida_brl": 0.37
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 16.98,
+            "por_clipe_brl": 0.0079,
+            "por_partida_brl": 0.17
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 885.94,
+            "por_clipe_brl": 0.0328,
+            "por_partida_brl": 0.71
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 631.88,
+            "por_clipe_brl": 0.0234,
+            "por_partida_brl": 0.51
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 466.36,
+            "por_clipe_brl": 0.0173,
+            "por_partida_brl": 0.37
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 212.3,
+            "por_clipe_brl": 0.0079,
+            "por_partida_brl": 0.17
+          }
+        }
+      }
+    },
+    "RunPod RTX 5090": {
+      "razao": [
+        4.0,
+        21.96
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 181.02,
+            "por_clipe_brl": 0.1995,
+            "por_partida_brl": 4.31
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 164.96,
+            "por_clipe_brl": 0.1818,
+            "por_partida_brl": 3.93
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 24.38,
+            "por_clipe_brl": 0.0269,
+            "por_partida_brl": 0.58
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 8.31,
+            "por_clipe_brl": 0.0092,
+            "por_partida_brl": 0.2
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 319.11,
+            "por_clipe_brl": 0.1477,
+            "por_partida_brl": 3.19
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 280.87,
+            "por_clipe_brl": 0.13,
+            "por_partida_brl": 2.81
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 58.04,
+            "por_clipe_brl": 0.0269,
+            "por_partida_brl": 0.58
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 19.79,
+            "por_clipe_brl": 0.0092,
+            "por_partida_brl": 0.2
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1378.13,
+            "por_clipe_brl": 0.051,
+            "por_partida_brl": 1.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 900.12,
+            "por_clipe_brl": 0.0333,
+            "por_partida_brl": 0.72
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 725.45,
+            "por_clipe_brl": 0.0269,
+            "por_partida_brl": 0.58
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.3,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 247.44,
+            "por_clipe_brl": 0.0092,
+            "por_partida_brl": 0.2
+          }
+        }
+      }
+    },
+    "RunPod A100 80 GB": {
+      "razao": [
+        4.0,
+        23.71
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 342.64,
+            "por_clipe_brl": 0.3777,
+            "por_partida_brl": 8.16
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 311.74,
+            "por_clipe_brl": 0.3436,
+            "por_partida_brl": 7.42
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 46.14,
+            "por_clipe_brl": 0.0509,
+            "por_partida_brl": 1.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.24,
+            "por_clipe_brl": 0.0168,
+            "por_partida_brl": 0.36
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 604.03,
+            "por_clipe_brl": 0.2796,
+            "por_partida_brl": 6.04
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 530.45,
+            "por_clipe_brl": 0.2456,
+            "por_partida_brl": 5.3
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 109.85,
+            "por_clipe_brl": 0.0509,
+            "por_partida_brl": 1.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 36.28,
+            "por_clipe_brl": 0.0168,
+            "por_partida_brl": 0.36
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2608.61,
+            "por_clipe_brl": 0.0966,
+            "por_partida_brl": 2.09
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1688.9,
+            "por_clipe_brl": 0.0626,
+            "por_partida_brl": 1.35
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1373.18,
+            "por_clipe_brl": 0.0509,
+            "por_partida_brl": 1.1
+          },
+          "otimista": {
+            "segundos_por_clipe": 6.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 453.47,
+            "por_clipe_brl": 0.0168,
+            "por_partida_brl": 0.36
+          }
+        }
+      }
+    },
+    "RunPod H100": {
+      "razao": [
+        4.0,
+        41.05
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 687.44,
+            "por_clipe_brl": 0.7578,
+            "por_partida_brl": 16.37
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 620.13,
+            "por_clipe_brl": 0.6836,
+            "por_partida_brl": 14.76
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 92.57,
+            "por_clipe_brl": 0.102,
+            "por_partida_brl": 2.2
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 25.26,
+            "por_clipe_brl": 0.0278,
+            "por_partida_brl": 0.6
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1211.85,
+            "por_clipe_brl": 0.561,
+            "por_partida_brl": 12.12
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1051.58,
+            "por_clipe_brl": 0.4868,
+            "por_partida_brl": 10.52
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 220.4,
+            "por_clipe_brl": 0.102,
+            "por_partida_brl": 2.2
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 60.13,
+            "por_clipe_brl": 0.0278,
+            "por_partida_brl": 0.6
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 5233.63,
+            "por_clipe_brl": 0.1938,
+            "por_partida_brl": 4.19
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 3230.28,
+            "por_clipe_brl": 0.1196,
+            "por_partida_brl": 2.58
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2755.0,
+            "por_clipe_brl": 0.102,
+            "por_partida_brl": 2.2
+          },
+          "otimista": {
+            "segundos_por_clipe": 5.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 751.65,
+            "por_clipe_brl": 0.0278,
+            "por_partida_brl": 0.6
+          }
+        }
+      }
+    },
+    "Lambda A10": {
+      "razao": [
+        4.0,
+        7.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 277.99,
+            "por_clipe_brl": 0.3064,
+            "por_partida_brl": 6.62
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 264.24,
+            "por_clipe_brl": 0.2913,
+            "por_partida_brl": 6.29
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 37.43,
+            "por_clipe_brl": 0.0413,
+            "por_partida_brl": 0.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 23.68,
+            "por_clipe_brl": 0.0261,
+            "por_partida_brl": 0.56
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 490.06,
+            "por_clipe_brl": 0.2269,
+            "por_partida_brl": 4.9
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 457.32,
+            "por_clipe_brl": 0.2117,
+            "por_partida_brl": 4.57
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 89.13,
+            "por_clipe_brl": 0.0413,
+            "por_partida_brl": 0.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 56.38,
+            "por_clipe_brl": 0.0261,
+            "por_partida_brl": 0.56
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 2116.42,
+            "por_clipe_brl": 0.0784,
+            "por_partida_brl": 1.69
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1707.12,
+            "por_clipe_brl": 0.0632,
+            "por_partida_brl": 1.37
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 1114.09,
+            "por_clipe_brl": 0.0413,
+            "por_partida_brl": 0.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 11.7,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 704.79,
+            "por_clipe_brl": 0.0261,
+            "por_partida_brl": 0.56
+          }
+        }
+      }
+    },
+    "Vast.ai RTX 4090 (mediana)": {
+      "razao": [
+        4.0,
+        12.35
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 107.75,
+            "por_clipe_brl": 0.1188,
+            "por_partida_brl": 2.57
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 99.84,
+            "por_clipe_brl": 0.1101,
+            "por_partida_brl": 2.38
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 14.51,
+            "por_clipe_brl": 0.016,
+            "por_partida_brl": 0.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 6.6,
+            "por_clipe_brl": 0.0073,
+            "por_partida_brl": 0.16
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 189.95,
+            "por_clipe_brl": 0.0879,
+            "por_partida_brl": 1.9
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 171.13,
+            "por_clipe_brl": 0.0792,
+            "por_partida_brl": 1.71
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 34.55,
+            "por_clipe_brl": 0.016,
+            "por_partida_brl": 0.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 15.73,
+            "por_clipe_brl": 0.0073,
+            "por_partida_brl": 0.16
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 820.32,
+            "por_clipe_brl": 0.0304,
+            "por_partida_brl": 0.66
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 585.07,
+            "por_clipe_brl": 0.0217,
+            "por_partida_brl": 0.47
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 18.5,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 431.82,
+            "por_clipe_brl": 0.016,
+            "por_partida_brl": 0.35
+          },
+          "otimista": {
+            "segundos_por_clipe": 8.4,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 196.57,
+            "por_clipe_brl": 0.0073,
+            "por_partida_brl": 0.16
+          }
+        }
+      }
+    },
+    "AWS c7i.2xlarge (só CPU)": {
+      "razao": [
+        0.12,
+        0.12
+      ],
+      "resultado": {
+        "nacional/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 346.8,
+            "por_clipe_brl": 0.3823,
+            "por_partida_brl": 8.26
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 346.8,
+            "por_clipe_brl": 0.3823,
+            "por_partida_brl": 8.26
+          }
+        },
+        "nacional/fila": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 280.22,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 280.22,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          }
+        },
+        "intermediario/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 778.15,
+            "por_clipe_brl": 0.3603,
+            "por_partida_brl": 7.78
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 778.15,
+            "por_clipe_brl": 0.3603,
+            "por_partida_brl": 7.78
+          }
+        },
+        "intermediario/fila": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 667.2,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 667.2,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          }
+        },
+        "ampla/tempo_real": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 8617.37,
+            "por_clipe_brl": 0.3192,
+            "por_partida_brl": 6.89
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 8617.37,
+            "por_clipe_brl": 0.3192,
+            "por_partida_brl": 6.89
+          }
+        },
+        "ampla/fila": {
+          "conservador": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 8339.98,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          },
+          "otimista": {
+            "segundos_por_clipe": 501.1,
+            "unidades": null,
+            "capex_brl": 0,
+            "energia_kwh_mes": 0.0,
+            "computacao_mensal_brl": 8339.98,
+            "por_clipe_brl": 0.3089,
+            "por_partida_brl": 6.67
+          }
+        }
+      }
+    }
+  }
+}
