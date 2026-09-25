@@ -68,7 +68,9 @@ def test_decode_called_once_for_repeated_indices() -> None:
         assert iguais(lote.tensor[posicao], prepare(espia.quadros[indice], RGB))
 
 
-def test_same_spec_hits_frame_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_same_spec_again_prepares_again_without_decoding_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     preparos: list[int] = []
 
     def contado(frame: Frame, spec: PreprocessSpec) -> Frame:
@@ -83,7 +85,7 @@ def test_same_spec_hits_frame_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     segundo = provider.frames([1, 3], RGB)
 
     assert espia.pedidos == [(1, 3)]
-    assert len(preparos) == 2
+    assert len(preparos) == 4
     assert iguais(primeiro.tensor, segundo.tensor)
 
 
@@ -106,7 +108,7 @@ def test_an_empty_batch_carries_the_shape_the_spec_declares() -> None:
     assert lote.tensor.shape == (0, 16, 16, 1)
 
 
-def test_switching_spec_drops_the_prepared_frames_but_keeps_the_decoded_ones(
+def test_switching_spec_prepares_from_the_decoded_frames_it_kept(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preparos: list[str] = []

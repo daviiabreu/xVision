@@ -25,7 +25,7 @@ so a medida no dispositivo responde, e ela ainda nao foi feita.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -119,30 +119,25 @@ class VideoSource:
 
 
 class FrameProvider:
-    """Decodifica cada quadro uma vez por clipe e guarda o preparado so do pre-processamento atual.
+    """Decodifica cada quadro uma vez por clipe e prepara direto no lote, sem guardar o preparado.
 
     O quadro decodificado fica ate o fim do clipe, porque decodificar de novo custa uma passada
-    sequencial pelo video. O preparado nao: guardar o de cada especie somava uns 17 MB por quadro
-    denso (cru, jogadores, bola e campo), 3,3 GB num clipe de 13 s, e travou a Jetson no catalogo.
-    Trocar de pre-processamento descarta o anterior; refazer o letterbox custa milissegundos.
+    sequencial pelo video. O preparado nao fica. Guardar o de cada especie somava uns 17 MB por
+    quadro denso (cru, jogadores, bola e campo) e travou a Jetson no catalogo; guardar so o da
+    especie atual ainda levou o unico clipe de 18 s alem dos 7,5 GB da placa. Preparar de novo
+    custa milissegundos por quadro.
     """
 
     def __init__(self, source: FrameSource) -> None:
         self._source = source
         self._decoded: dict[int, Frame] = {}
-        self._ready: dict[tuple[int, str], Frame] = {}
-        self._ready_spec: str | None = None
 
     def frames(self, indices: Sequence[int], spec: PreprocessSpec) -> FrameBatch:
-        impressao = spec.fingerprint
-        if impressao != self._ready_spec:
-            self._ready.clear()
-            self._ready_spec = impressao
-        self._prepare_missing(indices, spec, impressao)
+        self._decode_missing(sorted(set(indices)))
         forma = (len(indices), spec.height, spec.width, channels(spec.color))
         tensor = np.empty(forma, dtype=tensor_dtype(spec.normalize))
         for posicao, indice in enumerate(indices):
-            tensor[posicao] = self._ready[(indice, impressao)]
+            tensor[posicao] = prepare(self._decoded[indice], spec)
         return FrameBatch(
             indices=tuple(indices),
             tensor=tensor,
@@ -174,16 +169,6 @@ class FrameProvider:
     def close(self) -> None:
         self._source.close()
         self._decoded.clear()
-        self._ready.clear()
-        self._ready_spec = None
-
-    def _prepare_missing(self, indices: Iterable[int], spec: PreprocessSpec, key: str) -> None:
-        faltando = sorted({i for i in indices if (i, key) not in self._ready})
-        if not faltando:
-            return
-        self._decode_missing(faltando)
-        for indice in faltando:
-            self._ready[(indice, key)] = prepare(self._decoded[indice], spec)
 
     def _decode_missing(self, indices: Sequence[int]) -> None:
         pendentes = [indice for indice in indices if indice not in self._decoded]
