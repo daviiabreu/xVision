@@ -63,27 +63,35 @@
   },
   "rnf04_modo_texto": {
     "commit": "c6fd9fb",
-    "clipes": 102,
-    "ate": "2026-09-25 09:26",
-    "base_pct": 54.7,
-    "pico_mediano_pct": 60.3,
+    "clipes": 223,
+    "minutos_continuos": 169,
+    "base_pct": 55.2,
+    "base_minima_por_janela_de_20_min_mb": {
+      "de": 4271,
+      "ate": 4303,
+      "periodo": "08:40 a 10:40 de 25/09"
+    },
+    "pico_mediano_pct": 60.9,
     "maior_pico_pct": 72.8,
-    "clipes_acima_de_70pct": 10,
+    "clipes_acima_de_70pct": 14,
     "por_duracao": {
       "ate_8s": {
-        "n": 70,
-        "pico_mediano_pct": 59.9,
-        "maior_pico_pct": 61.9
+        "n": 173,
+        "pico_mediano_pct": 60.6,
+        "maior_pico_pct": 62.1,
+        "acima_de_70pct": 0
       },
       "8_a_11s": {
-        "n": 24,
-        "pico_mediano_pct": 60.9,
-        "maior_pico_pct": 70.9
+        "n": 41,
+        "pico_mediano_pct": 61.3,
+        "maior_pico_pct": 70.9,
+        "acima_de_70pct": 9
       },
       "acima_de_11s": {
-        "n": 8,
-        "pico_mediano_pct": 70.8,
-        "maior_pico_pct": 72.8
+        "n": 9,
+        "pico_mediano_pct": 71.7,
+        "maior_pico_pct": 72.8,
+        "acima_de_70pct": 5
       }
     }
   },
@@ -450,5 +458,67 @@
         }
       }
     }
+  },
+  "catalogo_concluido": "2026-09-25 11:14, 363 clipes em cada braco, nenhuma falha",
+  "features_tdeed_contra_regra": {
+    "clipes": 363,
+    "dobras": "ajuste (0 a 2)",
+    "type_of_play": {
+      "macro_f1": [
+        0.3474,
+        0.3356
+      ],
+      "cobertura": [
+        0.989,
+        0.9642
+      ],
+      "maioria_macro_f1": [
+        0.2717,
+        0.2719
+      ]
+    },
+    "body_part": {
+      "macro_f1": [
+        0.3022,
+        0.3042
+      ],
+      "cobertura": [
+        0.9449,
+        0.9587
+      ],
+      "maioria_macro_f1": [
+        0.2294,
+        0.2281
+      ]
+    },
+    "looked_before": {
+      "macro_f1": [
+        0.4752,
+        0.3916
+      ],
+      "cobertura": [
+        0.1956,
+        0.1956
+      ],
+      "maioria_macro_f1": [
+        0.4621,
+        0.4701
+      ]
+    },
+    "goalkeeper_position": {
+      "macro_f1": [
+        0.5406,
+        0.5557
+      ],
+      "cobertura": [
+        0.4187,
+        0.3361
+      ],
+      "maioria_macro_f1": [
+        0.4722,
+        0.4786
+      ]
+    },
+    "ordem": "[T-DEED, regra cinematica]"
   }
 }

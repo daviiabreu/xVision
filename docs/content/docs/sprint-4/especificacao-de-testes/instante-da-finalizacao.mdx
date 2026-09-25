@@ -14,7 +14,7 @@ do instante, escrita antes das medidas.
 | --- | --- |
 | passa | TI-01, TI-02, TI-04, TI-05 e TI-06 |
 | informativo, sem critério de aceite | TI-03 e TI-07 |
-| em execução na Jetson | TI-08 |
+| passa em parte | TI-08: passa em `type_of_play` e falha em `body_part` por 0,002 de macro-F1 |
 | não executado | TI-09, pacote reservado, fechado até o congelamento |
 | não será feito | TI-10, por decisão de 22/09 |
 
@@ -38,7 +38,7 @@ do instante, escrita antes das medidas.
 | TI-05 | integração em duas etapas | `xvision run --config config/pipeline.models.duas-etapas.toml --gabarito --dobra ajuste` | um evento por clipe, sem falha, com a procedência do instante chegando às features | passa: 24 eventos, 0 falha; `procedencia_do_instante = tdeed` nas 23 leituras de `type_of_play` com status `ok`, e a 24ª é `unavailable` por falta de bola |
 | TI-06 | falhas previsíveis | `pytest tests/edge/modules/shot tests/mlops/test_spots.py` | executor ausente, lento ou com saída errada vira erro legível; um clipe com falha não derruba o lote | passa na CI |
 | TI-07 | custo na Jetson | `run.json` e o arquivo ao lado de `var/spots/tdeed.jsonl` | sem critério: RNF-01 ainda não tem orçamento acordado | 13,8 s por clipe na mediana, 15,0 s no p95, na GPU |
-| TI-08 | efeito nas features | catálogo em dois braços, T-DEED e regra, tudo o mais igual; `xvision eval` nos dois | macro-F1 de `type_of_play` e de `body_part` do braço T-DEED pelo menos igual à do braço da regra, com cobertura que não cai | em execução na Jetson |
+| TI-08 | efeito nas features | catálogo em dois braços, T-DEED e regra, tudo o mais igual; `xvision eval` nos dois | macro-F1 de `type_of_play` e de `body_part` do braço T-DEED pelo menos igual à do braço da regra, com cobertura que não cai | passa em `type_of_play`: macro-F1 de 0,347 contra 0,336 e cobertura de 98,9% contra 96,4%; falha em `body_part`: 0,302 contra 0,304 e 94,5% contra 95,9% |
 | TI-09 | generalização | os 14 reservados, uma vez, depois do congelamento | os mesmos indicadores do TI-01; resultado ruim vira `generalização não demonstrada` | não executado: o pacote segue fechado |
 | TI-10 | concordância entre anotadores | segunda anotação cega de 8 dos 24 clipes | mediana da discordância até 6 quadros e máximo até 12 | não será feito, por decisão de 22/09: o acerto em 30 quadros não depende dela, e as tolerâncias de 10 e 5 ficam sem barra de erro |
 
@@ -46,7 +46,6 @@ do instante, escrita antes das medidas.
 
 | Pendência | Como será testado |
 | --- | --- |
-| TI-08, efeito do T-DEED nas features | ler o `xvision eval` dos dois braços do catálogo quando a execução terminar |
 | TI-09, pacote reservado | uma única execução depois do congelamento da Sprint 5 |
 
 ## Referências

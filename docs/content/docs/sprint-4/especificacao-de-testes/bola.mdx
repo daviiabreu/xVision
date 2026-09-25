@@ -43,7 +43,7 @@ da bola e da emenda 15, escritas antes das medidas.
 | TB-05 | integração | `xvision run` nos 24 clipes, em PyTorch e em TensorRT | as features que leem a bola não mudam com o runtime | 23 de 24 iguais em `body_part` e em `type_of_play`, 22 de 24 em `looked_before` e `goalkeeper_position` |
 | TB-06 | falhas previsíveis | `pytest tests/edge/modules/ball` | sem detector, sem tamanho de origem, lacuna longa ou ajuste inválido: saída declarada, sem posição inventada | passa na CI |
 | TB-07 | orçamento na Jetson | `run.json` das execuções limpas, tempo da bola dividido pelos quadros densos do clipe | p95 de até 66,7 ms por quadro a 15 fps | falha: 210,5 ms no p95 em TensorRT e 248,6 ms em PyTorch fp16, com medianas de 162,5 e 213,5 ms |
-| TB-08 | memória | catálogo em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | parcial: a base não cresce; clipes acima de 8 s chegam a 72,8% |
+| TB-08 | memória | catálogo em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | parcial: a base não cresce; 14 dos 223 clipes passam de 70%, todos com mais de 8 s, com pico de 72,8% |
 | TB-09 | efeito nas features | catálogo em dois braços, ranking ligado e desligado, com o instante do T-DEED | macro-F1 de `type_of_play` e `body_part` do braço novo pelo menos igual, com cobertura que não cai | a medir: o ranking dobrou o PCK do piloto e foi desligado em 10/09 porque piorava o instante da regra e as features; com o instante vindo do T-DEED, o motivo pode não valer mais |
 | TB-10 | generalização | os 14 reservados, uma vez, depois do congelamento | pelo menos 13 de 14 contatos com bola detectada | não executado: o pacote segue fechado |
 

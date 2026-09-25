@@ -164,23 +164,25 @@ espécie, uns 17 MB, e o runner montava os lotes da espécie inteira antes de in
 Depois da queda, o catálogo rodou em modo texto, sem a interface gráfica, com uma proteção que mata
 o processo se a memória disponível ficar abaixo de 300 MB por 5 s. Ela agiu uma vez, no clipe de
 18 s, antes da !111. Os dois braços foram retomados no mesmo diretório, que confere configuração e
-seleção de clipes.
+seleção de clipes, e terminaram em 25/09 às 11h14, com os 363 clipes cada e nenhuma falha. O efeito
+do instante nas features está no [instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao#no-catálogo).
 
 ## Memória e energia contra os requisitos
 
 **RNF-04 é atendido nos clipes de até 8 s e estourado por pouco nos longos.** O
 [requisito](/docs/sprint-1/requisitos/nao-funcionais) pede memória abaixo de 70% da capacidade em 90
-minutos contínuos, sem crescimento. Em modo texto e com as duas correções, nos 102 clipes medidos
-na retomada do catálogo até 25/09 às 9h26:
+minutos contínuos, sem crescimento. Em modo texto e com as duas correções, nos 223 clipes da
+retomada do braço T-DEED, em 169 minutos contínuos:
 
 | Clipes | n | Pico mediano | Maior pico |
 | --- | --- | --- | --- |
-| até 8 s | 70 | 59,9% | 61,9% |
-| de 8 a 11 s | 24 | 60,9% | 70,9% |
-| acima de 11 s | 8 | 70,8% | 72,8% |
+| até 8 s | 173 | 60,6% | 62,1% |
+| de 8 a 11 s | 41 | 61,3% | 70,9% |
+| acima de 11 s | 9 | 71,7% | 72,8% |
 
-A base com os modelos carregados fica em 55% e não cresce ao longo da execução. Dez dos 102 clipes
-passam de 70%, todos com mais de 8 s. Nos 24 clipes com a interface gráfica ligada, com o código
+A base com os modelos carregados fica em 55% e não cresce: passado o aquecimento, o mínimo por
+janela de 20 minutos ficou entre 4,27 e 4,30 GB por duas horas. Catorze dos 223 clipes passam de
+70%, todos com mais de 8 s. Nos 24 clipes com a interface gráfica ligada, com o código
 anterior às correções, a segunda etapa chegou a 84% em PyTorch e a 92% com TensorRT; esses picos
 não foram repetidos depois das correções, e o TensorRT ainda não rodou em modo texto.
 

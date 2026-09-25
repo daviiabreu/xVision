@@ -261,6 +261,26 @@ numa etapa própria, antes das outras espécies, como detalha a
 instantes saíram idênticos aos da estação em CPU, com diferença de zero quadro em todos, e o T-DEED
 levou 13,8 s por clipe na mediana, contando a subida do processo, com 96 J de energia por clipe.
 
+### No catálogo
+
+O efeito do instante nas features foi medido no catálogo de 363 clipes das dobras de ajuste, na
+Jetson, em dois braços iguais exceto a espécie `shot`: o T-DEED e a regra cinemática. A macro-F1 é
+a métrica de decisão, e a de maioria mostra o piso de cada feature.
+
+| Feature | Macro-F1, T-DEED | Macro-F1, regra | Maioria | Cobertura, T-DEED | Cobertura, regra |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `type_of_play` | 0,347 | 0,336 | 0,272 | 98,9% | 96,4% |
+| `body_part` | 0,302 | 0,304 | 0,229 | 94,5% | 95,9% |
+| `looked_before` | 0,475 | 0,392 | 0,462 | 19,6% | 19,6% |
+| `goalkeeper_position` | 0,541 | 0,556 | 0,472 | 41,9% | 33,6% |
+
+O instante novo melhora `type_of_play` nas duas medidas e leva `looked_before` de abaixo para acima
+da maioria. `goalkeeper_position` passa a responder em 30 clipes a mais, com macro-F1 um pouco
+menor. Em `body_part`, a macro-F1 cai 0,002 e a cobertura cai 1,4 ponto: pelo critério fixado antes
+da medida, de não perder macro-F1 nem cobertura, esta feature não passa. A diferença é pequena, mas
+o critério não tem tolerância, e a falha fica registrada. A maioria é calculada sobre os clipes que
+cada braço cobriu; a tabela mostra a do braço T-DEED, que difere da outra em até 0,008.
+
 ## O que este conjunto consegue enxergar
 
 Oito hipóteses foram medidas nesta sprint e sete caíram. Duas delas, o corte por confiança da
