@@ -9,7 +9,7 @@ recebeu uma segunda passada cega, feita pelo mesmo anotador, e passou no critér
 A bola também foi repetida na Jetson, em TensorRT, contra o PyTorch. Por fim, a exploração de
 melhoria achou uma variante do ranking de candidatos que quase dobra o acerto no piloto, avaliada
 fora da partida em que foi ajustada; ela entra no código como opção e só vira padrão se não piorar
-as features no catálogo, o que está em medição.
+as features no catálogo, e essa comparação fica para a próxima sprint.
 
 ## Onde se encaixa no fluxo
 
@@ -146,8 +146,9 @@ no catálogo, ele baixou a macro-F1 de `type_of_play` de 0,334 para 0,309 e a de
 para 0,279, e piorou o instante, que então vinha da trajetória da bola. Hoje o instante vem do
 T-DEED, e essa parte do motivo deixou de existir, mas o efeito nas features precisa ser medido de
 novo. Um teste de 24 clipes na Jetson mudou o valor de `type_of_play` e de `body_part` em 9 dos 24,
-sem direção clara: é preciso o catálogo inteiro. O braço com o ranking só de aparência está rodando
-nos 363 clipes, contra o braço desligado que terminou em 25/09, e o critério é o mesmo de 10/09.
+sem direção clara: é preciso o catálogo inteiro. O braço com o ranking só de aparência foi lançado
+na Jetson em 25/09, nos 363 clipes, contra o braço desligado que terminou no mesmo dia, mas o
+resultado não foi lido a tempo desta entrega. O critério é o mesmo de 10/09.
 
 O código ganhou a opção `ranking_artifact`, que escolhe no TOML entre o artefato da Sprint 3 e o só
 de aparência, com os coeficientes versionados e sem dado do parceiro. A produção segue com
@@ -203,7 +204,7 @@ não: ele é decidido por três ou quatro quadros.
 
 | Pendência                                       | Próximo passo                                                                               |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| ranking só de aparência nas features            | braço de 363 clipes em execução na Jetson; se passar na emenda 17, `ranking = true` com `ranking_artifact = "aparencia"` vira padrão |
+| ranking só de aparência nas features            | ler o `xvision eval` do braço lançado na Jetson em 25/09, ou repeti-lo; se passar na emenda 17, `ranking = true` com `ranking_artifact = "aparencia"` vira padrão |
 | gate de 1.500 px/s com a lista inteira          | terceiro braço, só se a variante acima passar, porque a sensibilidade ao gate é alta          |
 | clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
 | concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
