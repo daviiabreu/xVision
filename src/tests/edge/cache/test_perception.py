@@ -12,8 +12,21 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from edge.cache.perception import PerceptionCache, perception_key, run_module, tuning_of
-from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, ModuleSpec, PreprocessSpec
+from edge.cache.perception import (
+    PerceptionCache,
+    perception_key,
+    run_module,
+    run_module_lazy,
+    tuning_of,
+)
+from edge.modules.base import (
+    FrameBatch,
+    ModuleError,
+    ModuleInputs,
+    ModuleOutput,
+    ModuleSpec,
+    PreprocessSpec,
+)
 
 SPEC = ModuleSpec(
     kind="players",
@@ -368,3 +381,12 @@ def test_a_mesma_configuracao_da_a_mesma_chave() -> None:
     outro.configure({"imgsz": 1600, "conf": 0.10})
 
     assert tuning_of(um) == tuning_of(outro)
+
+
+def test_lazy_cache_rejects_a_factory_with_different_indices(tmp_path: Path) -> None:
+    cache = PerceptionCache(tmp_path / "cache")
+    module = ModuloEspia()
+    with pytest.raises(ModuleError, match="indices"):
+        run_module_lazy(module, (0,), lambda: lote((1,)), {}, cache=cache, clip_id="c")
+    assert module.execucoes == 0
+    assert not list(cache.root.glob("*.json"))

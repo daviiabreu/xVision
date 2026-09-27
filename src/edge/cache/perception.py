@@ -12,7 +12,7 @@ import hashlib
 import inspect
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -136,18 +136,38 @@ def run_module(
     cache: PerceptionCache,
     clip_id: str,
 ) -> ModuleOutput:
+    return run_module_lazy(module, batch.indices, lambda: batch, ctx, cache=cache, clip_id=clip_id)
+
+
+def run_module_lazy(
+    module: PerceptionModule,
+    indices: tuple[int, ...],
+    prepare_batch: Callable[[], FrameBatch],
+    ctx: ModuleInputs,
+    *,
+    cache: PerceptionCache,
+    clip_id: str,
+) -> ModuleOutput:
+    """Consulta a saida antes de decodificar ou alocar o tensor do lote.
+
+    Usa a mesma chave de `run_module`, preservando as entradas existentes. A fabrica
+    so roda em cache miss; carregar e fechar o modelo continua a cargo do chamador.
+    """
     key = perception_key(
         clip_id,
         module.spec,
-        batch.indices,
+        indices,
         ctx,
         implementation_id(module),
         artifact_digest=artifact_digest_of(module.spec.artifact),
         tuning=tuning_of(module),
     )
     guardado = cache.get(key)
-    if guardado is not None and _responde_ao_pedido(guardado, module.spec.kind, batch.indices):
+    if guardado is not None and _responde_ao_pedido(guardado, module.spec.kind, indices):
         return guardado
+    batch = prepare_batch()
+    if batch.indices != indices:
+        raise ModuleError("o lote preparado nao corresponde aos indices pedidos ao cache")
     saida = _como_o_cache_devolve(module.infer(batch, ctx))
     cache.put(key, saida)
     return saida

@@ -235,7 +235,8 @@ _OPS: dict[str, Callable[[Frame, list[str], Color], Frame]] = {
 def _normalize(frame: Frame, normalize: Normalize, color: Color) -> Frame:
     if normalize == "none":
         return frame
-    unit = frame.astype(np.float32) / 255.0
+    unit: Any = frame.astype(np.float32)
+    unit /= 255.0
     if normalize == "unit":
         return unit
     if color not in ("rgb", "bgr"):
@@ -246,4 +247,6 @@ def _normalize(frame: Frame, normalize: Normalize, color: Color) -> Frame:
     desvio = np.array(IMAGENET_STD, dtype=np.float32)
     if color == "bgr":
         media, desvio = media[::-1], desvio[::-1]
-    return (unit - media) / desvio
+    unit -= media
+    unit /= desvio
+    return unit

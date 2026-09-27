@@ -5,11 +5,13 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from contracts import Clip, Perception, PipelineMetadata
+from edge.cache.perception import PerceptionCache
 from edge.frames.provider import MissingFrame
 from edge.graph.framesets import read_framesets
 from edge.graph.runner import RunResult, assemble, run_pipeline
@@ -589,3 +591,28 @@ def test_a_failed_assembly_stage_stays_out_of_the_event_metadata(
     assert any(e.kind == "assemble" and e.status == "failed" for e in resultado.stages)
     assert set(resultado.pipeline.versions) <= MODULE_KINDS
     assert "assemble" not in resultado.pipeline.timings_ms
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_temporal_batches_are_inferred_before_preparing_the_next(
+    tmp_path: Path, cached: bool
+) -> None:
+    provider = ProviderFalso()
+
+    class StreamingModule(ModuloEspia):
+        def infer(self, batch: FrameBatch, ctx: ModuleInputs) -> ModuleOutput:
+            assert len(provider.pedidos) == len(self.lotes) + 1
+            return super().infer(batch, ctx)
+
+    modulo = StreamingModule("tracking", batching=Temporal(size=4, stride=1))
+    resultado = run_pipeline(
+        clip=clipe(),
+        modules={"tracking": modulo},
+        framesets=read_framesets(CONFIG),
+        provider=provider,
+        cache=PerceptionCache(tmp_path / "cache") if cached else None,
+    )
+
+    assert resultado.stages[0].status == "ok", resultado.stages[0].reason
+    assert len(modulo.lotes) > 1
+    assert resultado.outputs["tracking"].frames == tuple(range(clipe().frame_count - 1))

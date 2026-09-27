@@ -11,6 +11,9 @@ quem entra pela porta da frente, que e o que este arquivo faz.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -19,8 +22,14 @@ from contracts import Clip
 from edge.cache.perception import PerceptionCache
 from edge.frames.provider import FrameProvider, VideoSource, probe
 from edge.graph.framesets import read_framesets
-from edge.graph.runner import run_pipeline
-from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, PerceptionModule
+from edge.graph.runner import RunResult, run_pipeline
+from edge.modules.base import (
+    FrameBatch,
+    ModuleInputs,
+    ModuleOutput,
+    PerceptionModule,
+    PreprocessSpec,
+)
 from edge.modules.registry import load_modules, read_config
 from edge.testing.make_clip import make_synthetic_clip
 
@@ -113,3 +122,49 @@ def test_a_different_clip_does_not_read_the_first_clips_entry(clipe: Clip, tmp_p
     _rodar(probe(Path(clipe.path), clip_id="outro-clipe"), outro, cache)
 
     assert sum(e.chamadas for e in outro.values()) > 0
+
+
+@pytest.mark.parametrize("missing_entry", [False, True])
+def test_cached_outputs_skip_frame_preparation(
+    clipe: Clip, tmp_path: Path, missing_entry: bool
+) -> None:
+    cache = PerceptionCache(tmp_path / "cache")
+
+    class CountingProvider(FrameProvider):
+        def __init__(self) -> None:
+            super().__init__(VideoSource(clipe.path))
+            self.calls = 0
+
+        def frames(self, indices: Sequence[int], spec: PreprocessSpec) -> FrameBatch:
+            self.calls += 1
+            return super().frames(indices, spec)
+
+    def execute(provider: CountingProvider) -> RunResult:
+        try:
+            return run_pipeline(
+                clip=clipe,
+                modules=load_modules(read_config(CONFIG)),
+                framesets=read_framesets(CONFIG),
+                provider=provider,
+                cache=cache,
+            )
+        finally:
+            provider.close()
+
+    cold_provider = CountingProvider()
+    cold = execute(cold_provider)
+    assert cold_provider.calls > 0
+    assert all(stage.status == "ok" for stage in cold.stages)
+    if missing_entry:
+        next(cache.root.glob("*.json")).unlink()
+
+    warm_provider = CountingProvider()
+    warm = execute(warm_provider)
+
+    assert all(stage.status == "ok" for stage in warm.stages)
+    # JSON converte tuplas dos registros em listas no cache em disco.
+    assert json.dumps({k: asdict(v) for k, v in warm.outputs.items()}) == json.dumps(
+        {k: asdict(v) for k, v in cold.outputs.items()}
+    )
+    assert warm.perception == cold.perception
+    assert warm_provider.calls == (1 if missing_entry else 0)

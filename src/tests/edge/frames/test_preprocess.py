@@ -171,3 +171,24 @@ def test_letterbox_refuses_a_shape_that_collapses_the_content(quadro: Frame) -> 
 
     assert pronto.shape == (64, 64, 3)
     assert pronto[:, :, :].any()
+
+
+@pytest.mark.parametrize("color", ["rgb", "bgr"])
+@pytest.mark.parametrize("normalization", ["unit", "imagenet"])
+def test_normalization_preserves_pixels_and_does_not_modify_input(
+    quadro: Frame, color: str, normalization: str
+) -> None:
+    original = quadro.copy()
+    raw = prepare(quadro, spec(color=color))
+    expected = raw.astype(np.float32) / 255.0
+    if normalization == "imagenet":
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        if color == "bgr":
+            mean, std = mean[::-1], std[::-1]
+        expected = (expected - mean) / std
+
+    actual = prepare(quadro, spec(color=color, normalize=normalization))
+
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(quadro, original)

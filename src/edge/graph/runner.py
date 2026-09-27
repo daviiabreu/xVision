@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import platform
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
@@ -37,7 +37,7 @@ from contracts import (
     PipelineMetadata,
     PlayerDetection,
 )
-from edge.cache.perception import PerceptionCache, run_module
+from edge.cache.perception import PerceptionCache, run_module_lazy
 from edge.graph.framesets import AroundFrames, FrameSet, FrameSetError, resolve
 from edge.graph.order import topological_order
 from edge.modules import inference
@@ -227,16 +227,16 @@ def _infer(
         for kind in dict.fromkeys(spec.needs + spec.optional_needs)
         if kind in saidas
     }
-    lotes = (
-        replace(provider.frames(lote, spec.preprocess), clip_id=clip_id)
-        for lote in _batches(indices, spec.batching)
-    )
-    if cache is None:
-        return _merge(spec.kind, [modulo.infer(lote, ctx) for lote in lotes])
-    return _merge(
-        spec.kind,
-        [run_module(modulo, lote, ctx, cache=cache, clip_id=clip_id) for lote in lotes],
-    )
+
+    def infer_batch(lote: tuple[int, ...]) -> ModuleOutput:
+        def prepare_batch() -> FrameBatch:
+            return replace(provider.frames(lote, spec.preprocess), clip_id=clip_id)
+
+        if cache is None:
+            return modulo.infer(prepare_batch(), ctx)
+        return run_module_lazy(modulo, lote, prepare_batch, ctx, cache=cache, clip_id=clip_id)
+
+    return _merge(spec.kind, (infer_batch(lote) for lote in _batches(indices, spec.batching)))
 
 
 def _batches(
@@ -254,12 +254,14 @@ def _batches(
     return tuple(tuple(range(inicio, inicio + tamanho)) for inicio in sorted(inicios))
 
 
-def _merge(kind: str, partes: Sequence[ModuleOutput]) -> ModuleOutput:
+def _merge(kind: str, partes: Iterable[ModuleOutput]) -> ModuleOutput:
     quadros: list[int] = []
+    vistos: set[int] = set()
     registros: list[tuple[Mapping[str, object], ...]] = []
     for parte in partes:
         for indice, registro in zip(parte.frames, parte.records, strict=True):
-            if indice not in quadros:
+            if indice not in vistos:
+                vistos.add(indice)
                 quadros.append(indice)
                 registros.append(registro)
     return ModuleOutput(kind=kind, frames=tuple(quadros), records=tuple(registros))
