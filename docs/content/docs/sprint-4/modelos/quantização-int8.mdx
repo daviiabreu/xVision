@@ -1,0 +1,195 @@
+---
+title: Quantização INT8 com calibração
+description: Exportação dos modelos para TensorRT INT8 com dataset de calibração local, métricas de qualidade e comparação com FP16
+---
+
+Esta página dá continuidade à [quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao),
+que converteu os modelos de jogadores (Players), bola (Ball) e pontos do campo (Keypoints)
+de PyTorch FP32 para TensorRT FP16. Nesta sprint, os três modelos foram exportados
+diretamente para TensorRT INT8 usando calibração com dataset local, via script
+`quantizacao_int8.py`, e avaliados quanto a qualidade e tempo de inferência na Jetson.
+
+## Diferença em relação à quantização FP16
+
+A conversão FP16 da sprint anterior não exigiu calibração: os pesos são convertidos
+diretamente, mantendo a representação numérica relativa. INT8 é uma quantização mais
+agressiva, os pesos e ativações passam de 32 ou 16 bits para inteiros de 8 bits e
+por isso exige um conjunto de calibração representativo para que o TensorRT estime as
+faixas de ativação de cada camada antes de construir o engine.
+
+| Aspecto                   | FP16 (Sprint 3) | INT8 (Sprint 4)     |
+| ------------------------- | --------------- | ------------------- |
+| Bits por peso/ativação    | 16              | 8                   |
+| Calibração necessária     | Não             | Sim (dataset local) |
+| Ganho esperado sobre FP32 | ~40%            | ~50–60%             |
+| Risco de degradação       | Baixo           | Moderado a alto     |
+
+## Como funciona o script de exportação
+
+O script `quantizacao_int8.py` automatiza a exportação dos três modelos. Para cada um,
+ele localiza o arquivo `.pt` na mesma pasta, identifica o `.yaml` do dataset de calibração
+em `dataset/<modelo>/`, e chama o exportador da Ultralytics com `format="engine"`,
+`int8=True` e a resolução de entrada correta por modelo. Os artefatos gerados
+(`.onnx` e `.engine`) são movidos para subpastas por modelo:
+
+| Modelo                      | Nome nos scripts | Resolução de entrada | Pasta de saída    |
+| --------------------------- | ---------------- | -------------------- | ----------------- |
+| Players — jogadores         | `player`         | 960 px               | `player_int8/`    |
+| Keypoints — pontos do campo | `keypoints`      | 960 px               | `keypoints_int8/` |
+| Ball — bola                 | `ball`           | 1280 px              | `ball_int8/`      |
+
+A exportação aceita o argumento `--modelo` para processar apenas um modelo por vez, e
+`--workspace` para controlar o limite de memória do TensorRT (padrão: 1 GiB). O engine
+gerado é específico para o hardware e a versão do TensorRT da Jetson; não deve ser
+transportado para outro ambiente.
+
+```bash
+# Exportar todos os modelos
+python3 -u quantizacao_int8.py
+
+# Exportar apenas um modelo
+python3 -u quantizacao_int8.py --modelo ball
+```
+
+## Resultados de desempenho
+
+O teste de tempo usou o mesmo clipe de referência da sprint anterior: vídeo de 6 segundos,
+60 fps, 360 frames. Cada modelo INT8 processou o vídeo individualmente em 7 segundos,
+contra os 29–30 segundos do FP16 e os 48–50 segundos do FP32, medidos na mesma condição.
+
+| Modelo    | FP32 (Sprint 3) | FP16 (Sprint 3) | INT8 (Sprint 4) | Redução sobre FP16 |
+| --------- | --------------- | --------------- | --------------- | ------------------ |
+| Players   | 50 s            | 30 s            | 7 s             | 77%                |
+| Keypoints | 48 s            | 29 s            | 7 s             | 76%                |
+| Ball      | 50 s            | 30 s            | 7 s             | 77%                |
+
+Os três modelos passaram de aproximadamente 12 frames por segundo (FP16) para cerca de
+51 frames por segundo em INT8, ficando pela primeira vez acima da taxa de captura do clipe
+(60 fps). O INT8 ficou aproximadamente 4,3× mais rápido que o FP16 e 7× mais rápido
+que o FP32 nas mesmas condições de medição.
+
+## Validação de qualidade
+
+A validação comparou os engines INT8 com os modelos originais nos mesmos datasets usados
+na Sprint 3. Os resultados diferem muito entre os modelos.
+
+### Players
+
+O modelo de detecção de jogadores manteve altíssima qualidade após a quantização INT8.
+
+| Métrica             | FP32 raw (Sprint 3) | FP16 (Sprint 3) | INT8 (Sprint 4) |
+| ------------------- | ------------------- | --------------- | --------------- |
+| Precision           | 0.9880              | 0.9880          | 0.9864          |
+| Recall              | 0.9769              | 0.9762          | 0.9763          |
+| F1 médio por classe | 0.9824              | 0.9821          | 0.9813          |
+| mAP50               | 0.9920              | 0.9920          | 0.9843          |
+| mAP75               | 0.8774              | 0.8768          | 0.8368          |
+| mAP50-90            | 0.8195              | 0.8184          | 0.7746          |
+| mAP50-95            | 0.7391              | 0.7379          | 0.6978          |
+
+As quedas em relação ao FP16 são maiores do que as observadas na conversão FP32→FP16, mas
+ainda conservadoras: precision e recall permanecem acima de 0,97, e o F1 médio por classe
+fica em 0,98. O mAP50 cai de 0,992 para 0,984, uma redução relativa de 0,8%. O impacto
+maior aparece nas métricas com IoU mais alto (mAP75 e mAP50-95), onde a quantização INT8
+introduz erros de localização mais perceptíveis. Ainda assim, Players permanece adequado
+para uso em produção com INT8.
+
+### Keypoints
+
+O modelo de keypoints (pontos do campo para homografia) mostrou comportamento distinto por
+tarefa — as caixas de detecção resistiram bem, enquanto a pose registrou queda mais expressiva.
+
+Caixas (detecção de campo):
+
+| Métrica             | FP32 raw (Sprint 3) | FP16 (Sprint 3) | INT8 (Sprint 4) |
+| ------------------- | ------------------- | --------------- | --------------- |
+| Precision           | 0.9804              | 0.9806          | 0.9804          |
+| Recall              | 0.9816              | 0.9819          | 0.9816          |
+| F1 médio por classe | 0.9810              | 0.9813          | 0.9810          |
+| mAP50               | 0.9900              | 0.9900          | 0.9911          |
+| mAP75               | 0.9759              | 0.9759          | 0.9749          |
+| mAP50-90            | 0.9686              | 0.9686          | 0.9693          |
+| mAP50-95            | 0.9539              | 0.9539          | 0.9506          |
+
+As métricas de caixa praticamente não se alteraram em relação ao FP16 e ao FP32 original.
+O mAP50 chega a registrar uma leve alta (0,9900 → 0,9911), dentro da variação esperada.
+
+Pose (keypoints do campo):
+
+| Métrica             | FP32 raw (Sprint 3) | FP16 (Sprint 3) | INT8 (Sprint 4) |
+| ------------------- | ------------------- | --------------- | --------------- |
+| Precision           | 0.7947              | 0.7947          | 0.7895          |
+| Recall              | 0.7565              | 0.7567          | 0.7326          |
+| F1 médio por classe | 0.7752              | 0.7752          | 0.7600          |
+| mAP50               | 0.6674              | 0.6676          | 0.6481          |
+| mAP75               | 0.5605              | 0.5613          | 0.4102          |
+| mAP50-90            | 0.5673              | 0.5671          | 0.4236          |
+| mAP50-95            | 0.5351              | 0.5346          | 0.3815          |
+
+A pose é significativamente mais sensível à quantização INT8 do que as caixas. O mAP75
+cai de 0,56 para 0,41, uma redução relativa de 27%. Isso indica que o posicionamento
+preciso dos keypoints é degradado pela quantização INT8: o modelo ainda detecta os pontos
+do campo, mas com desvios que afetam a correspondência sob IoU mais restrito (e, por
+consequência, a qualidade da homografia). Esse resultado está alinhado com o observado
+na Sprint 3 via concordância de pixels: INT8 deslocava os pontos em ~11,9 px na mediana,
+contra 0,19 px do FP16.
+
+### Ball
+
+O modelo de bola apresentou degradação grave com a quantização INT8.
+
+| Métrica             | FP32 raw (Sprint 3) | FP16 (Sprint 3) | INT8 (Sprint 4) |
+| ------------------- | ------------------- | --------------- | --------------- |
+| Precision           | 0.6293              | 0.6224          | 0.2260          |
+| Recall              | 0.4921              | 0.4888          | 0.3780          |
+| F1 médio por classe | 0.5523              | 0.5476          | 0.2829          |
+| mAP50               | 0.4674              | 0.4649          | 0.1676          |
+| mAP75               | 0.0806              | 0.0770          | 0.0032          |
+| mAP50-90            | 0.1866              | 0.1830          | 0.0457          |
+| mAP50-95            | 0.1679              | 0.1647          | 0.0411          |
+
+Os números mostram colapso da detecção. O mAP50 cai de 0,4649 (FP16) para 0,1676, queda
+relativa de 64%. O mAP75 essencialmente zera (0,0032), e o recall cai para 0,38. O modelo
+não é mais confiável para detectar a bola em INT8. Isso é consistente com o observado na
+Sprint 3 por concordância: o INT8 produzia muitas detecções espúrias e perdia a maior parte
+das bolas do FP32, provavelmente porque a caixa da bola é pequena (~8 px de lado na entrada
+de 1280 px) e extremamente sensível a deslocamentos de representação.
+
+A causa raiz está na limitação do modelo original: Ball já era o modelo com desempenho mais
+fraco antes de qualquer quantização, e a quantização INT8 amplia essa fragilidade. Ampliar
+o dataset com exemplos de bolas pequenas, ocluídas e com desfoque de movimento continua
+sendo a principal alavanca para melhorar esse modelo antes de qualquer tentativa de
+quantização mais agressiva.
+
+## Comparativo geral dos três modelos
+
+| Modelo             | Degradação geral                                 | Uso em produção com INT8?                              |
+| ------------------ | ------------------------------------------------ | ------------------------------------------------------ |
+| Players            | Pequena - F1 e mAP50 acima de 0,98               | Viável, pendente validação contra rótulo na placa      |
+| Keypoints - caixas | Mínima - métricas praticamente iguais ao FP16    | Viável                                                 |
+| Keypoints - pose   | Moderada - mAP75 cai ~27%, impacto na homografia | Requer avaliação do erro de homografia antes de adotar |
+| Ball               | Grave - mAP50 cai 64%, modelo não confiável      | Não viável no estado atual                             |
+
+## Decisão de adoção
+
+Ball INT8 não entra no pipeline. A qualidade é insuficiente em qualquer métrica.
+O caminho prioritário continua sendo melhorar o modelo base com mais dados antes de
+tentar quantizações agressivas.
+
+Players e Keypoints (caixas) INT8 são viáveis.
+O ganho de velocidade é expressivo (~4× sobre FP16 individual), porém a validação contra
+rótulo na Jetson ainda não foi feita para os pesos de produção — apenas para os pesos
+locais usados nesta avaliação. A adoção formal fica condicionada a essa etapa.
+
+Keypoints (pose) INT8 exige avaliação específica do erro de homografia. A queda
+de mAP nas métricas de pose pode ou não ser tolerável dependendo do impacto sobre a
+projeção do campo.
+
+## Referências
+
+1. [Quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao) — FP16, métricas contra
+   rótulo na RTX A4000 e fluxo de exportação.
+2. [Pesquisa sobre quantização e otimização](/docs/sprint-1/pesquisa/quantizacao-e-otimizacao)
+   — Sprint 1.
+3. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) — placa, TensorRT e
+   construtor de planos.
