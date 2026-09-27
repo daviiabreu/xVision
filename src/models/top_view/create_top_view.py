@@ -174,17 +174,8 @@ def build_top_view_video(video_path, output_folder, result):
             detections = tracking.frames[frame_number].players
             annotated = annotate_frame(frame, detections, trajectories, teams)
             field = prepared.field
-            draw_homography(annotated, field.matrix)
+            draw_homography(annotated, field.drawing_matrix, field.keypoints, field.confidence)
             draw_keypoints(annotated, field.keypoints, field.confidence, field.inliers)
-            centers = {
-                player.track_id: (round((player.box.x1 + player.box.x2) / 2), round(player.box.y2))
-                for player in detections
-                if player.track_id is not None
-            }
-            for pair in prepared.markings:
-                cv2.line(
-                    annotated, centers[pair.team_a_key], centers[pair.team_b_key], (0, 255, 255), 2
-                )
             top_view = draw_top_view(
                 height,
                 prepared.positions,

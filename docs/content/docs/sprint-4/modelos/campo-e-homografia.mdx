@@ -1,0 +1,179 @@
+---
+title: Campo e homografia
+description: Reconstrução das linhas do campo com pontos visíveis, paralelismo e calibração robusta
+---
+
+&emsp;Na filmagem, nem sempre todos os pontos do campo estão visíveis. Com poucas referências, o desenho
+do campo não ficava bem alinhado às marcações do gramado e algumas linhas apareciam incompletas ou
+fora da posição esperada. Uma detecção deslocada também podia deformar a linha de meio-campo, o
+círculo e a projeção dos jogadores.
+
+&emsp;A melhoria usa os pontos visíveis como âncoras, reconstrói os trechos ausentes pela geometria do
+campo e rejeita detecções incompatíveis antes de atualizar a homografia. Com isso, o traçado passa
+pelos pontos reconhecidos e mantém o paralelismo das linhas quando uma extremidade não está visível.
+
+## Como foi melhorado
+
+&emsp;A solução separa duas responsabilidades. O traçado sobre o vídeo parte das observações do próprio
+quadro e completa as partes ausentes com relações geométricas. A homografia usada na visão superior
+é calculada de forma robusta e só aceita os pontos compatíveis com uma única transformação
+projetiva.
+
+### Representação das linhas do campo
+
+&emsp;O campo passou a ser descrito como sequências de índices colineares em `FIELD_LINES`. A estrutura
+inclui:
+
+- as duas laterais;
+- as duas linhas de gol;
+- a linha de meio-campo;
+- os três lados de cada grande área;
+- os três lados de cada pequena área.
+
+&emsp;Cada ponto necessário ao desenho segue esta ordem de resolução:
+
+1. usa a posição detectada no quadro, quando sua confiança é suficiente;
+2. usa a interseção de duas retas reconstruídas, quando o ponto pertence às duas;
+3. usa a projeção da homografia e a desloca para a reta observada;
+4. omite o ponto quando nenhuma dessas fontes oferece uma posição finita.
+
+&emsp;Essa prioridade faz as linhas passarem exatamente pelas detecções confiáveis. A homografia completa
+o comprimento da linha sem mover sua direção para fora da tinta observada.
+
+```text
+keypoints do quadro
+  -> seleção por confiança
+  -> modelos das retas observadas
+  -> ponto de fuga das famílias paralelas
+  -> interseções ausentes
+  -> projeção corrigida sobre a reta
+  -> desenho do campo
+```
+
+### Laterais com uma única quina
+
+&emsp;Quando apenas uma extremidade da lateral está visível, a direção é obtida das bordas paralelas da
+grande ou da pequena área. Se duas referências estão disponíveis, o cruzamento das retas determina
+o ponto de fuga. A lateral parte da quina detectada em direção a esse ponto e é recortada nos limites
+do quadro.
+
+&emsp;Com somente uma referência, sua direção é reutilizada. Sem referência paralela, o sistema conserva
+o desenho produzido pela homografia, se houver uma matriz válida.
+
+### Pontos intermediários ausentes
+
+&emsp;Uma linha de gol contém as interseções com a grande área e com a pequena área. Mesmo que uma dessas
+interseções não seja detectada, ela pode ser recuperada pelo cruzamento entre as duas retas. Todos
+os índices da sequência são resolvidos, inclusive os intermediários, para que o desenho não pule
+um trecho entre duas marcações conhecidas.
+
+## Homografia robusta
+
+&emsp;`find_transformation` usa `cv2.findHomography` com RANSAC e limiar de reprojeção de 150 unidades no
+campo canônico. A máscara devolvida pelo OpenCV é convertida para os 29 índices do detector. Apenas
+os pontos classificados como inliers contam para aceitar a calibração.
+
+&emsp;O rastreador mantém duas matrizes com os mesmos pontos e o mesmo RANSAC. A matriz que projeta os
+jogadores no top view inicia e atualiza com cinco inliers. A matriz usada para completar o desenho
+do campo mantém o critério mais restritivo: sete inliers para iniciar e seis para atualizar. Assim,
+a redução do mínimo aumenta a disponibilidade do top view sem alterar a estabilidade do traçado
+amarelo.
+
+&emsp;Quando uma das matrizes não recebe uma calibração válida, seu último valor pode ser reutilizado por
+até 15 quadros. Depois desse intervalo, ela é invalidada. As linhas sustentadas diretamente por
+keypoints ainda podem ser desenhadas mesmo sem uma matriz de desenho.
+
+&emsp;Essa separação é relevante: confiança do detector indica que ele acredita ter encontrado um tipo de
+ponto; o RANSAC verifica se esse ponto é compatível com uma única transformação projetiva junto dos
+demais.
+
+## Como isso melhorou o sistema
+
+&emsp;O desenho deixou de tratar a homografia como única fonte de posição. As observações atuais do
+quadro passaram a controlar o alinhamento das linhas, enquanto a matriz completa somente os trechos
+sem detecção direta. Isso reduz o efeito de uma calibração antiga sobre marcações que já foram
+reconhecidas no quadro atual.
+
+| Situação | Comportamento anterior | Comportamento atual |
+| --- | --- | --- |
+| lateral com uma quina | dependia da extremidade projetada | segue as bordas paralelas da área |
+| ponto intermediário ausente | o trecho podia ficar incompleto | usa a interseção entre as retas |
+| ponto detectado fora de posição | deformava a matriz inteira | pode ser rejeitado pelo RANSAC |
+| homografia indisponível | nenhuma linha era desenhada | linhas observadas ainda são conectadas |
+| homografia antiga | podia deslocar uma reta visível | a projeção é ajustada à reta observada |
+
+&emsp;A visão superior também pode ser calibrada com cinco inliers, o que permite aproveitar cenas com
+poucas referências. Esse limite vale apenas para a projeção no top view; o desenho continua usando
+7 pontos para iniciar e 6 para atualizar. A filtragem robusta é aplicada antes de aceitar qualquer
+uma das matrizes.
+
+### Comparação em vídeo
+
+&emsp;Os dois vídeos abaixo foram gerados a partir do mesmo clipe, com os mesmos pesos de detecção e no
+mesmo ambiente de execução. A primeira versão usa o código anterior à reconstrução das linhas. A
+segunda reúne o traçado por pontos visíveis, as estimativas geométricas e o RANSAC. Nela, o mínimo
+de cinco inliers é aplicado somente ao top view, enquanto o desenho mantém os limites de 7 e 6.
+
+#### Antes da melhoria
+
+<video controls preload="metadata" width="100%">
+  <source src="/sprint-4/homografia/antes.mp4" type="video/mp4" />
+</video>
+
+#### Depois da melhoria, com cinco pontos
+
+<video controls preload="metadata" width="100%">
+  <source src="/sprint-4/homografia/depois-cinco-pontos.mp4" type="video/mp4" />
+</video>
+
+## Integração no vídeo
+
+&emsp;O renderizador passa `matrix`, `keypoints` e `confidence` para `draw_homography`. Assim, o desenho
+tem acesso às observações do quadro e não precisa reconstruir o campo somente a partir da matriz.
+A projeção dos jogadores continua usando a homografia aceita pelo rastreador.
+
+| Arquivo | Responsabilidade nesta entrega |
+| --- | --- |
+| `models/homography/geometry.py` | calibração robusta, modelos de reta, interseções e desenho |
+| `models/top_view/pipeline.py` | limites independentes e persistência temporal das duas matrizes |
+| `models/top_view/create_top_view.py` | envio das observações do campo ao renderizador |
+| `tests/edge/test_top_view_sideline.py` | cenários direcionados da reconstrução |
+
+## Validação
+
+&emsp;O conjunto direcionado contém 11 testes. Ele verifica:
+
+- lateral estimada a partir da área mais próxima;
+- preservação da projeção quando as duas quinas aparecem;
+- uso do ponto de fuga com duas referências paralelas;
+- conexão exata dos pontos detectados;
+- desenho de linhas observadas mesmo sem homografia;
+- interseção ausente entre uma linha da área e a linha de gol;
+- extensão reta quando falta a última quina;
+- preenchimento de pontos intermediários;
+- rejeição de um keypoint deslocado pelo RANSAC.
+
+&emsp;Comando usado na verificação:
+
+```bash
+PYTHONPATH=src python3 -m pytest src/tests/edge/test_top_view_sideline.py -q
+```
+
+&emsp;Resultado: `11 passed`.
+
+## Trade-offs e continuidade
+
+&emsp;O mínimo de cinco inliers favorece a disponibilidade do top view em enquadramentos com poucos
+pontos. Ele deixa menos observações redundantes para confirmar a projeção dos jogadores, por isso
+deve ser analisado junto da rejeição do RANSAC e não como uma garantia isolada de qualidade. O
+desenho do campo não assume esse risco, pois continua exigindo 7 pontos para iniciar e 6 para
+atualizar sua matriz.
+
+&emsp;O paralelismo usado nesta implementação é projetivo: linhas paralelas no campo convergem para o
+mesmo ponto de fuga na imagem. A estimativa ainda depende de segmentos reconhecidos corretamente.
+Quando há somente uma quina e nenhuma referência da mesma família, o sistema não inventa uma nova
+direção.
+
+&emsp;Uma avaliação futura deve medir separadamente disponibilidade e erro de reprojeção em quadros
+anotados por pessoas. O vídeo visual confirma o comportamento esperado nos casos inspecionados,
+mas não substitui uma métrica sobre um conjunto independente.

@@ -3,6 +3,7 @@
   "pages": [
     "instante-da-finalizacao",
     "bola-e-trajetoria",
+    "campo-e-homografia",
     "quantizacao-int8"
   ]
 }

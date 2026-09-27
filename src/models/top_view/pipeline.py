@@ -29,8 +29,10 @@ from edge.participants.types import FramePerception, frame_to_dict
 from edge.participants.video import SCHEMA_VERSION, FrameTracker
 
 MAX_FRAMES_WITHOUT_CALIBRATION = 15
-MINIMUM_POINTS_TO_START = 7
-MINIMUM_POINTS_TO_UPDATE = 6
+MINIMUM_POINTS_TO_START = 5
+MINIMUM_POINTS_TO_UPDATE = 5
+MINIMUM_DRAWING_POINTS_TO_START = 7
+MINIMUM_DRAWING_POINTS_TO_UPDATE = 6
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class FieldFrame:
     confidence: Any
     inliers: Any
     matrix: Any
+    drawing_matrix: Any
 
 
 @dataclass(frozen=True)
@@ -71,19 +74,45 @@ class HomographyTracker:
     def __init__(self) -> None:
         self.matrix = None
         self.missing = 0
+        self.drawing_matrix = None
+        self.drawing_missing = 0
+
+    @staticmethod
+    def _update(matrix, missing, current, count, start, update):
+        minimum = start if matrix is None else update
+        if current is not None and count >= minimum:
+            return current, 0
+        missing += 1
+        if missing > MAX_FRAMES_WITHOUT_CALIBRATION:
+            matrix = None
+        return matrix, missing
 
     def process(self, keypoints: Any, confidence: Any) -> FieldFrame:
         current, inliers = find_transformation(keypoints, confidence)
         count = 0 if inliers is None else int(inliers.sum())
-        minimum = MINIMUM_POINTS_TO_START if self.matrix is None else MINIMUM_POINTS_TO_UPDATE
-        if current is not None and count >= minimum:
-            self.matrix = current
-            self.missing = 0
-        else:
-            self.missing += 1
-            if self.missing > MAX_FRAMES_WITHOUT_CALIBRATION:
-                self.matrix = None
-        return FieldFrame(keypoints, confidence, inliers, self.matrix)
+        self.matrix, self.missing = self._update(
+            self.matrix,
+            self.missing,
+            current,
+            count,
+            MINIMUM_POINTS_TO_START,
+            MINIMUM_POINTS_TO_UPDATE,
+        )
+        self.drawing_matrix, self.drawing_missing = self._update(
+            self.drawing_matrix,
+            self.drawing_missing,
+            current,
+            count,
+            MINIMUM_DRAWING_POINTS_TO_START,
+            MINIMUM_DRAWING_POINTS_TO_UPDATE,
+        )
+        return FieldFrame(
+            keypoints,
+            confidence,
+            inliers,
+            self.matrix,
+            self.drawing_matrix,
+        )
 
 
 def run_pipeline(

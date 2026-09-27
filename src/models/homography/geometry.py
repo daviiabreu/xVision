@@ -10,6 +10,7 @@ GOAL_BOX_LENGTH = 550
 GOAL_BOX_WIDTH = 1832
 CENTER_CIRCLE_RADIUS = 915
 KEYPOINT_CONFIDENCE = 0.25
+HOMOGRAPHY_RANSAC_THRESHOLD = 150.0
 POSITION_SMOOTHING = 0.3
 HALF_SWITCH_MARGIN = 1000
 
@@ -92,6 +93,27 @@ KEYPOINT_TO_PITCH = np.array(
 
 PITCH_VERTICES = np.vstack([PITCH_POINTS, EXTRA_POINTS])[KEYPOINT_TO_PITCH]
 
+# Cada sequência representa uma reta real do campo, em ordem ao longo da tinta.
+FIELD_LINES = (
+    (0, 11, 16),  # lateral superior
+    (9, 12, 25),  # lateral inferior
+    (0, 1, 5, 7, 3, 9),  # linha de gol esquerda
+    (16, 17, 21, 23, 19, 25),  # linha de gol direita
+    (11, 13, 15, 14, 12),  # meio-campo
+    (1, 2),
+    (2, 4),
+    (4, 3),  # área esquerda
+    (18, 17),
+    (18, 20),
+    (20, 19),  # área direita
+    (5, 6),
+    (6, 8),
+    (8, 7),  # pequena área esquerda
+    (22, 21),
+    (22, 24),
+    (24, 23),  # pequena área direita
+)
+
 
 def find_transformation(points, confidence):
     if points is None or len(points) != len(PITCH_VERTICES):
@@ -104,12 +126,19 @@ def find_transformation(points, confidence):
     if len(source) < 4:
         return None, np.zeros(len(points), dtype=bool)
 
-    matrix, _ = cv2.findHomography(source, target, 0)
+    matrix, source_inliers = cv2.findHomography(
+        source,
+        target,
+        cv2.RANSAC,
+        HOMOGRAPHY_RANSAC_THRESHOLD,
+    )
 
-    if matrix is None:
+    if matrix is None or source_inliers is None:
         return None, np.zeros(len(points), dtype=bool)
 
-    return matrix / matrix[2, 2], valid
+    inliers = np.zeros(len(points), dtype=bool)
+    inliers[np.flatnonzero(valid)] = source_inliers.ravel().astype(bool)
+    return matrix / matrix[2, 2], inliers
 
 
 def project_players(matrix, boxes, ids):
@@ -180,13 +209,198 @@ def draw_keypoints(frame, points, confidence, inliers):
         )
 
 
-def draw_homography(frame, matrix):
+def _parallel_sideline(points, confidence, y, frame_shape):
+    """Lateral pela quina e pelo ponto de fuga das bordas paralelas da área."""
+    if points is None or confidence is None or len(points) != len(PITCH_VERTICES):
+        return None
+
+    if y == 0:
+        sides = ((16, 0, ((17, 18), (21, 22))), (0, 16, ((1, 2), (5, 6))))
+    else:
+        sides = ((25, 9, ((19, 20), (23, 24))), (9, 25, ((3, 4), (7, 8))))
+
+    def visible(index):
+        return confidence[index] >= KEYPOINT_CONFIDENCE and np.isfinite(points[index]).all()
+
+    for corner, opposite, references in sides:
+        if not visible(corner) or visible(opposite):
+            continue
+        segments = []
+        for outer, inner in references:
+            if visible(outer) and visible(inner):
+                direction = np.asarray(points[inner] - points[outer], dtype=np.float64)
+                if np.linalg.norm(direction) >= 20:
+                    segments.append((outer, inner, direction))
+        if not segments:
+            continue
+        direction = segments[0][2]
+        if len(segments) == 2:
+            a, b = segments
+            line_a = np.cross((*points[a[0]], 1), (*points[a[1]], 1))
+            line_b = np.cross((*points[b[0]], 1), (*points[b[1]], 1))
+            vanishing = np.cross(line_a, line_b)
+            if abs(vanishing[2]) > 1e-8:
+                candidate = vanishing[:2] / vanishing[2] - points[corner]
+                if np.isfinite(candidate).all() and np.linalg.norm(candidate) > 20:
+                    if np.dot(candidate, direction) < 0:
+                        candidate = -candidate
+                    direction = candidate
+        length = np.linalg.norm(direction)
+        start = np.asarray(points[corner], dtype=np.float64)
+        end = start + direction / length * (2 * np.hypot(*frame_shape[:2]))
+        valid, clipped_start, clipped_end = cv2.clipLine(
+            (0, 0, frame_shape[1], frame_shape[0]),
+            tuple(np.round(start).astype(int)),
+            tuple(np.round(end).astype(int)),
+        )
+        if valid:
+            return clipped_start, clipped_end
+    return None
+
+
+def _image_line(first, second):
+    line = np.cross((*first, 1.0), (*second, 1.0))
+    norm = np.linalg.norm(line[:2])
+    return line / norm if norm > 1e-8 else None
+
+
+def _line_models(keypoints, visible):
+    """Retas observadas e retas com uma âncora guiadas pelas paralelas."""
+    models = [None] * len(FIELD_LINES)
+    for number, chain in enumerate(FIELD_LINES):
+        detected = [index for index in chain if visible[index]]
+        if len(detected) >= 2:
+            models[number] = _image_line(keypoints[detected[0]], keypoints[detected[-1]])
+
+    direct_models = models.copy()
+    for number, chain in enumerate(FIELD_LINES):
+        detected = [index for index in chain if visible[index]]
+        if len(detected) != 1 or models[number] is not None:
+            continue
+        horizontal = PITCH_VERTICES[chain[0], 1] == PITCH_VERTICES[chain[-1], 1]
+        offset = float(PITCH_VERTICES[chain[0], 1 if horizontal else 0])
+        references = []
+        for other_number, other in enumerate(FIELD_LINES):
+            model = direct_models[other_number]
+            if model is None or other_number == number:
+                continue
+            other_horizontal = PITCH_VERTICES[other[0], 1] == PITCH_VERTICES[other[-1], 1]
+            if horizontal != other_horizontal:
+                continue
+            other_offset = float(PITCH_VERTICES[other[0], 1 if horizontal else 0])
+            references.append((abs(other_offset - offset), model))
+        if not references:
+            continue
+        references.sort(key=lambda item: item[0])
+        direction = np.array([references[0][1][1], -references[0][1][0]])
+        if len(references) > 1:
+            vanishing = np.cross(references[0][1], references[1][1])
+            if abs(vanishing[2]) > 1e-8:
+                candidate = vanishing[:2] / vanishing[2] - keypoints[detected[0]]
+                if np.isfinite(candidate).all() and np.linalg.norm(candidate) > 20:
+                    direction = candidate
+        anchor = np.asarray(keypoints[detected[0]], dtype=np.float64)
+        models[number] = _image_line(anchor, anchor + direction)
+    return models
+
+
+def _inferred_intersections(models, visible, frame_shape):
+    inferred = {}
+    limit = 2 * np.hypot(*frame_shape[:2])
+    for index in range(len(PITCH_VERTICES)):
+        if visible[index]:
+            continue
+        crossing = []
+        for number, chain in enumerate(FIELD_LINES):
+            if index in chain and models[number] is not None:
+                crossing.append(models[number])
+        if len(crossing) != 2:
+            continue
+        homogeneous = np.cross(*crossing)
+        if abs(homogeneous[2]) < 1e-5:
+            continue
+        image_point = homogeneous[:2] / homogeneous[2]
+        if np.isfinite(image_point).all() and np.abs(image_point).max() < limit:
+            inferred[index] = image_point
+    return inferred
+
+
+def _draw_field_template(frame, matrix, keypoints, confidence):
+    visible = (confidence >= KEYPOINT_CONFIDENCE) & np.isfinite(keypoints).all(axis=1)
+    if len(visible) != len(PITCH_VERTICES):
+        return
+    inverse = None
+    projected = None
+    if matrix is not None:
+        inverse = np.linalg.inv(matrix)
+        projected = cv2.perspectiveTransform(PITCH_VERTICES.reshape(-1, 1, 2), inverse)
+        projected = projected.reshape(-1, 2)
+    models = _line_models(keypoints, visible)
+    inferred = _inferred_intersections(models, visible, frame.shape)
+
+    for number, chain in enumerate(FIELD_LINES):
+        resolved = []
+        for index in chain:
+            if visible[index]:
+                point = keypoints[index]
+            elif index in inferred:
+                point = inferred[index]
+            elif projected is not None:
+                point = projected[index]
+                model = models[number]
+                if model is not None and np.isfinite(point).all():
+                    point = (
+                        point - (model[0] * point[0] + model[1] * point[1] + model[2]) * model[:2]
+                    )
+            else:
+                continue
+            if np.isfinite(point).all() and np.abs(point).max() < 100000:
+                resolved.append(point)
+        if len(resolved) >= 2:
+            pixels = np.round(resolved).astype(np.int32).reshape(-1, 1, 2)
+            cv2.polylines(frame, [pixels], False, (0, 255, 255), 2)
+        elif number in (0, 1):
+            parallel = _parallel_sideline(
+                keypoints, confidence, PITCH_VERTICES[chain[0], 1], frame.shape
+            )
+            if parallel is not None:
+                cv2.line(frame, *parallel, (0, 255, 255), 2)
+
+    if inverse is None:
+        return
+    circle = np.float32(
+        [
+            (
+                HALF_LENGTH + CENTER_CIRCLE_RADIUS * np.cos(angle),
+                PITCH_WIDTH / 2 + CENTER_CIRCLE_RADIUS * np.sin(angle),
+            )
+            for angle in np.linspace(0, 2 * np.pi, 96)
+        ]
+    ).reshape(-1, 1, 2)
+    curve = cv2.perspectiveTransform(circle, inverse)
+    circle_indices = [index for index in (13, 14, 27, 28) if visible[index]]
+    if len(circle_indices) >= 3:
+        anchors = projected[circle_indices[:3]].astype(np.float32)
+        correction = cv2.getAffineTransform(
+            anchors, keypoints[circle_indices[:3]].astype(np.float32)
+        )
+        curve = cv2.transform(curve, correction)
+    if np.isfinite(curve).all() and np.abs(curve).max() < 100000:
+        cv2.polylines(frame, [np.round(curve).astype(np.int32)], True, (0, 255, 255), 2)
+
+
+def draw_homography(frame, matrix, keypoints=None, confidence=None):
+    if keypoints is not None and confidence is not None:
+        _draw_field_template(frame, matrix, keypoints, confidence)
+        return
+
     if matrix is None:
         return
 
     inverse = np.linalg.inv(matrix)
     lines = [
-        [(0, 0), (PITCH_LENGTH, 0), (PITCH_LENGTH, PITCH_WIDTH), (0, PITCH_WIDTH), (0, 0)],
+        [(0, 0), (0, PITCH_WIDTH)],
+        [(PITCH_LENGTH, 0), (PITCH_LENGTH, PITCH_WIDTH)],
         [(HALF_LENGTH, 0), (HALF_LENGTH, PITCH_WIDTH)],
         [
             (0, (PITCH_WIDTH - PENALTY_BOX_WIDTH) / 2),
@@ -223,6 +437,14 @@ def draw_homography(frame, matrix):
                 (0, 255, 255),
                 2,
             )
+
+    for y in (0, PITCH_WIDTH):
+        projected = cv2.perspectiveTransform(
+            np.float32([[[0, y]], [[PITCH_LENGTH, y]]]), inverse
+        ).reshape(-1, 2)
+        if np.isfinite(projected).all() and np.abs(projected).max() < 100000:
+            start, end = np.round(projected).astype(int)
+            cv2.line(frame, tuple(start), tuple(end), (0, 255, 255), 2)
 
 
 def view_size(height):
