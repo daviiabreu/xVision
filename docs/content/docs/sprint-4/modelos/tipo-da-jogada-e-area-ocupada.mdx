@@ -1,0 +1,112 @@
+---
+title: Tipo da jogada e área ocupada
+---
+
+Esta documentação cobre a evolução de duas features nesta sprint: `type_of_play`, que classifica
+como a jogada chegou ao chute (bola parada, jogada individual ou jogada aberta), e `occupied_area`,
+que diz se a área do chute estava ocupada por outros jogadores. O `type_of_play` passou a ser
+decidido por um modelo treinado e subiu de 0,334 para 0,568 de macro-F1. O `occupied_area` ganhou
+a primeira versão, que já supera a maioria em macro-F1.
+
+Os números abaixo são da parte da base usada para ajuste. Uma parte separada, com partidas que o
+modelo nunca viu, fica guardada para uma medição única no final.
+
+## Ponto de partida
+
+| Feature | Situação na Sprint 3 |
+| --- | --- |
+| `type_of_play` | regra fixa de três ramos, lida no movimento da bola em 1,5 s antes do contato: acurácia 0,510 e macro-F1 0,334, contra 0,682 da maioria |
+| `occupied_area` | sem código e sem definição do parceiro; a maioria acerta 0,656 |
+
+A regra do `type_of_play` errava por falta de informação, e não por ajuste mal feito. Nas três
+classes a bola estava parada no trecho lido antes do contato. Escanteio e falta começam de 2 a 4 s
+antes do chute, fora dessa janela.
+
+## As alterações
+
+| Mudança | Efeito |
+| --- | --- |
+| a percepção só cria quadro onde jogadores, bola ou campo rodaram | conserta um defeito de produção: quadros usados só pelo T-DEED viravam quadros vazios, e o quadro mais próximo do chute podia ser um deles |
+| o T-DEED guarda a probabilidade das 13 classes em cada passo | o T-DEED é o detector que acha o instante do chute no vídeo; ele também reconhece passe, cruzamento, condução, falta, lateral e bloqueio, e agora isso chega às features |
+| evidência nova no `type_of_play` | evidência são as medidas que a feature publica junto da resposta; entraram as ações antes do chute, sinais de reinício no clipe inteiro (bola parada, plano fechado, corte de câmera) e se o toque anterior foi do próprio finalizador |
+| `xvision treino` | treina um classificador simples sobre essa evidência, com peso maior para as classes raras; cada partida é medida por um modelo treinado sem ela |
+| `type_of_play` com `model = "<artefato>"` | a resposta passa a vir do modelo treinado; a resposta da regra continua registrada na evidência |
+| cena do chute | o quadro mais próximo do contato, a até 0,2 s, em que se sabe onde cada jogador está no campo em metros; base de `occupied_area` e `marked` |
+| `occupied_area` 0.1.0 | mede quem está no cone entre a bola e as traves, na área e em volta do finalizador, com uma regra preliminar |
+| opções do campo, desligadas por padrão | a homografia converte pixel em metro no campo; `propagation_steps` a aproveita de quadros vizinhos seguindo o movimento da câmera, e `safe_projection = "visible"` só confere a parte do campo que aparece na imagem |
+| `xvision eval` | mostra onde o modelo confunde cada classe, a nota de cada uma e uma margem de 95%, calculada sorteando partidas de novo |
+
+## Resultados
+
+A medição rodou num computador com GPU, a 12 s por clipe. O mesmo clipe leva cerca de 6 min sem GPU.
+
+### `type_of_play`
+
+| 359 clipes | Acurácia | Macro-F1 | F1 bola parada | F1 individual | F1 jogada aberta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **modelo treinado** | 0,596 | **0,568** | **0,659** | 0,364 | 0,682 |
+| regra, com T-DEED e os consertos | 0,457 | 0,357 | 0,209 | 0,279 | 0,583 |
+| maioria | 0,688 | 0,272 | | | |
+| metadado `origin_of_move` | 0,796 | | | | |
+
+A última linha é um campo que o parceiro já entrega, e serve de teto: é o que se acerta lendo a
+resposta pronta.
+
+A spec pedia 0,05 de macro-F1 acima dos 0,334 da Sprint 3. O modelo chegou a 0,568, mais de quatro
+vezes o ganho pedido, e melhora o F1 das três classes em relação à regra. Trocar a força da
+regularização, que impede o modelo de decorar o treino, move o número só entre 0,557 e 0,568, então
+o resultado não depende dessa escolha. O maior ganho foi em bola parada: o modelo acha 83% dos
+casos, contra 20% da regra.
+
+A acurácia da maioria é maior porque ela acerta toda jogada aberta, a classe mais comum, e erra
+todas as outras. Por isso a spec decide por macro-F1.
+
+### `occupied_area`
+
+| | Acurácia | Macro-F1 | Cobertura |
+| --- | ---: | ---: | ---: |
+| regra preliminar, alguém no cone | 0,561 | 0,527 | 68% |
+| modelo treinado | 0,500 | 0,467 | 68% |
+| maioria | 0,675 | 0,403 | |
+| regra, com as opções do campo | 0,547 | | 85% |
+
+A primeira versão já passa da maioria em macro-F1, 0,527 contra 0,403, e as opções do campo levam a
+cobertura de 68% para 85%. A análise do rótulo também indica o caminho para a próxima versão: ele
+fica mais `true` quanto mais longe e mais bloqueado é o chute, em 81% dos chutes de 18 m ou mais, 91%
+dos bloqueados e 44% dos cabeceios. Ou seja, o parceiro marca se o caminho da bola até o gol estava
+fechado, mais do que se havia gente em volta do finalizador.
+
+### Campo e homografia
+
+Sem homografia, a feature não sabe onde cada jogador está em metros e fica sem resposta. Por isso a
+cobertura depende dela.
+
+| Medida | Resultado |
+| --- | --- |
+| checagem dos quatro cantos do campo | causa de 371 das 857 calibrações recusadas perto da área, porque os cantos costumam estar fora da imagem |
+| `safe_projection = "visible"`, simulado | quadros com campo perto do chute sobem de 33% para 61% dentro da área, com 7 px de diferença para o quadro vizinho calibrado |
+| `propagation_steps = 8` | quadros com campo perto do chute sobem de 45% para 67%, com erro mediano de 11 px |
+| as duas opções na medição completa | cobertura de `occupied_area` sobe de 68% para 85% |
+
+## Próximos passos
+
+Estes itens ficam para a Sprint 5.
+
+| Item | O que será feito |
+| --- | --- |
+| número final do `type_of_play` | medição única nas partidas guardadas, com `scripts/medicao_gpu.sh <tabelas> <clipes> reservado` |
+| acurácia do `occupied_area` | treinar com poucas medidas escolhidas, centradas no caminho da bola até o gol, e alinhar a definição com a Footstats |
+| `marked` sobre a cena do chute | afrouxar o critério atual, que só marca quando finalizador e adversário são o mais próximo um do outro a até 5 m |
+| opções do campo em produção | ligar `propagation_steps` e `safe_projection` por padrão, junto com quem mantém o campo, porque elas também mudam `goalkeeper_position` e `looked_before` |
+| coluna `crowded` | confirmar com a Footstats, porque está declarada em `labels.toml` mas não aparece na tabela de xG |
+
+## Como reproduzir
+
+```bash
+bash scripts/medicao_gpu.sh <pasta com as tabelas> <pasta com os clipes>
+```
+
+O script prepara o ambiente, os pesos e os dados, e roda a parte de ajuste com e sem as opções
+do campo. Depois chama `xvision eval --dobra ajuste --bootstrap 1000` e `xvision treino` para as duas
+features. Os modelos ficam em `var/runs/`, fora do Git, porque são treinados sobre rótulo do
+parceiro.

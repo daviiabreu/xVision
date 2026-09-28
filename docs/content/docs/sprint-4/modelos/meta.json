@@ -3,8 +3,9 @@
   "pages": [
     "instante-da-finalizacao",
     "bola-e-trajetoria",
+    "campo-e-homografia",
+    "tipo-da-jogada-e-area-ocupada",
     "quantizacao-int8",
-    "edge-pipeline",
-    "campo-e-homografia"
+    "edge-pipeline"
   ]
 }
