@@ -1,0 +1,93 @@
+---
+title: Rastreabilidade dos requisitos
+description: Cada requisito da Sprint 1 ligado ao teste, à tela, ao log ou à medição que o sustenta, com a situação no código de hoje e o que falta
+---
+
+Os [requisitos](/docs/sprint-1/requisitos) foram escritos na Sprint 1, antes do código, e até aqui
+quase nenhuma página os citava fora dali. O
+[planejamento](/docs/sprint-1/planejamento-proximas-sprints#sprint-5-consolidação-e-validação-final)
+pede que cada requisito funcional e não funcional chegue a um teste, uma tela, um log ou uma
+medição, com as pendências justificadas. Esta página faz essa ligação sobre o `develop` de
+28/09/2026, e cada linha diz a situação, onde está a evidência e o que falta.
+
+A situação desta página é a da entrega, e não a da origem do requisito, que continua registrada
+na Sprint 1. Um requisito confirmado lá pode estar sem entrega aqui, e um alvo preliminar pode já
+ter medida na placa.
+
+## Como ler a situação
+
+| Situação | O que significa |
+| --- | --- |
+| entregue | o código do `develop` cumpre o critério do requisito, e a evidência pode ser repetida por outra pessoa |
+| parcial | parte do critério é cumprida, e a coluna de lacuna diz qual parte falta |
+| não entregue | não existe implementação no `develop` |
+| pendente do parceiro | a equipe mede, mas o limite que decide o requisito depende da Footstats |
+
+Os testes citados ficam em `src/` e rodam com `uv run pytest`, e os links levam à página que traz a
+medida ou ao código no `develop`.
+
+## Requisitos funcionais
+
+| ID | Requisito | Situação | Evidência | Lacuna |
+| --- | --- | --- | --- | --- |
+| RF01 | receber o vídeo da finalização | entregue | [envio do clipe](/docs/sprint-3/produto/frontend/analises-e-resultados#preparação-e-envio-do-clipe) na tela inicial, rota `PUT /videos/upload/{token}` da [API](/docs/sprint-3/produto/backend#reserva-envio-e-fila) e `xvision run` na linha de comando; `tests/api/test_api.py` | nenhuma para o critério |
+| RF02 | pré-processar os quadros | entregue | preparo por espécie em [`edge/frames`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/frames/preprocess.py), que desde a !111 vai direto para o lote, como descreve o [pipeline de borda](/docs/sprint-4/modelos/edge-pipeline); `tests/edge/frames/test_preprocess.py` e `test_provider.py` | nenhuma para o critério |
+| RF03 | detectar jogador, goleiro, bola e campo | entregue | espécies `players`, `ball` e `field` das configurações de modelos, com a [bola](/docs/sprint-4/modelos/bola-e-trajetoria) e o [campo](/docs/sprint-4/modelos/campo-e-homografia) medidos nesta sprint; TB-01 a TB-06 da [especificação da bola](/docs/sprint-4/especificacao-de-testes/bola); `tests/edge/modules/players`, `ball` e `field` | o goleiro sai da identidade por cor, e não do detector, e é o ponto mais fraco da detecção; a nova identidade por papéis está em revisão na `feat/identidade-papeis` |
+| RF04 | identificar o momento da finalização | entregue | espécie `shot` com o detector temporal, que acerta 1,000 dos 24 clipes dentro de 30 quadros no [instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao); TI-01 a TI-06 da [especificação do instante](/docs/sprint-4/especificacao-de-testes/instante-da-finalizacao); `tests/edge/modules/shot` | o instante entregue é o quadro do contato; com 24 clipes o conjunto não distingue mudança menor que 4,1 clipes, e os 14 reservados só rodam no congelamento |
+| RF05 | extrair posição, distância, ângulo e instante do contato | parcial | o instante provável sai em `shot_timestamp_s` e compõe o `shot_id`; as features leem a posição de campo dos jogadores pela homografia | posição, distância e ângulo da finalização não saem no `ShotEvent`, embora o gabarito da Footstats traga a distância em metros, então a comparação tem referência e não tem saída do pipeline |
+| RF06 | calcular as métricas da finalização | parcial | quatro features declaradas nas configurações de modelos, `body_part` \| `type_of_play` \| `looked_before` \| `goalkeeper_position`, cada uma com `status`, `confidence` e `reason` no contrato; `tests/edge/features` | `marked` e `assist` estão na `feat/times-marcacao-assist` e `occupied_area` na `feat/insumos-type-of-play-occupied-area`, fora do `develop`; `crowded` existe no código e não é declarada; a distância do RF05 também falta, e o envio ao backend do xG depende do RF09 |
+| RF07 | associar as métricas à finalização | entregue | cada feature vai dentro do `ShotEvent` do lance, que é identificado pelo `shot_id` formado por clipe e quadro do contato, no [contrato do evento](/docs/sprint-2/backend/contrato); `tests/contracts/test_events.py` | nenhuma para o critério |
+| RF08 | gerar o evento estruturado | entregue | `ShotEvent` 1.0 com [JSON Schema](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/contracts/shot_event.v1.json) congelado e validação nos dois sentidos; `tests/contracts/test_schema.py` e `tests/api/test_contrato_real.py` | nenhuma para o critério |
+| RF09 | enviar o evento ao backend | não entregue | item S4-AR02 do [plano da sprint](/docs/sprint-4#o-plano-da-sprint-item-a-item) | o processamento roda no mesmo serviço que recebe o clipe, sem dispositivo separado enviando o evento, e não há branch em andamento para isso até 28/09 |
+| RF10 | registrar as finalizações processadas | entregue | o resultado de cada vídeo fica gravado no SQLite da API e sobrevive a reinício, como mostra a [persistência e reinício](/docs/sprint-3/produto/execucao-e-validacao#persistência-e-reinício); `tests/api/test_store_and_export.py` | nenhuma para o critério |
+| RF11 | disponibilizar os dados para consulta | entregue | `GET /videos` e `GET /videos/{video_id}` em [progresso e resultado](/docs/sprint-3/produto/backend#progresso-e-resultado), com as telas de [histórico](/docs/sprint-3/produto/frontend/analises-e-resultados#histórico-e-atualização-automática) e de [resultado](/docs/sprint-3/produto/frontend/analises-e-resultados#página-de-resultado); `tests/api/test_listagem_e_progresso.py` e `interface/src/tests/pages` | nenhuma para o critério |
+| RF12 | comparar com os dados de referência | entregue | `xvision eval` para as features e `eval-instant` \| `eval-ball` \| `eval-ball-trajectory` \| `eval-field` \| `eval-spots` por modelo, sempre ao lado de uma linha de base, na [especificação de testes](/docs/sprint-4/especificacao-de-testes); `tests/mlops/test_evaluate.py` | a comparação roda pela linha de comando e não aparece no produto |
+| RF13 | registrar as informações do processamento | parcial | `run.json` de cada execução com commit, configuração, máquina, precisão, mediana e p95 por etapa, na [procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao); na API, estado, motivo e duração de cada etapa; `tests/mlops/test_run.py` e `tests/api/test_metricas.py` | o `run.json` só existe no `xvision run`, e o processamento disparado pela API guarda apenas estado, motivo e duração |
+| RF14 | disponibilizar métricas de funcionamento | parcial | `GET /auth/me/statistics` conta total, pendentes, em processamento, finalizadas e falhas na [tela de conta](/docs/sprint-3/produto/frontend/acesso-e-conta#configurações-da-conta), e a tela de resultado mostra a duração por etapa; `tests/api/test_account_settings.py` | não há tempo de processamento agregado, e a contagem é por conta, e não do sistema |
+
+## Requisitos não funcionais
+
+| ID | Requisito | Situação | Evidência | Lacuna |
+| --- | --- | --- | --- | --- |
+| RNF-01 | tempo de processamento do clipe | parcial | 65 s e 766 J por clipe na Jetson em meia precisão, 43,9 s na segunda etapa com TensorRT, no [pipeline completo](/docs/sprint-4/produto/execucao-na-jetson#pipeline-completo-fp32-contra-meia-precisão), e custo estável ao longo do catálogo, com 7,17 s por segundo de clipe no primeiro terço e 7,08 s no último; TI-07 e TB-07 | não existe orçamento de tempo acordado, então a medida não tem contra o que passar |
+| RNF-02 | latência ponta a ponta | pendente do parceiro | o `ShotEvent` grava a duração de cada etapa em `timings_ms` | a Footstats não informou a tolerância, e sem o RF09 não existe o trecho entre a borda e o banco central para medir |
+| RNF-03 | qualidade da saída | pendente do parceiro | critérios internos fixados antes de medir, na [especificação de testes](/docs/sprint-4/especificacao-de-testes), e macro-F1 das features contra o gabarito pelo `xvision eval`; TI-01, TI-08, TB-02, TB-03 e TB-09 | sem os limites da Footstats, os critérios são da equipe; as amostras são pequenas e têm um anotador só |
+| RNF-04 | memória e armazenamento local | parcial | 223 clipes em 169 minutos contínuos, com base de 55% que não cresce e pico mediano de 60,6% nos clipes até 8 s, em [memória e energia](/docs/sprint-4/produto/execucao-na-jetson#memória-e-energia-contra-os-requisitos); TB-08 | 14 dos 223 clipes passam de 70%, todos acima de 8 s, com pico de 72,8%; o TensorRT ainda não rodou em modo texto; o efeito da escrita local na latência não foi medido |
+| RNF-05 | energia e estabilidade térmica | entregue | 100 minutos contínuos com pico de 64,6 °C na GPU, abaixo dos 70 °C de estrangulamento, sem degradação de tempo, e potência e energia de fp32, fp16 e TensorRT, na [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson#memória-e-energia-contra-os-requisitos) | a escolha da configuração de menor consumo depende de RNF-01 e RNF-03, que ainda não têm limite |
+| RNF-06 | compatibilidade do ambiente de inferência | parcial | ONNX exportado de forma reproduzível e planos TensorRT de bola e campo construídos na placa, declarados com o sha256 de origem em `pipeline.models.jetson.toml`, com a bola reproduzindo o PyTorch, em [TensorRT, versionado](/docs/sprint-4/produto/execucao-na-jetson#tensorrt-versionado); `tests/mlops/test_export_onnx.py`, `test_build_engine.py` e `tests/edge/test_trt.py` | jogadores e pose não têm plano; não há relatório de que todos os operadores rodam no acelerador; o backend efetivo não é gravado, então um plano ausente que cai para PyTorch passa calado; a instalação limpa na placa não foi registrada |
+| RNF-07 | entrega confiável e idempotente | parcial | chave de idempotência no `shot_id`, formado por clipe e quadro do contato e validado pelo contrato; `tests/contracts/test_events.py` | fila local persistente, retentativa e reenvio não existem, como diz o item S4-AR03 do [plano da sprint](/docs/sprint-4#o-plano-da-sprint-item-a-item), e o banco da API não deduplica pelo `shot_id` |
+| RNF-08 | confidencialidade e retenção | pendente do parceiro | o `ShotEvent` não carrega vídeo; o `.gitignore` e `tests/test_write_hygiene.py` impedem vídeo, peso e dado derivado no Git, e os relatórios publicam só agregados | prazo de retenção e criptografia não foram definidos com a Footstats, e o teste de expiração e exclusão não existe |
+| RNF-09 | manutenibilidade | entregue | cada espécie troca pelo `impl` e pelo manifesto no TOML, sem mexer em ingestão, contrato ou backend, como nas trocas do instante, da bola e do campo público; os módulos reais passam na suíte `ModuleConformance`, e os pesos têm manifesto com sha256 em [`src/models/manifests`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/tree/develop/src/models/manifests); `tests/test_config_de_modelos.py` e `tests/edge/modules/conformance` | a instalação em ambiente limpo feita por outra pessoa fica para a Sprint 5 |
+| RNF-10 | observabilidade dos experimentos | parcial | `run.json` com entrada, commit, sha256 da configuração, máquina, runtime, precisão por espécie, mediana e p95 por etapa, e identidade do peso por sha256, na [procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao); `xvision tegrastats` resume o log do `tegrastats` rodado ao lado, com pico de memória, potência e energia; `tests/mlops/test_run.py` e `test_tegrastats.py` | temperatura, energia, estrangulamento e modo de potência não entram no `run.json`, o backend efetivo por espécie não é gravado, e fila, descarte e estado de entrega não existem para registrar |
+
+## Resumo da cobertura
+
+| Grupo | Entregue | Parcial | Não entregue | Pendente do parceiro |
+| --- | ---: | ---: | ---: | ---: |
+| funcionais, 14 | 9 | 4 | 1 | 0 |
+| não funcionais, 10 | 2 | 5 | 0 | 3 |
+
+Os três requisitos Must fora de entregue são RF05, RF06 e RF09, e só o RF09 não tem implementação
+nenhuma. Entre os parciais, o que falta em RF13, RF14 e RNF-01 é critério ou agregação, e não
+código novo de visão, enquanto em RNF-04, RNF-06 e RNF-10 a lacuna está listada em "Ainda não
+implementado" nas páginas da [Jetson](/docs/sprint-4/produto/execucao-na-jetson) e da
+[procedência](/docs/sprint-4/produto/proveniencia-de-execucao).
+
+## O que depende de outra pessoa
+
+**Da Footstats.** A latência tolerada, para o RNF-02, os limites mínimos de qualidade e a amostra
+de referência, para o RNF-03, e o prazo de retenção e a necessidade de criptografia, para o RNF-08.
+Nenhum desses três pode ser declarado atendido só pela equipe, como a Sprint 1 já registrava.
+
+**Do núcleo da Sprint 4.** O RF09 e o RNF-07 dependem da comunicação entre borda e backend e da
+entrega confiável, os itens S4-AR02 e S4-AR03, que não têm entrega mesclada até 28/09. Enquanto
+eles não existirem, o RNF-02 também não tem o trecho que precisa medir.
+
+## Referências
+
+1. [Requisitos funcionais](/docs/sprint-1/requisitos/funcionais) e
+   [não funcionais](/docs/sprint-1/requisitos/nao-funcionais).
+2. [Planejamento das próximas sprints](/docs/sprint-1/planejamento-proximas-sprints).
+3. [Especificação de testes](/docs/sprint-4/especificacao-de-testes) da Sprint 4.
+4. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) e
+   [procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao).
