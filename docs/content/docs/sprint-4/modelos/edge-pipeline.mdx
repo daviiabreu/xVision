@@ -1,0 +1,81 @@
+---
+title: Otimização da pipeline na edge
+description: Como o processamento sob demanda e o reaproveitamento de resultados reduziram o trabalho da pipeline
+---
+
+A pipeline de edge foi otimizada para diminuir o tempo de processamento e as alocações de memória.
+No teste local realizado na Orin após as alterações, o tempo observado passou de aproximadamente
+**25 segundos para 6 segundos**. A execução concluiu as etapas e gerou o arquivo de eventos.
+Esse resultado se refere ao cenário local testado.
+
+O trabalho se concentrou em como os dados percorrem a pipeline: preparar os lotes no momento do
+uso, reduzir cópias temporárias de imagens, tornar a junção dos resultados mais eficiente e
+consultar o cache antes de executar trabalho que já foi calculado.
+
+## Resumo das alterações
+
+| Arquivo                         | O que mudou                                                                                | Benefício                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `src/edge/graph/runner.py`      | Os lotes temporais passaram a ser preparados e processados sob demanda.                    | Evita manter todos os tensores simultaneamente na memória.                              |
+| `src/edge/graph/runner.py`      | A identificação de quadros repetidos passou a usar um conjunto (`set`).                    | Acelera a junção dos resultados, mantendo a ordem e o primeiro registro de cada quadro. |
+| `src/edge/frames/preprocess.py` | A normalização passou a reutilizar o mesmo buffer `float32`.                               | Reduz alocações temporárias sem alterar os pixels resultantes.                          |
+| `src/edge/cache/perception.py`  | O cache passou a ser consultado antes da preparação das imagens, com integração no runner. | Evita decodificação, pré-processamento e inferência para lotes já calculados.           |
+
+## Processamento dos lotes sob demanda
+
+Antes, o runner preparava todos os lotes temporais antes de começar a inferência. Em janelas
+sobrepostas, isso mantinha vários tensores em memória ao mesmo tempo, inclusive com quadros
+presentes em mais de um lote.
+
+Agora, cada lote é preparado e processado antes de solicitar o próximo. Os resultados também são
+consumidos gradualmente pela junção. Isso evita acumular todos os tensores de entrada e todas as
+saídas intermediárias apenas para começar a etapa seguinte.
+
+A mudança está em `src/edge/graph/runner.py`. Ela reduz a memória adicional dos lotes temporais;
+o cache de quadros do provider continua existindo para permitir seu reaproveitamento entre etapas.
+
+## Junção mais eficiente dos resultados
+
+As janelas temporais podem devolver resultados para o mesmo quadro. Para evitar duplicatas, a
+implementação anterior procurava cada índice em uma lista que crescia durante o processamento.
+Quanto maior a quantidade de quadros, mais comparações eram necessárias.
+
+O runner passou a usar um conjunto para identificar os índices já recebidos. A lista continua
+preservando a ordem de saída, enquanto o conjunto torna a verificação de duplicatas mais eficiente.
+O primeiro registro de cada quadro continua sendo o escolhido quando há sobreposição.
+
+## Menos alocações no pré-processamento
+
+A normalização das imagens criava arrays temporários para dividir os pixels, subtrair a média e
+aplicar o desvio por canal. Essas alocações aumentavam o uso de memória durante a preparação dos
+quadros.
+
+Em `src/edge/frames/preprocess.py`, essas operações passaram a reutilizar a mesma cópia em
+`float32`. A imagem original permanece intacta, e os valores normalizados são preservados.
+A economia vem da redução de buffers temporários necessários para produzir o mesmo tensor.
+
+## Cache consultado antes de preparar as imagens
+
+Mesmo quando a saída de um lote já estava salva, a pipeline primeiro decodificava os quadros e
+montava o tensor para depois consultar o cache. Assim, uma reexecução ainda pagava parte do custo
+de preparar dados que não seriam usados pela inferência.
+
+A consulta agora acontece antes da preparação. Se houver uma saída válida para o pedido, ela é
+reaproveitada diretamente. Se a entrada estiver ausente ou inválida, a pipeline prepara o lote,
+executa a inferência e salva o resultado.
+
+Essa mudança foi implementada em `src/edge/cache/perception.py` e integrada ao runner. Ela mantém
+as chaves existentes e beneficia principalmente reexecuções com resultados em cache. O carregamento
+e o fechamento dos módulos continuam seguindo o ciclo de vida anterior.
+
+## Verificação do comportamento
+
+A validação das alterações passou em 319 testes de runner, pré-processamento, cache e integração.
+Os testes cobrem o processamento dos lotes sob demanda, a ordem dos resultados, o tratamento de
+quadros repetidos e a igualdade dos pixels normalizados.
+
+Também foi verificado que um cache completo dispensa a preparação dos quadros e que um cache
+parcial recalcula apenas as entradas ausentes, mantendo a percepção equivalente. Dessa forma,
+a redução de trabalho preserva o comportamento esperado da pipeline.
+
+As implementações estão nos commits `853276e` e `d65ea53` da branch `perf/edge-pipeline`.
