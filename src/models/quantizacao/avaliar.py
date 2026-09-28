@@ -4,12 +4,16 @@ Uso:
   # Inferência em vídeo
   python3 -u avaliar.py video --modelo ball --video video.mp4
 
+    # Inferência em vídeo com INT8
+    python3 -u avaliar.py video --modelo ball --precisao int8 --video video.mp4
+
   # Validação com dataset (busca o .yaml automaticamente em dataset/<modelo>/)
   python3 -u avaliar.py validar --modelo ball
 
-O engine é carregado de <modelo>/<modelo>.engine (criado pelo quantizacao.py).
+O engine é carregado de <modelo>/<modelo>.engine para FP16 ou
+<modelo>_int8/<modelo>.int8.engine para INT8.
 O dataset deve estar em dataset/<modelo>/ com um arquivo .yaml dentro.
-Os resultados são salvos em resultados/<modelo>_<modo>/
+Os resultados são salvos em resultados/<modelo>_<precisao>_<modo>/
 """
 
 import argparse
@@ -117,6 +121,9 @@ def video(args, modelo, tamanho, saida):
         if gravador is not None:
             gravador.release()
 
+    if not frames:
+        raise RuntimeError("Nenhum frame foi processado no vídeo.")
+
     estatisticas = {
         chave: {
             "media": float(np.mean(valores)),
@@ -218,6 +225,12 @@ def main():
     parser.add_argument(
         "--modelo", required=True, choices=MODELOS, help="Modelo a usar: player, ball ou keypoints."
     )
+    parser.add_argument(
+        "--precisao",
+        choices=("fp16", "int8"),
+        default="fp16",
+        help="Precisão do engine TensorRT (padrão: fp16).",
+    )
     parser.add_argument("--video", type=Path, help="Caminho do vídeo (obrigatório no modo video).")
     parser.add_argument(
         "--split",
@@ -244,13 +257,20 @@ def main():
     if args.modo == "video" and (args.video is None or not args.video.is_file()):
         parser.error("Modo 'video' requer --video com caminho válido para o arquivo.")
 
-    # Engine sempre em <modelo>/<modelo>.engine
-    arquivo = PASTA / args.modelo / f"{args.modelo}.engine"
+    pasta_modelo = f"{args.modelo}" if args.precisao == "fp16" else f"{args.modelo}_int8"
+    nome_engine = (
+        f"{args.modelo}.engine" if args.precisao == "fp16" else f"{args.modelo}.int8.engine"
+    )
+
+    # Engine em <modelo>/<modelo>.engine para FP16 ou <modelo>_int8/<modelo>.int8.engine para INT8
+    arquivo = PASTA / pasta_modelo / nome_engine
     if not arquivo.is_file():
-        parser.error(
-            f"Engine não encontrado: {arquivo}\n"
-            f"Execute primeiro: python3 quantizacao.py --modelo {args.modelo}"
+        comando = (
+            f"python3 quantizacao.py --modelo {args.modelo}"
+            if args.precisao == "fp16"
+            else f"python3 quantizacao_int8.py --modelo {args.modelo}"
         )
+        parser.error(f"Engine não encontrado: {arquivo}\nExecute primeiro: {comando}")
 
     # Dataset auto-descoberto em dataset/<modelo>/
     data_yaml = None
@@ -261,7 +281,14 @@ def main():
                 f"Pasta de dataset não encontrada: {pasta_dataset}\n"
                 f"Crie a pasta e coloque o .yaml do dataset dentro."
             )
-        yamls = list(pasta_dataset.glob("*.yaml")) + list(pasta_dataset.glob("*.yml"))
+        prioridade = [
+            pasta_dataset / "dataset.yaml",
+            pasta_dataset / "data.yaml",
+            pasta_dataset / "players_data.yaml",
+        ]
+        yamls = [arquivo_yaml for arquivo_yaml in prioridade if arquivo_yaml.is_file()]
+        if not yamls:
+            yamls = sorted(pasta_dataset.glob("*.yaml")) + sorted(pasta_dataset.glob("*.yml"))
         if not yamls:
             parser.error(f"Nenhum .yaml/.yml encontrado em: {pasta_dataset}")
         data_yaml = yamls[0]
@@ -279,7 +306,9 @@ def main():
 
     tarefa, tamanho = MODELOS[args.modelo]
     modelo = YOLO(str(arquivo), task=tarefa)
-    saida = increment_path(PASTA / "resultados" / f"{args.modelo}_{args.modo}", mkdir=True)
+    saida = increment_path(
+        PASTA / "resultados" / f"{args.modelo}_{args.precisao}_{args.modo}", mkdir=True
+    )
 
     if args.modo == "video":
         video(args, modelo, tamanho, saida)
