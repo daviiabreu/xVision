@@ -166,12 +166,27 @@ def previous_touch(perception: Perception, frame_index: int) -> TouchEvidence | 
 
     O ultimo episodio pode ser do mesmo `track_id` do contato, e isso e correto: conducao e uma
     sequencia de toques do mesmo jogador, com a bola saindo e voltando ao raio entre eles.
+
+    So conta o que cabe em `JANELA_DO_TOQUE_ANTERIOR_S` antes do episodio do contato. Sem esse
+    limite o `max` responde sempre que exista qualquer posse anterior no clipe, e um toque de dez
+    segundos antes saia com cara de assistencia — o mesmo defeito que `_do_contato` evita com a
+    tolerancia dele, e que o docstring do modulo ja descrevia.
+
+    Com relogio indefinido nao ha janela para aplicar, e a resposta e ausente em vez do defeito
+    antigo: sem dois quadros com `timestamp_s` nada distingue passe de posse de outra fase.
     """
     episodios = _episodios(perception)
     contato = _do_contato(episodios, frame_index, TOLERANCIA_EM_PASSOS * _passo(perception))
     if contato is None:
         return None
-    anteriores = [e for e in episodios if e.fim < contato.inicio]
+    limite = _instante(perception, contato.inicio)
+    if limite is None:
+        return None
+    anteriores = [
+        e
+        for e in episodios
+        if e.fim < contato.inicio and _dentro_da_janela(perception, e.fim, limite)
+    ]
     if not anteriores:
         return None
     ultimo = max(anteriores, key=lambda e: e.fim)
@@ -351,6 +366,47 @@ def _do_contato(
     return None
 
 
+def _instante(perception: Perception, frame_index: int) -> float | None:
+    """O instante de um indice em segundos, interpolado quando ele nao cai numa amostra.
+
+    O relogio e afim no indice porque o runner monta `timestamp_s = indice / clip.fps`, entao
+    interpolar entre as duas amostras mais proximas reconstroi o instante exato e nao uma
+    aproximacao dele. `_episodios` guarda indice, nao tempo, e os limites de um episodio caem em
+    amostra, mas o inicio do episodio do contato pode ser comparado com quadros de outra especie.
+
+    Sobre todos os quadros, e nao so os com bola: `timestamp_s` e do quadro, existe tenha ou nao
+    deteccao, e descartar quadros sem bola so encolheria a base do relogio sem mudar a inclinacao.
+
+    `None` com menos de duas amostras, e nao zero: uma amostra sozinha nao define a inclinacao, e
+    completa-la exigiria inventar um fps que a percepcao nao carrega.
+
+    Duplica `play_evidence.contact_time_s` de proposito: `play_evidence` ja importa deste modulo, e
+    importar de volta fecharia um ciclo entre as duas features.
+    """
+    relogio = {quadro.frame_index: quadro.timestamp_s for quadro in perception.frames}
+    if frame_index in relogio:
+        return relogio[frame_index]
+    if len(relogio) < 2:
+        return None
+    vizinhos = sorted(relogio, key=lambda indice: (abs(indice - frame_index), indice))[:2]
+    primeiro, ultimo = min(vizinhos), max(vizinhos)
+    inclinacao = (relogio[ultimo] - relogio[primeiro]) / (ultimo - primeiro)
+    return relogio[primeiro] + (frame_index - primeiro) * inclinacao
+
+
+def _dentro_da_janela(perception: Perception, frame_index: int, limite: float) -> bool:
+    """Se o fim de um episodio cabe na janela que termina em `limite`.
+
+    Indice sem instante nao entra: um relogio que nao sabe dizer quando aquele quadro aconteceu nao
+    pode afirmar que ele esta dentro da janela, e a afirmacao silenciosa e o defeito que a janela
+    existe para impedir.
+    """
+    instante = _instante(perception, frame_index)
+    if instante is None:
+        return False
+    return limite - JANELA_DO_TOQUE_ANTERIOR_S <= instante <= limite
+
+
 def _passo(perception: Perception) -> float:
     """Passo de amostragem observado, que e a distancia em que o refinamento do contato alcanca.
 
@@ -392,6 +448,23 @@ TOLERANCIA_EM_PASSOS = 2.0
 
 Um passo cobre o refinamento entre amostras. O segundo cobre a bola que ja saiu do pe na amostra
 imediatamente anterior ao instante, que e o caso normal de um chute.
+"""
+
+JANELA_DO_TOQUE_ANTERIOR_S = 3.0
+"""Quanto tempo antes do episodio do contato um toque ainda pode ser o toque anterior, em segundos.
+
+Em segundos, e nao em passos de amostragem, porque o que separa um passe do chute e tempo real de
+jogo, e o passo varia por frameset: dois passos sao 33 ms no conjunto `dense` e 530 ms no
+`oracle-janela`. `TOLERANCIA_EM_PASSOS` nao serve aqui porque mede outra coisa: ela cobre o
+refinamento do contato entre amostras, na casa das dezenas de milissegundos, e reusa-la mataria
+quase toda assistencia real.
+
+Tres segundos porque e a ordem de grandeza de um passe que ainda pertence a mesma jogada. Acima
+disso o toque anterior tende a ser posse de outra fase, e responder por ela seria o mesmo defeito
+que `_do_contato` evita com a tolerancia dele.
+
+Preliminar, como `RAIO_DO_TOQUE` e o raio de marcacao. Precisa ser calibrado antes que qualquer
+numero publicado dependa dele.
 """
 
 

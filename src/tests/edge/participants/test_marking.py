@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import pytest
 
+from contracts import FieldGeometry
 from edge.participants.marking import (
     MarkingCandidate,
     MarkingError,
     candidates_from_frame,
     marked_keys,
+    opponent_pressure,
     pair_markings,
+    pressure_roster,
     teams_from_identities,
 )
 from edge.participants.types import Box, FramePerception, PlayerDetection
@@ -218,3 +221,136 @@ def test_projecao_troca_a_unidade_da_posicao():
         project=lambda ponto: (ponto[0] / 100, ponto[1] / 100),
     )
     assert cands[0].position == (1.0, 10.0)
+
+
+def em_campo(
+    track_id: int,
+    role: str,
+    pitch_xy: tuple[float, float] | None,
+) -> PlayerDetection:
+    return PlayerDetection(
+        box=Box(x1=0.0, y1=0.0, x2=10.0, y2=100.0),
+        confidence=0.9,
+        role=role,
+        track_id=track_id,
+        pitch_xy=pitch_xy,
+    )
+
+
+def quadro_projetado(*detections: PlayerDetection) -> FramePerception:
+    """Quadro com homografia: o contrato so admite `pitch_xy` quando o campo foi resolvido."""
+    return FramePerception(
+        frame_index=0,
+        timestamp_s=0.0,
+        players=detections,
+        field=FieldGeometry(
+            homography=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            reprojection_error_px=0.5,
+            reprojection_error_p95_px=0.6,
+            keypoints=(),
+            observed_keypoint_count=6,
+            inlier_count=6,
+            source="detected",
+            age_frames=0,
+            template_id="pitch-105x68-center-v1",
+            reason=None,
+        ),
+    )
+
+
+def test_elenco_de_pressao_inclui_goleiro_e_exclui_arbitro():
+    """Goleiro adiantado e adversario como outro qualquer; arbitro nao marca ninguem."""
+    roster = pressure_roster(
+        quadro_projetado(
+            em_campo(1, "player", (0.0, 0.0)),
+            em_campo(2, "goalkeeper", (1.0, 0.0)),
+            em_campo(3, "referee", (2.0, 0.0)),
+        ),
+        {1: "team_a", 2: "team_b", 3: "team_b"},
+    )
+    assert [c.key for c in roster.posicionados] == [1, 2]
+
+
+def test_elenco_separa_quem_nao_tem_pitch_xy():
+    """Sem `pitch_xy` nao ha fallback em pixel: o jogador sai do calculo, mas nao some."""
+    roster = pressure_roster(
+        quadro_projetado(em_campo(1, "player", (0.0, 0.0)), em_campo(2, "player", None)),
+        {1: "team_a", 2: "team_b"},
+    )
+    assert [c.key for c in roster.posicionados] == [1]
+    assert roster.sem_posicao == ((2, "team_b"),)
+
+
+def test_pressao_lista_todos_os_adversarios_no_raio_por_distancia():
+    roster = pressure_roster(
+        quadro_projetado(
+            em_campo(1, "player", (0.0, 0.0)),
+            em_campo(2, "player", (3.0, 0.0)),
+            em_campo(3, "player", (1.0, 0.0)),
+            em_campo(4, "player", (90.0, 0.0)),
+        ),
+        {1: "team_a", 2: "team_b", 3: "team_b", 4: "team_b"},
+    )
+    pressao = opponent_pressure(roster, 1, radius=5.0)
+    assert pressao.marcado is True
+    assert pressao.marcadores == ((3, 1.0), (2, 3.0))
+
+
+def test_pressao_ignora_companheiro_colado():
+    roster = pressure_roster(
+        quadro_projetado(em_campo(1, "player", (0.0, 0.0)), em_campo(2, "player", (0.5, 0.0))),
+        {1: "team_a", 2: "team_a"},
+    )
+    assert opponent_pressure(roster, 1, radius=5.0).marcado is False
+
+
+def test_marcador_achado_vence_adversario_sem_posicao():
+    """Mais dado nao desfaz um marcador: dado faltante so pode gerar falso negativo."""
+    roster = pressure_roster(
+        quadro_projetado(
+            em_campo(1, "player", (0.0, 0.0)),
+            em_campo(2, "player", (1.0, 0.0)),
+            em_campo(3, "player", None),
+        ),
+        {1: "team_a", 2: "team_b", 3: "team_b"},
+    )
+    pressao = opponent_pressure(roster, 1, radius=5.0)
+    assert pressao.marcado is True
+    assert pressao.adversarios_sem_posicao == 1
+
+
+def test_sem_marcador_e_com_adversario_sem_posicao_fica_indeterminado():
+    roster = pressure_roster(
+        quadro_projetado(em_campo(1, "player", (0.0, 0.0)), em_campo(2, "player", None)),
+        {1: "team_a", 2: "team_b"},
+    )
+    pressao = opponent_pressure(roster, 1, radius=5.0)
+    assert pressao.marcado is None
+    assert pressao.motivo == "adversario-sem-pitch-xy"
+
+
+def test_companheiro_sem_posicao_nao_gera_indeterminacao():
+    roster = pressure_roster(
+        quadro_projetado(
+            em_campo(1, "player", (0.0, 0.0)),
+            em_campo(2, "player", None),
+            em_campo(3, "player", (90.0, 0.0)),
+        ),
+        {1: "team_a", 2: "team_a", 3: "team_b"},
+    )
+    assert opponent_pressure(roster, 1, radius=5.0).marcado is False
+
+
+def test_observado_sem_posicao_e_observado_ausente_tem_motivos_distintos():
+    roster = pressure_roster(
+        quadro_projetado(em_campo(1, "player", None), em_campo(2, "player", (1.0, 0.0))),
+        {1: "team_a", 2: "team_b"},
+    )
+    assert opponent_pressure(roster, 1, radius=5.0).motivo == "observado-sem-pitch-xy"
+    assert opponent_pressure(roster, 99, radius=5.0).motivo == "observado-fora-do-quadro"
+
+
+def test_raio_nao_positivo_e_recusado():
+    roster = pressure_roster(quadro_projetado(em_campo(1, "player", (0.0, 0.0))), {1: "team_a"})
+    with pytest.raises(MarkingError):
+        opponent_pressure(roster, 1, radius=0.0)

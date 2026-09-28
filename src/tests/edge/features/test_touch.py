@@ -664,6 +664,55 @@ class TestTresEpisodios:
         assert telemetry(self._cena(), 7).episodios == 3
 
 
+class TestJanelaDoToqueAnterior:
+    """O toque anterior tem prazo: `max` sobre todos os episodios responde sempre que exista um.
+
+    Sem a janela, uma posse de dez segundos antes do chute sai com cara de assistencia, e sai
+    estavel — o defeito que o docstring do modulo descreve. A suite inteira passava sem a janela
+    porque nenhuma outra cena daqui chega perto de tres segundos: as maiores tem oito quadros.
+    """
+
+    def _cena(self, afastamento: int) -> Perception:
+        """Posse do track 2 nos quadros 0 e 1, e a do finalizador `afastamento` quadros depois.
+
+        A 59,94 quadros por segundo o fim do episodio antigo fica a `(afastamento - 1) / 59,94`
+        segundos do inicio do episodio do contato, que e a distancia que a janela mede.
+        """
+        elenco = (_jogador(100, 100, 2), _jogador(1000, 100, 7))
+        return _percepcao(
+            _quadro(0, _bola(100, 100), *elenco),
+            _quadro(1, _bola(100, 100), *elenco),
+            _quadro(afastamento, _bola(1000, 100), *elenco),
+            _quadro(afastamento + 1, _bola(1000, 100), *elenco),
+        )
+
+    def test_toque_de_quatro_segundos_antes_nao_responde_pelo_contato(self) -> None:
+        """Sem janela este caso devolve o track 2, porque e o unico episodio anterior que existe."""
+        percepcao = self._cena(240)
+
+        finalizador = shooter_at_contact(percepcao, 241)
+
+        assert finalizador is not None and finalizador.player_track_id == 7
+        assert previous_touch(percepcao, 241) is None
+
+    def test_toque_dentro_da_janela_continua_sendo_o_toque_anterior(self) -> None:
+        """A mesma cena a tres segundos do contato: a janela recusa o antigo, nao o proximo."""
+        percepcao = self._cena(180)
+
+        toque = previous_touch(percepcao, 181)
+
+        assert toque is not None
+        assert toque.player_track_id == 2 and toque.frame_index == 1
+
+    def test_um_quadro_alem_da_borda_ja_fica_de_fora(self) -> None:
+        """Fixa a fronteira: 180 quadros de afastamento cabem em tres segundos e 181 nao.
+
+        Sem os dois lados o teste passa com a janela em qualquer valor grande, e uma constante que
+        nenhum teste prende volta a ser um numero que se pode mexer sem a suite reclamar.
+        """
+        assert previous_touch(self._cena(181), 182) is None
+
+
 class TestFronteiraDoEpisodio:
     def test_dois_donos_em_quadros_vizinhos_dao_dois_episodios(self) -> None:
         """Nenhum teste anterior punha donos diferentes em quadros consecutivos: em toda cena havia

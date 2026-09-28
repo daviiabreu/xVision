@@ -1,4 +1,18 @@
-"""Identifica se houve passe do toque anterior para o finalizador."""
+"""Identifica se houve passe de um companheiro para o finalizador.
+
+Assistencia exige duas coisas juntas: que o toque anterior seja de outro jogador, e que esse
+jogador seja da mesma equipe. Bola tomada do adversario nao e assistencia — ninguem assistiu, o
+finalizador roubou a bola.
+
+Ate a versao 0.1.0 a feature media apenas troca de pe, e deixava a distincao de equipe para o
+`same_team` da evidencia. Isso publicava `value is True` para bola tomada, e quem consumisse o
+valor sem ler a evidencia contava roubo como passe. A decisao de setembro de 2026 mudou a
+semantica: a equipe entra no valor, e `same_team` continua na evidencia para explicar a resposta.
+
+Equipe desconhecida nao vira `False`: sem saber de quem era a bola nao da para afirmar que nao
+houve passe, entao a resposta e `unavailable`. Preferir o `False` silencioso publicaria negativa
+onde ha ignorancia, que e o defeito que as outras features deste pacote evitam.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +45,14 @@ class Assist(FeatureExtractor):
             )
             return unavailable(self.spec, reason)
 
-        assisted = previous.player_track_id != shooter.player_track_id
+        equipe_do_finalizador = _team_at_contact(
+            perception, shot.frame_index, shooter.player_track_id
+        )
+        if previous.team is None or equipe_do_finalizador is None:
+            return unavailable(self.spec, "team-unavailable")
+        mesma_equipe = previous.team == equipe_do_finalizador
+
+        assisted = previous.player_track_id != shooter.player_track_id and mesma_equipe
         return FeatureValue(
             name=self.spec.name,
             version=self.spec.version,
@@ -43,9 +64,7 @@ class Assist(FeatureExtractor):
                 "shooter_track_id": shooter.player_track_id,
                 "previous_touch_track_id": previous.player_track_id,
                 "previous_touch_frame_index": previous.frame_index,
-                "same_team": previous.team is not None
-                and previous.team
-                == _team_at_contact(perception, shot.frame_index, shooter.player_track_id),
+                "same_team": mesma_equipe,
                 "previous_touch_source": previous.source,
                 "shooter_source": shooter.source,
             },
