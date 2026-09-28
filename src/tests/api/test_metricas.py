@@ -166,7 +166,7 @@ def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: 
         "goalkeeper_position": "boolean",
         "looked_before": None,
         "type_of_play": "text",
-        "marked": None,
+        "marked": "boolean",
         "assist": None,
         "crowded": None,
         "distancia_falsa": "float",

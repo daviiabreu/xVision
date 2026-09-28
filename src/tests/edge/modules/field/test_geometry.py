@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from edge.modules.field.geometry import (
@@ -10,6 +11,8 @@ from edge.modules.field.geometry import (
     FieldProjectionError,
     ImageKeypoint,
     calibrate,
+    has_safe_pitch_projection,
+    has_safe_visible_projection,
     image_to_pitch,
     pitch_to_image,
 )
@@ -157,3 +160,39 @@ def test_calibration_rejects_horizon_crossing_unobserved_half_of_pitch() -> None
     assert len(observations) == 17
     assert result.homography is None
     assert result.reason == "degenerate-homography"
+
+
+def test_a_checagem_visivel_aceita_canto_distante_atras_da_camera() -> None:
+    """Camera virada para um gol: o canto do outro lado fica atras dela sem aparecer no quadro."""
+    virada = np.array([[10.0, 0.0, 960.0], [0.0, -10.0, 540.0], [-0.03, 0.0, 1.0]])
+
+    assert not has_safe_pitch_projection(virada)
+    assert has_safe_visible_projection(virada, (1920, 1080))
+
+
+def test_a_checagem_visivel_recusa_campo_espelhado_e_campo_fora_do_quadro() -> None:
+    espelhada = -np.array([[10.0, 0.0, 960.0], [0.0, -10.0, 540.0], [0.0, 0.0, -1.0]])
+    longe = np.array([[10.0, 0.0, 90000.0], [0.0, -10.0, 540.0], [0.0, 0.0, 1.0]])
+
+    assert not has_safe_visible_projection(espelhada, (1920, 1080))
+    assert not has_safe_visible_projection(longe, (1920, 1080))
+
+
+def test_camera_virada_para_um_gol_so_calibra_com_a_checagem_visivel() -> None:
+    virada = (10.0, 0.0, 960.0, 0.0, -10.0, 540.0, -0.025, 0.0, 1.0)
+    pontos = tuple(
+        ImageKeypoint(p.name, pitch_to_image(virada, p.pitch_xy), 0.9)
+        for p in PITCH_105X68.keypoints
+        if p.pitch_xy[0] <= 10.0
+    )
+
+    padrao = calibrate(pontos, frame_size=(1920, 1080))
+    visivel = calibrate(
+        pontos, frame_size=(1920, 1080), config=CalibrationConfig(safe_projection="visible")
+    )
+
+    assert padrao.reason == "degenerate-homography"
+    assert visivel.homography is not None
+    assert pitch_to_image(visivel.homography, (-20.0, 5.0)) == pytest.approx(
+        pitch_to_image(virada, (-20.0, 5.0)), abs=0.01
+    )

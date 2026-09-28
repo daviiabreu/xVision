@@ -62,6 +62,7 @@ from edge.features.touch import (
 from edge.features.touch import telemetry as touch_telemetry
 
 BallSupport = Literal["detected", "interpolated", "mixed", "none"]
+Relacao = Literal["proprio", "companheiro", "adversario", "goleiro"]
 
 DETECTED = "detected"
 UNKNOWN = "unknown"
@@ -175,6 +176,8 @@ class PlayEvidence:
     previous_touch_age_s: float | None
     previous_touch_source: str | None
     camera_cut: bool
+    previous_touch_relation: Relacao | None = None
+    """Quem tocou antes em relacao ao finalizador; `None` quando falta um dos dois ou o time."""
 
 
 @dataclass(frozen=True)
@@ -248,6 +251,7 @@ def measure(
         previous_touch_age_s=_touch_age_s(perception, touch, t_contact),
         previous_touch_source=None if touch is None else touch.source,
         camera_cut=_camera_cut(frames),
+        previous_touch_relation=_relacao(shooter, touch),
     )
     telemetry = PlayTelemetry(
         frames_in_window=len(frames),
@@ -469,6 +473,18 @@ def _is_shooter(shooter: ContactPlayerEvidence | None, touch: TouchEvidence | No
     if shooter is None or touch is None:
         return None
     return touch.player_track_id == shooter.player_track_id
+
+
+def _relacao(shooter: ContactPlayerEvidence | None, touch: TouchEvidence | None) -> Relacao | None:
+    if shooter is None or touch is None:
+        return None
+    if touch.player_track_id == shooter.player_track_id:
+        return "proprio"
+    if touch.role == "goalkeeper":
+        return "goleiro"
+    if shooter.team is None or touch.team is None:
+        return None
+    return "companheiro" if touch.team == shooter.team else "adversario"
 
 
 def _touch_age_s(

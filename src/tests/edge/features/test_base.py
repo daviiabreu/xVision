@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from edge.features.base import FeatureError, FeatureSpec, shot_provenance, unavailable
+from edge.features.base import (
+    FeatureError,
+    FeatureSpec,
+    ShotActions,
+    parse_shot_actions,
+    shot_actions,
+    shot_provenance,
+    unavailable,
+)
 
 
 def test_unknown_requirement_is_refused_at_construction() -> None:
@@ -123,3 +133,83 @@ class TestShotProvenance:
             confidence = True
 
         assert shot_provenance(Booleana()).confidence is None  # pyright: ignore[reportArgumentType]
+
+
+def _acoes(**trocas: object) -> dict[str, object]:
+    """O campo `actions` como o T-DEED o grava, com o que o teste quiser estragar."""
+    return {
+        "classes": ["BACKGROUND", "CROSS", "SHOT"],
+        "frame_indices": [100, 105, 110],
+        "probabilities": [[0.9, 0.1, 0.0], [0.2, 0.7, 0.1], [0.1, 0.0, 0.9]],
+        **trocas,
+    }
+
+
+class TestShotActions:
+    """A matriz de passo por classe do detector de instante, sem aproveitar pedaco estragado."""
+
+    def test_o_registro_bem_formado_vira_matriz_e_a_serie_sai_por_classe(self) -> None:
+        acoes = parse_shot_actions(_acoes())
+
+        assert acoes is not None
+        assert acoes.classes == ("BACKGROUND", "CROSS", "SHOT")
+        assert acoes.serie("CROSS") == ((100, 0.1), (105, 0.7), (110, 0.0))
+
+    def test_a_matriz_sobrevive_ao_caminho_do_cache(self) -> None:
+        """O registro volta do cache por JSON, que devolve lista onde o modulo gravou lista."""
+        assert parse_shot_actions(json.loads(json.dumps(_acoes()))) == parse_shot_actions(_acoes())
+
+    def test_classe_que_o_detector_nao_pontua_devolve_serie_vazia(self) -> None:
+        acoes = parse_shot_actions(_acoes())
+
+        assert acoes is not None
+        assert acoes.serie("CORNER") == ()
+
+    @pytest.mark.parametrize(
+        "estragado",
+        [
+            None,
+            "actions",
+            _acoes(classes=[]),
+            _acoes(classes=["BACKGROUND", "CROSS", "CROSS"]),
+            _acoes(classes=["BACKGROUND", "CROSS", 3]),
+            _acoes(frame_indices=[100, True, 110]),
+            _acoes(frame_indices=[100, 110, 105]),
+            _acoes(frame_indices=[100, 105]),
+            _acoes(probabilities=[[0.9, 0.1, 0.0], [0.2, 0.7], [0.1, 0.0, 0.9]]),
+            _acoes(probabilities=[[0.9, 0.1, 0.0], [0.2, float("nan"), 0.1], [0.1, 0.0, 0.9]]),
+            _acoes(probabilities=[[0.9, 0.1, 0.0], [0.2, 1.5, 0.1], [0.1, 0.0, 0.9]]),
+            _acoes(probabilities=[[0.9, 0.1, 0.0], [0.2, True, 0.1], [0.1, 0.0, 0.9]]),
+            _acoes(probabilities=[[0.9, 0.1, 0.0], [0.2, "0.7", 0.1], [0.1, 0.0, 0.9]]),
+            {"classes": ["SHOT"], "frame_indices": [100]},
+        ],
+    )
+    def test_qualquer_defeito_recusa_a_matriz_inteira(self, estragado: object) -> None:
+        assert parse_shot_actions(estragado) is None
+
+    def test_a_construcao_direta_recusa_linha_sem_as_classes_todas(self) -> None:
+        with pytest.raises(ValueError, match="classes"):
+            ShotActions(classes=("SHOT", "PASS"), frame_indices=(1,), probabilities=((0.5,),))
+
+    def test_shot_actions_so_devolve_o_tipo_certo(self) -> None:
+        acoes = parse_shot_actions(_acoes())
+
+        class Tdeed:
+            frame_index = 110
+            shooter_track_id = None
+            actions = acoes
+
+        class Cru:
+            """O dicionario do registro nunca chega a feature sem passar pela leitura."""
+
+            frame_index = 110
+            shooter_track_id = None
+            actions = _acoes()
+
+        class Regra:
+            frame_index = 110
+            shooter_track_id = None
+
+        assert shot_actions(Tdeed()) is acoes  # pyright: ignore[reportArgumentType]
+        assert shot_actions(Cru()) is None  # pyright: ignore[reportArgumentType]
+        assert shot_actions(Regra()) is None  # pyright: ignore[reportArgumentType]

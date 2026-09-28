@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
-from mlops.evaluate import EvaluationError, evaluate
+from mlops.evaluate import EvaluationError, MetricReport, evaluate
 from mlops.labels import Label, LabelError, Labels, Metric
 
 MARKED = Label(
@@ -269,3 +271,135 @@ def test_um_modelo_identico_ao_constante_nao_tem_p_valor_significativo() -> None
     pares = [(False, True)] * 3 + [(False, False)] * 20
 
     assert mcnemar(pares)["p_value"] == 1.0
+
+
+JOGADA = Label(
+    name="jogada",
+    table="t",
+    column="jogada",
+    type="enum",
+    domain=("open play", "set piece", "individual"),
+    missing=("",),
+)
+TABELA_JOGADA = Labels(labels={"jogada": JOGADA}, metrics=(Metric("jogada", "jogada"),))
+
+
+def _jogada() -> MetricReport:
+    """Seis abertas, duas bolas paradas e dois individuais; o modelo nunca preve bola parada."""
+    rotulos = ["open play"] * 6 + ["set piece"] * 2 + ["individual"] * 2
+    previstos = ["open play"] * 5 + ["individual"] + ["open play"] * 2 + ["individual"] * 2
+    gabarito = {str(i): {"jogada": r} for i, r in enumerate(rotulos)}
+    predicoes = {str(i): {"jogada": (p, None)} for i, p in enumerate(previstos)}
+    (metrica,) = evaluate(predicoes, gabarito, TABELA_JOGADA).metrics
+    return metrica
+
+
+def test_a_matriz_do_enum_mostra_a_coluna_da_classe_que_o_modelo_nunca_preve() -> None:
+    metrica = _jogada()
+
+    assert metrica.confusion_matrix == {
+        "individual": {"individual": 2, "open play": 0, "set piece": 0},
+        "open play": {"individual": 1, "open play": 5, "set piece": 0},
+        "set piece": {"individual": 0, "open play": 2, "set piece": 0},
+    }
+    assert metrica.confusion is None
+
+
+def test_por_classe_diz_qual_classe_o_modelo_errou_e_nao_inventa_zero() -> None:
+    """Precisao de uma classe nunca prevista nao e zero: o modelo nao tentou."""
+    por_classe = _jogada().per_class
+
+    assert por_classe is not None
+    assert por_classe["set piece"] == {
+        "precision": None,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 2,
+        "predicted": 0,
+    }
+    assert por_classe["open play"]["recall"] == pytest.approx(5 / 6)
+    assert por_classe["open play"]["precision"] == pytest.approx(5 / 7)
+    assert por_classe["individual"]["precision"] == pytest.approx(2 / 3)
+
+
+def test_o_macro_f1_e_exatamente_a_media_do_f1_por_classe() -> None:
+    metrica = _jogada()
+
+    assert metrica.per_class is not None
+    f1s = [cast("float", valores["f1"]) for valores in metrica.per_class.values()]
+    assert metrica.scores["macro_f1"] == pytest.approx(sum(f1s) / len(f1s))
+
+
+def test_booleano_ganha_por_classe_e_continua_sem_matriz() -> None:
+    gabarito = {str(i): _verdade(marked="true" if i < 7 else "false") for i in range(10)}
+    predicoes = {str(i): {"marked": (i < 5, None)} for i in range(10)}
+
+    (metrica,) = [m for m in evaluate(predicoes, gabarito, TABELA).metrics if m.feature == "marked"]
+
+    assert metrica.confusion_matrix is None
+    assert metrica.per_class is not None
+    assert set(metrica.per_class) == {"True", "False"}
+    assert metrica.per_class["True"]["recall"] == pytest.approx(5 / 7)
+
+
+def test_numerico_e_metrica_sem_predicao_nao_tem_nada_por_classe() -> None:
+    gabarito = {str(i): _verdade() for i in range(4)}
+    relatorio = evaluate(
+        {str(i): {"distancia": (12.0, None)} for i in range(4)}, gabarito, TABELA
+    ).to_dict()
+
+    por_nome = {m["feature"]: m for m in relatorio["metrics"]}
+    assert por_nome["distancia"]["per_class"] is None
+    assert por_nome["marked"]["per_class"] is None
+    assert por_nome["marked"]["confusion_matrix"] is None
+
+
+def _por_partida(
+    acertos: dict[str, int], total: int = 5
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
+    """Cada partida com `total` chutes; `acertos` deles o modelo acerta."""
+    gabarito: dict[str, Any] = {}
+    predicoes: dict[str, Any] = {}
+    grupos: dict[str, str] = {}
+    for partida, certos in acertos.items():
+        for i in range(total):
+            chute = f"{partida}-{i}"
+            gabarito[chute] = _verdade(marked="true")
+            predicoes[chute] = {"marked": (i < certos, None)}
+            grupos[chute] = partida
+    return predicoes, gabarito, grupos
+
+
+def _marcado(relatorio: Any) -> MetricReport:
+    return next(m for m in relatorio.metrics if m.feature == "marked")
+
+
+def test_o_intervalo_reamostra_partidas_e_contem_o_ponto() -> None:
+    predicoes, gabarito, grupos = _por_partida({"a": 5, "b": 5, "c": 0, "d": 1})
+
+    metrica = _marcado(evaluate(predicoes, gabarito, TABELA, groups=grupos, resamples=300))
+
+    assert metrica.bootstrap is not None
+    faixa = cast("list[float]", metrica.bootstrap["accuracy"])
+    assert metrica.bootstrap["groups"] == 4
+    assert faixa[0] <= metrica.scores["accuracy"] <= faixa[1]
+    assert faixa[1] - faixa[0] > 0.3
+
+
+def test_o_intervalo_e_reproduzivel_pela_semente() -> None:
+    predicoes, gabarito, grupos = _por_partida({"a": 5, "b": 2, "c": 0})
+
+    uma = _marcado(evaluate(predicoes, gabarito, TABELA, groups=grupos, resamples=200, seed=7))
+    outra = _marcado(evaluate(predicoes, gabarito, TABELA, groups=grupos, resamples=200, seed=7))
+
+    assert uma.bootstrap == outra.bootstrap
+
+
+def test_sem_reamostra_nao_ha_intervalo_e_chute_sem_partida_vira_grupo_proprio() -> None:
+    predicoes, gabarito, grupos = _por_partida({"a": 5, "b": 0})
+
+    sem = _marcado(evaluate(predicoes, gabarito, TABELA, groups=grupos))
+    orfaos = _marcado(evaluate(predicoes, gabarito, TABELA, groups={}, resamples=50))
+
+    assert sem.bootstrap is None
+    assert orfaos.bootstrap is not None and orfaos.bootstrap["groups"] == 10

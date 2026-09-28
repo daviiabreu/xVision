@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from typing import Any, Protocol, cast
 
@@ -29,8 +29,10 @@ from edge.modules.field.geometry import (
     CalibrationResult,
     ImageKeypoint,
     calibrate,
+    has_safe_visible_projection,
     pitch_to_image,
 )
+from edge.modules.field.motion import camera_motion
 from edge.modules.field.refinement import LineRefinement, refine_white_lines
 from edge.modules.precision import PADRAO, precisao_valida
 
@@ -70,6 +72,7 @@ class YoloField:
         self._engine_onnx_sha256 = ""
         self._ready = False
         self._line_refinement = False
+        self._propagation_steps = 0
 
     def fingerprint(self) -> str:
         return json.dumps(
@@ -80,6 +83,7 @@ class YoloField:
                 "device": self._device,
                 "quantize": self._quantize,
                 "line_refinement": self._line_refinement,
+                "propagation_steps": self._propagation_steps,
             },
             sort_keys=True,
         )
@@ -98,6 +102,8 @@ class YoloField:
             "engine",
             "engine_onnx_sha256",
             "line_refinement",
+            "propagation_steps",
+            "safe_projection",
         }
         unknown = set(options) - allowed
         if unknown:
@@ -108,6 +114,16 @@ class YoloField:
             if not isinstance(value, bool):
                 raise FieldConfigError("field.line_refinement espera booleano")
             self._line_refinement = value
+        if "propagation_steps" in options:
+            value = options["propagation_steps"]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise FieldConfigError("field.propagation_steps espera inteiro a partir de 0")
+            self._propagation_steps = value
+        if "safe_projection" in options:
+            projection = options["safe_projection"]
+            if projection not in {"pitch", "visible"}:
+                raise FieldConfigError("field.safe_projection espera pitch ou visible")
+            changes["safe_projection"] = projection
         if "method" in options:
             method = options["method"]
             if method not in {"least-squares", "ransac", "magsac"}:
@@ -188,11 +204,17 @@ class YoloField:
         if not self._ready:
             raise ModuleNotLoaded(self.spec.name)
         check_preprocess(batch, self.spec.preprocess)
-        return ModuleOutput(
-            kind=self.spec.kind,
-            frames=batch.indices,
-            records=tuple(self._frame(batch, position) for position, _ in enumerate(batch.indices)),
-        )
+        medidos = [self._frame(batch, position) for position, _ in enumerate(batch.indices)]
+        registros = [registro for registro, _ in medidos]
+        if self._propagation_steps:
+            registros = _propagate(
+                batch,
+                registros,
+                [pontos for _, pontos in medidos],
+                self._propagation_steps,
+                self._calibration,
+            )
+        return ModuleOutput(kind=self.spec.kind, frames=batch.indices, records=tuple(registros))
 
     def close(self) -> None:
         if self._owns_estimator:
@@ -203,25 +225,28 @@ class YoloField:
             self._owns_estimator = False
         self._ready = False
 
-    def _frame(self, batch: FrameBatch, position: int) -> tuple[dict[str, object], ...]:
+    def _frame(
+        self, batch: FrameBatch, position: int
+    ) -> tuple[tuple[dict[str, object], ...], tuple[ImageKeypoint, ...]]:
+        """O registro do quadro e os keypoints medidos nele, em pixel da fonte."""
         if self._estimator is None:
             record = _unavailable("no-field-instance")
             if self._line_refinement:
                 record["refinement"] = "unavailable"
-            return (record,)
+            return (record,), ()
         measured = self._estimator.estimate(batch.tensor[position])
         if not measured:
             record = _unavailable("no-field-instance")
             if self._line_refinement:
                 record["refinement"] = "unavailable"
-            return (record,)
+            return (record,), ()
         points = _source_points(measured, batch)
         source_size = batch.source_size or (batch.preprocess.width, batch.preprocess.height)
         result = calibrate(points, frame_size=source_size, config=self._calibration)
         if not self._line_refinement:
-            return (_record(result, points),)
+            return (_record(result, points),), points
         if result.homography is None:
-            return ({**_record(result, points), "refinement": "unavailable"},)
+            return ({**_record(result, points), "refinement": "unavailable"},), points
         result, refinement = self._refine(batch, position, result, points)
         return (
             {
@@ -229,7 +254,7 @@ class YoloField:
                 "refinement": refinement.status,
                 "line_support_count": refinement.supported_lines,
             },
-        )
+        ), points
 
     def _refine(
         self,
@@ -238,9 +263,7 @@ class YoloField:
         result: CalibrationResult,
         points: tuple[ImageKeypoint, ...],
     ) -> tuple[CalibrationResult, LineRefinement]:
-        source_size = batch.source_size or (batch.preprocess.width, batch.preprocess.height)
-        x0, y0, x1, y1 = to_source_box((0, 0, 1, 1), batch.preprocess, source_size)
-        to_source = np.array([[x1 - x0, 0, x0], [0, y1 - y0, y0], [0, 0, 1]])
+        to_source = _to_source(batch)
         original = np.asarray(result.homography, dtype=np.float64).reshape(3, 3)
         prepared = np.linalg.inv(to_source) @ original
         canonical = {point.name: point.pitch_xy for point in PITCH_105X68.keypoints}
@@ -282,6 +305,103 @@ class YoloField:
             reprojection_error_px=float(np.median(errors)),
             reprojection_error_p95_px=p95,
         ), refinement
+
+
+def _propagate(
+    batch: FrameBatch,
+    registros: list[tuple[dict[str, object], ...]],
+    pontos: list[tuple[ImageKeypoint, ...]],
+    passos: int,
+    calibration: CalibrationConfig,
+) -> list[tuple[dict[str, object], ...]]:
+    """Leva a homografia do calibrado mais proximo, a ate `passos` amostras, aos que falharam."""
+    calibrados = [
+        p for p, registro in enumerate(registros) if registro[0]["homography"] is not None
+    ]
+    if not calibrados:
+        return registros
+    to_source = _to_source(batch)
+    from_source = np.linalg.inv(to_source)
+    movimentos: dict[int, np.ndarray[Any, Any] | None] = {}
+
+    def passo(k: int) -> np.ndarray[Any, Any] | None:
+        if k not in movimentos:
+            matriz = camera_motion(batch.tensor[k], batch.tensor[k + 1])
+            movimentos[k] = None if matriz is None else to_source @ matriz @ from_source
+        return movimentos[k]
+
+    saida = list(registros)
+    for alvo, registro in enumerate(registros):
+        if registro[0]["homography"] is not None:
+            continue
+        perto = sorted(
+            (c for c in calibrados if abs(c - alvo) <= passos), key=lambda c: (abs(c - alvo), c)
+        )
+        for origem in perto:
+            movimento = _cadeia(origem, alvo, passo)
+            if movimento is None:
+                continue
+            base = np.asarray(registros[origem][0]["homography"], dtype=np.float64).reshape(3, 3)
+            matriz = movimento @ base
+            if not has_safe_visible_projection(matriz, _source_size(batch)):
+                continue
+            matriz = matriz / matriz[2, 2]
+            erros = _erros(matriz, pontos[alvo], calibration.keypoint_confidence)
+            if len(erros) >= 2 and np.median(erros) > calibration.max_reprojection_p95_px:
+                continue
+            idade = abs(batch.indices[alvo] - batch.indices[origem])
+            saida[alvo] = (_propagado(registro[0], matriz, idade, erros),)
+            break
+    return saida
+
+
+def _cadeia(
+    origem: int, alvo: int, passo: Callable[[int], np.ndarray[Any, Any] | None]
+) -> np.ndarray[Any, Any] | None:
+    """O movimento de camera da amostra `origem` ate `alvo`, composto passo a passo."""
+    matriz = np.eye(3)
+    for k in range(min(origem, alvo), max(origem, alvo)):
+        movimento = passo(k)
+        if movimento is None:
+            return None
+        matriz = movimento @ matriz
+    return matriz if alvo > origem else np.linalg.inv(matriz)
+
+
+def _erros(
+    matriz: np.ndarray[Any, Any], pontos: tuple[ImageKeypoint, ...], confianca_minima: float
+) -> list[float]:
+    canonico = {ponto.name: ponto.pitch_xy for ponto in PITCH_105X68.keypoints}
+    homografia = tuple(float(valor) for valor in matriz.flat)
+    return [
+        math.dist(pitch_to_image(homografia, canonico[ponto.name]), ponto.image_xy)
+        for ponto in pontos
+        if ponto.confidence >= confianca_minima and ponto.name in canonico
+    ]
+
+
+def _propagado(
+    base: dict[str, object], matriz: np.ndarray[Any, Any], idade: int, erros: list[float]
+) -> dict[str, object]:
+    return {
+        **base,
+        "homography": tuple(float(valor) for valor in matriz.flat),
+        "reprojection_error_px": float(np.median(erros)) if erros else None,
+        "reprojection_error_p95_px": float(np.quantile(erros, 0.95)) if erros else None,
+        "source": "propagated",
+        "age_frames": idade,
+        "reason": None,
+    }
+
+
+def _source_size(batch: FrameBatch) -> tuple[int, int]:
+    return batch.source_size or (batch.preprocess.width, batch.preprocess.height)
+
+
+def _to_source(batch: FrameBatch) -> np.ndarray[Any, Any]:
+    """A afim que leva pixel do tensor pre-processado para pixel da fonte."""
+    x0, y0, x1, y1 = to_source_box((0, 0, 1, 1), batch.preprocess, _source_size(batch))
+    return np.array([[x1 - x0, 0, x0], [0, y1 - y0, y0], [0, 0, 1]], dtype=np.float64)
 
 
 def _unavailable(reason: str) -> dict[str, object]:

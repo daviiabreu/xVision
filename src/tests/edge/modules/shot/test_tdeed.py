@@ -7,6 +7,7 @@ sem peso e sem o codigo GPL do T-DEED.
 
 from __future__ import annotations
 
+import json
 import textwrap
 from collections.abc import Sequence
 from pathlib import Path
@@ -16,6 +17,7 @@ import numpy as np
 import pytest
 
 from edge.cache.perception import tuning_of
+from edge.features.base import parse_shot_actions
 from edge.modules.base import (
     FrameBatch,
     ModuleError,
@@ -110,6 +112,21 @@ def test_a_classe_dominante_fica_registrada_mesmo_quando_nao_e_shot(tmp_path: Pa
 
     assert registro["dominant_class"] == "PASS"
     assert registro["frame_index"] == 110
+
+
+def test_o_registro_carrega_a_matriz_inteira_de_passo_por_classe(tmp_path: Path) -> None:
+    modulo = _modulo(tmp_path)
+    modulo.load()
+
+    saida = modulo.infer(_lote([0.1, 0.2, 0.9, 0.3]), {})
+    check_records(saida)
+    acoes = parse_shot_actions(json.loads(json.dumps(_registro(saida)["actions"])))
+
+    assert acoes is not None
+    assert acoes.classes == ("BACKGROUND", "PASS", "SHOT")
+    assert acoes.frame_indices == (100, 105, 110, 115)
+    assert [p for _, p in acoes.serie("SHOT")] == pytest.approx([0.1, 0.2, 0.9, 0.3], abs=0.01)
+    assert acoes.serie("PASS")[0] == (100, 0.99)
 
 
 def test_os_candidatos_sao_picos_separados_pela_supressao(tmp_path: Path) -> None:

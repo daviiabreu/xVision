@@ -63,6 +63,7 @@ CAMPOS_DA_EVIDENCIA = (
     "previous_touch_age_s",
     "previous_touch_source",
     "camera_cut",
+    "previous_touch_relation",
 )
 
 CAMPOS_DA_TELEMETRIA = (
@@ -554,6 +555,42 @@ def test_toque_de_outro_track_nao_e() -> None:
     evidencia, _ = _measure(percepcao, 64)
 
     assert evidencia.previous_touch_is_shooter is False
+
+
+def _passe(time_do_passador: str | None, papel_do_passador: str | None = None) -> Perception:
+    """O track 7 passa para o track 2, do `team_a`, que finaliza no quadro 64."""
+    route = {56: 900.0, 57: 900.0, 58: 900.0, 59: 500.0, 60: 500.0}
+    route |= {61: 100.0, 62: 100.0, 63: 100.0, 64: 100.0}
+    finalizador = PlayerDetection(Box(80, 50, 120, 150), 0.8, track_id=2, team="team_a")
+    passador = PlayerDetection(
+        Box(880, 50, 920, 150), 0.8, track_id=7, team=time_do_passador, role=papel_do_passador
+    )
+    return _perception(
+        *(_frame(i, FPS_FINO, _ball(x), finalizador, passador) for i, x in route.items())
+    )
+
+
+@pytest.mark.parametrize(
+    ("time_do_passador", "papel", "relacao"),
+    [
+        ("team_a", None, "companheiro"),
+        ("team_b", None, "adversario"),
+        (None, "goalkeeper", "goleiro"),
+        (None, None, None),
+    ],
+)
+def test_relacao_do_toque_anterior_com_o_finalizador(
+    time_do_passador: str | None, papel: str | None, relacao: str | None
+) -> None:
+    evidencia, _ = _measure(_passe(time_do_passador, papel), 64)
+
+    assert evidencia.previous_touch_relation == relacao
+
+
+def test_conducao_e_toque_do_proprio_finalizador() -> None:
+    evidencia, _ = _measure(_dribble_scene(), 64)
+
+    assert evidencia.previous_touch_relation == "proprio"
 
 
 def test_empate_no_contato_deixa_none_em_vez_de_escolher() -> None:

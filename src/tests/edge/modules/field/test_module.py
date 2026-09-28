@@ -282,3 +282,12 @@ def test_precision_changes_the_perception_cache_fingerprint() -> None:
 def test_an_invalid_precision_is_refused_with_what_is_accepted(value: object) -> None:
     with pytest.raises(FieldConfigError, match="fp32.*fp16"):
         YoloField().configure({"quantize": value})
+
+
+def test_a_checagem_visivel_e_opcao_e_muda_a_impressao_do_cache() -> None:
+    visivel = YoloField()
+    visivel.configure({"safe_projection": "visible"})
+
+    assert visivel.fingerprint() != YoloField().fingerprint()
+    with pytest.raises(FieldConfigError, match="safe_projection"):
+        YoloField().configure({"safe_projection": "campo"})

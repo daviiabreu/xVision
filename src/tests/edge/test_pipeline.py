@@ -15,7 +15,14 @@ import pytest
 
 from contracts import Clip, FeatureValue, Perception
 from contracts.validation import validate_shot_event
-from edge.features.base import FeatureExtractor, FeatureSpec, ShotOutput, shot_provenance
+from edge.features.base import (
+    FeatureExtractor,
+    FeatureSpec,
+    ShotActions,
+    ShotOutput,
+    shot_actions,
+    shot_provenance,
+)
 from edge.frames.provider import FrameProvider, VideoSource
 from edge.graph.framesets import read_framesets
 from edge.modules.base import FrameBatch, ModuleInputs, ModuleOutput, PerceptionModule
@@ -400,6 +407,60 @@ def test_the_provenance_of_the_instant_survives_until_the_features(clipe: Clip) 
     assert vistos == [("midpoint", 0.05, "absent")], (
         "a procedencia do instante nao chegou a feature"
     )
+
+
+def _acoes_vistas(clipe: Clip, registro: dict[str, object]) -> list[ShotActions | None]:
+    """O que uma feature recebe em `shot_actions` quando o registro de `shot` e este."""
+    vistas: list[ShotActions | None] = []
+
+    class Espia:
+        spec = FeatureSpec(name="espia", version="0.1.0", requires=())
+
+        def extract(self, perception: Perception, shot: ShotOutput) -> FeatureValue:
+            vistas.append(shot_actions(shot))
+            return FeatureValue(
+                name=self.spec.name,
+                version=self.spec.version,
+                status="ok",
+                value=1.0,
+                confidence=None,
+                reason=None,
+                evidence={},
+            )
+
+    modulos = dict(load_modules(read_config(CONFIG)))
+    modulos["shot"] = _ShotComContato(modulos["shot"], registro)  # pyright: ignore[reportArgumentType]
+    provider = FrameProvider(VideoSource(clipe.path))
+    try:
+        process_clip(
+            clip=clipe,
+            modules=modulos,
+            framesets=read_framesets(CONFIG),
+            provider=provider,
+            extractors=(Espia(),),
+        )
+    finally:
+        provider.close()
+    return vistas
+
+
+def test_as_acoes_do_detector_de_instante_chegam_as_features(clipe: Clip) -> None:
+    acoes = {
+        "classes": ["BACKGROUND", "CROSS", "SHOT"],
+        "frame_indices": [SHOT_FRAME_INDEX - 5, SHOT_FRAME_INDEX],
+        "probabilities": [[0.1, 0.8, 0.1], [0.2, 0.0, 0.8]],
+    }
+
+    vistas = _acoes_vistas(
+        clipe, {"frame_index": SHOT_FRAME_INDEX, "source": "tdeed", "actions": acoes}
+    )
+
+    assert len(vistas) == 1 and vistas[0] is not None
+    assert vistas[0].serie("CROSS") == ((SHOT_FRAME_INDEX - 5, 0.8), (SHOT_FRAME_INDEX, 0.0))
+
+
+def test_instante_que_nao_pontua_acao_chega_sem_acao_e_nao_com_zeros(clipe: Clip) -> None:
+    assert _acoes_vistas(clipe, {"frame_index": SHOT_FRAME_INDEX, "source": "ball-break"}) == [None]
 
 
 def test_the_run_can_tell_a_measured_instant_from_an_estimated_one(clipe: Clip) -> None:

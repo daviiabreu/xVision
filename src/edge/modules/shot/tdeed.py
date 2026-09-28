@@ -13,6 +13,9 @@ O modelo localiza um chute que se sabe existir, ele nao decide se houve chute. P
 o maximo da coluna `SHOT` mesmo quando outra classe pontua mais alto no clipe, o que acontece em 14
 dos 24 clipes de ajuste. O corte do parceiro sempre contem a finalizacao, e `dominant_class` fica no
 registro para quem quiser medir o caso em que isso deixar de ser verdade.
+
+O registro traz tambem `actions`, a probabilidade de todas as classes em cada passo, para as
+features lerem como a jogada chegou ao chute.
 """
 
 from __future__ import annotations
@@ -69,7 +72,7 @@ class TdeedShot:
     spec = ModuleSpec(
         kind="shot",
         name="tdeed",
-        version="0.1.0",
+        version="0.2.0",
         frames="tdeed",
         preprocess=PREPROCESS,
         optional_needs=(BALL,),
@@ -219,7 +222,24 @@ def _registro(
         "source": FONTE,
         "dominant_class": classes[dominante],
         "candidates": _picos(indices, coluna),
+        "actions": _acoes(indices, classes, probabilidades),
         **suporte(quadro, procedencia),
+    }
+
+
+def _acoes(
+    indices: Sequence[int],
+    classes: Sequence[str],
+    probabilidades: np.ndarray[Any, np.dtype[np.float64]],
+) -> dict[str, object]:
+    """Matriz de passo por classe em listas, com o quadro nativo de cada passo."""
+    return {
+        "classes": list(classes),
+        "frame_indices": list(indices),
+        "probabilities": [
+            [round(float(valor), 6) for valor in linha]
+            for linha in cast("list[list[float]]", probabilidades.tolist())
+        ],
     }
 
 

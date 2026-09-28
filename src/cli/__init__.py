@@ -42,6 +42,7 @@ from edge.paths import (
     out_dir,
     pipeline_config,
     runs_dir,
+    var_dir,
 )
 from edge.pipeline import ClipResult, PipelineError, process_clip
 from edge.testing.make_clip import make_synthetic_clip
@@ -55,7 +56,8 @@ from mlops.checkpoint import (
     truncate_to,
     write_checkpoint,
 )
-from mlops.evaluate import EvaluationError, evaluate
+from mlops.evaluate import EvaluationError, MetricReport, evaluate
+from mlops.evidence_training import Exemplo, evaluate_model, train
 from mlops.instant import (
     OBSERVATIONS_FILE,
     TOLERANCIA_ALVO,
@@ -912,6 +914,9 @@ def data_check(labels: Path | None = LABELS_OPTION, split: Path | None = SPLIT_O
 
 EVAL_TRUTH = typer.Option(None, help="Gabarito ja extraido, em JSON. Sem isto, le o catalogo.")
 EVAL_DOBRA = typer.Option("tudo", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo.")
+EVAL_BOOTSTRAP = typer.Option(
+    0, help="Reamostras por partida para o intervalo de 95%. Zero desliga; le o catalogo."
+)
 
 
 @app.command("eval")
@@ -920,6 +925,7 @@ def evaluate_run(
     labels: Path | None = LABELS_OPTION,
     truth: Path | None = EVAL_TRUTH,
     dobra: str = EVAL_DOBRA,
+    bootstrap: int = EVAL_BOOTSTRAP,
 ) -> None:
     """Casa os eventos de uma execucao com o gabarito e conta.
 
@@ -957,8 +963,9 @@ def evaluate_run(
         predicoes[evento["clip_id"]] = {
             f["name"]: (_valor_para_avaliacao(f, tabela), f["reason"]) for f in evento["features"]
         }
+    grupos = {r.shot_id: r.match_id for r in load_catalog()} if bootstrap > 0 else None
     try:
-        relatorio = evaluate(predicoes, gabarito, tabela)
+        relatorio = evaluate(predicoes, gabarito, tabela, groups=grupos, resamples=bootstrap)
     except EvaluationError as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
@@ -972,9 +979,125 @@ def evaluate_run(
             f"{'-' if medida is None else f'{medida:>10.3f}':>10}"
             f"{'-' if maioria is None else f'{maioria:>10.3f}':>10}"
         )
+    for metrica in relatorio.metrics:
+        _por_classe(metrica)
+        _intervalo(metrica)
     destino = run_dir / "report.json"
     destino.write_text(json.dumps(relatorio.to_dict(), indent=1) + "\n", encoding="utf-8")
     typer.echo(f"  {destino}")
+
+
+TREINO_FEATURE = typer.Option(..., help="Feature cuja evidencia vira treino, como type_of_play.")
+TREINO_SAIDA = typer.Option(None, help="Onde gravar o modelo. Padrao: ../var/models/evidencia.")
+TREINO_RESERVADO = typer.Option(
+    False, "--reservado", help="Depois do treino, uma passada nas dobras 3 e 4. So uma vez."
+)
+
+
+@app.command("treino")
+def treino(
+    run_dir: Path,
+    feature: str = TREINO_FEATURE,
+    labels: Path | None = LABELS_OPTION,
+    truth: Path | None = EVAL_TRUTH,
+    saida: Path | None = TREINO_SAIDA,
+    reservado: bool = TREINO_RESERVADO,
+) -> None:
+    """Treina a softmax sobre a evidencia de uma execucao, validando nas dobras 0 a 2."""
+    eventos = run_dir / EVENTS_FILE
+    if not eventos.is_file():
+        typer.echo(f"{eventos} nao existe: passe o diretorio de uma execucao", err=True)
+        raise typer.Exit(code=1)
+    tabela = read_labels(_labels(labels))
+    rotulo = tabela.label_for(feature)
+    if rotulo is None:
+        typer.echo(f"a feature {feature!r} nao tem rotulo em labels.toml", err=True)
+        raise typer.Exit(code=1)
+    gabarito = _gabarito(truth, tabela)
+    dobras = {r.shot_id: r.fold for r in load_catalog()}
+    exemplos: list[Exemplo] = []
+    for linha in eventos.read_text(encoding="utf-8").splitlines():
+        evento = json.loads(linha)
+        valor = next((f for f in evento["features"] if f["name"] == feature), None)
+        alvo = rotulo.parse(gabarito.get(evento["clip_id"], {}).get(rotulo.column, ""))
+        if valor is None or valor["status"] != "ok" or alvo is None:
+            continue
+        if evento["clip_id"] not in dobras:
+            continue
+        exemplos.append(
+            Exemplo(
+                evento["clip_id"],
+                dobras[evento["clip_id"]],
+                valor["value"],
+                valor["evidence"],
+                str(alvo),
+            )
+        )
+    ajuste = [e for e in exemplos if e.fold in DOBRAS_DA_BOLA["ajuste"]]
+    try:
+        modelo, relatorio = train(ajuste, feature)
+    except ValueError as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    if reservado:
+        fechadas = [e for e in exemplos if e.fold in DOBRAS_DA_BOLA["reservado"]]
+        relatorio["reservado"] = evaluate_model(modelo, fechadas) if fechadas else None
+    destino = saida or var_dir() / "models" / "evidencia" / f"{feature}.json"
+    modelo.save(destino)
+    destino.with_suffix(".relatorio.json").write_text(
+        json.dumps(relatorio, indent=1) + "\n", encoding="utf-8"
+    )
+    escolhido = cast("dict[str, Any]", relatorio["escolhido"])
+    regra = cast("dict[str, Any]", relatorio["regra"])
+    maioria = cast("dict[str, Any]", relatorio["maioria"])
+    typer.echo(f"  {feature}: {len(ajuste)} clipes nas dobras 0 a 2, L2 {escolhido['l2']}")
+    for nome, medida in (("modelo", escolhido), ("regra", regra), ("maioria", maioria)):
+        typer.echo(
+            f"    {nome:<8} acuracia {medida['accuracy']:.3f}  macro F1 {medida['macro_f1']:.3f}"
+        )
+    if reservado and relatorio.get("reservado"):
+        fechado = cast("dict[str, Any]", relatorio["reservado"])
+        typer.echo(
+            f"    reservado ({fechado['n']} clipes): macro F1 {fechado['modelo']['macro_f1']:.3f}"
+        )
+    typer.echo(f"  {destino}")
+
+
+def _por_classe(metrica: MetricReport) -> None:
+    """Imprime a matriz de confusao de uma metrica enum, com recall, precisao e F1 por linha."""
+    if metrica.confusion_matrix is None or metrica.per_class is None:
+        return
+    classes = list(metrica.confusion_matrix)
+    typer.echo(f"  {metrica.feature}, linha e o rotulo e coluna e a predicao:")
+    typer.echo(
+        f"    {'':<14}"
+        + "".join(f"{classe[:12]:>13}" for classe in classes)
+        + f"{'recall':>9}{'precisao':>10}{'F1':>7}"
+    )
+    for verdade in classes:
+        linha = metrica.confusion_matrix[verdade]
+        valores = metrica.per_class[verdade]
+        typer.echo(
+            f"    {verdade[:13]:<14}"
+            + "".join(f"{linha[classe]:>13}" for classe in classes)
+            + f"{_fracao(valores['recall']):>9}{_fracao(valores['precision']):>10}"
+            + f"{_fracao(valores['f1']):>7}"
+        )
+
+
+def _intervalo(metrica: MetricReport) -> None:
+    if metrica.bootstrap is None:
+        return
+    faixa = cast("dict[str, Any]", metrica.bootstrap)
+    acuracia, macro = faixa["accuracy"], faixa["macro_f1"]
+    typer.echo(
+        f"  {metrica.feature}, 95% por partida ({faixa['groups']} partidas): "
+        f"acuracia {acuracia[0]:.3f} a {acuracia[1]:.3f}, macro F1 {macro[0]:.3f} a {macro[1]:.3f}"
+    )
+
+
+def _fracao(valor: float | int | None) -> str:
+    return "-" if valor is None else f"{valor:.3f}"
 
 
 def _valor_para_avaliacao(feature: Mapping[str, object], tabela: Labels) -> object:

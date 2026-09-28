@@ -153,8 +153,9 @@ class FieldGeometry:
     keypoints: tuple[tuple[str, float, float], ...]
     observed_keypoint_count: int
     inlier_count: int
-    source: Literal["detected", "unavailable"]
-    age_frames: Literal[0]
+    source: Literal["detected", "unavailable", "propagated"]
+    age_frames: int
+    """Quadros ate o calibrado de onde a homografia veio; zero quando ela foi medida aqui."""
     template_id: str
     reason: FieldUnavailableReason | None
     refinement: Literal[
@@ -179,31 +180,34 @@ class FieldGeometry:
             raise ContractError("field recebeu apoio de retas invalido")
         if not self.template_id:
             raise ContractError("field sem template_id")
-        if self.age_frames != 0:
-            raise ContractError("field por quadro exige age_frames=0")
+        if self.age_frames < 0 or (self.source == "propagated") != (self.age_frames > 0):
+            raise ContractError("field so aceita age_frames positivo quando e propagated")
         if (
             self.observed_keypoint_count < 0
             or not 0 <= self.inlier_count <= self.observed_keypoint_count
         ):
             raise ContractError("contagens de keypoints do field sao invalidas")
-        if self.source == "detected":
+        if self.source in ("detected", "propagated"):
             if self.homography is None or len(self.homography) != 9:
-                raise ContractError("field detected exige homography com 9 valores")
+                raise ContractError(f"field {self.source} exige homography com 9 valores")
             if not all(math.isfinite(value) for value in self.homography):
-                raise ContractError("field detected exige homography finita")
+                raise ContractError(f"field {self.source} exige homography finita")
             if abs(_determinant3(self.homography)) < 1e-12:
-                raise ContractError("field detected recebeu homography degenerada")
-            if self.reprojection_error_px is None or self.reprojection_error_p95_px is None:
+                raise ContractError(f"field {self.source} recebeu homography degenerada")
+            mediana, p95 = self.reprojection_error_px, self.reprojection_error_p95_px
+            if self.source == "detected" and (mediana is None or p95 is None):
                 raise ContractError("field detected exige erros de reprojecao")
-            if (
-                not math.isfinite(self.reprojection_error_px)
-                or not math.isfinite(self.reprojection_error_p95_px)
-                or self.reprojection_error_px < 0
-                or self.reprojection_error_p95_px < self.reprojection_error_px
+            if (mediana is not None or p95 is not None) and (
+                mediana is None
+                or p95 is None
+                or not math.isfinite(mediana)
+                or not math.isfinite(p95)
+                or mediana < 0
+                or p95 < mediana
             ):
-                raise ContractError("field detected recebeu erros de reprojecao invalidos")
+                raise ContractError(f"field {self.source} recebeu erros de reprojecao invalidos")
             if self.reason is not None:
-                raise ContractError("field detected nao aceita reason")
+                raise ContractError(f"field {self.source} nao aceita reason")
             return
         if self.source != "unavailable":
             raise ContractError(f"field source {self.source!r} desconhecido")

@@ -22,7 +22,7 @@ from contracts import Clip, Perception, ShotEvent
 from contracts.events import make_shot_id
 from contracts.schema import SCHEMA_VERSION
 from edge.cache.perception import PerceptionCache, tuning_of
-from edge.features.base import FeatureExtractor, run_features
+from edge.features.base import FeatureExtractor, ShotActions, parse_shot_actions, run_features
 from edge.graph.framesets import FrameSet
 from edge.graph.runner import FrameSource, RunResult, StageRun, run_pipeline
 from edge.modules.base import PerceptionModule
@@ -107,12 +107,14 @@ class _Shot:
         source: str | None = None,
         confidence: float | None = None,
         ball_support: str | None = None,
+        actions: ShotActions | None = None,
     ) -> None:
         self._frame_index = frame_index
         self._shooter_track_id = shooter_track_id
         self._source = source
         self._confidence = confidence
         self._ball_support = ball_support
+        self._actions = actions
 
     @property
     def frame_index(self) -> int:
@@ -133,6 +135,10 @@ class _Shot:
     @property
     def ball_support(self) -> str | None:
         return self._ball_support
+
+    @property
+    def actions(self) -> ShotActions | None:
+        return self._actions
 
 
 def process_clip(
@@ -280,6 +286,7 @@ def _contact(execucao: RunResult, clip: Clip) -> _Shot:
         source=_texto(registro, "source"),
         confidence=_numero(registro, "confidence"),
         ball_support=_texto(registro, "ball_support"),
+        actions=parse_shot_actions(registro.get("actions")),
     )
 
 

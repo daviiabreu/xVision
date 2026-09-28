@@ -96,6 +96,11 @@ class TestPasseDenso:
         assert toque.player_track_id != finalizador.player_track_id
         assert toque.team == "A"
 
+    def test_o_finalizador_leva_o_time_do_episodio(self) -> None:
+        finalizador = shooter_at_contact(_passe_denso(), 10)
+
+        assert finalizador is not None and (finalizador.team, finalizador.role) == ("B", None)
+
     def test_o_toque_anterior_termina_antes_de_comecar_o_episodio_do_contato(self) -> None:
         """Quadro 3 e o ultimo em que a bola estava no pe do passador; 4 a 6 ela esta em voo."""
         toque = previous_touch(_passe_denso(), 10)

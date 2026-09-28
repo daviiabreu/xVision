@@ -7,6 +7,7 @@ sem assistencia. Os testes fixam o que a regra promete, e nao mais que isso.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -18,6 +19,8 @@ from contracts import (
     Perception,
     PlayerDetection,
 )
+from edge.features.base import ShotActions
+from edge.features.evidence_model import VALOR, Column, EvidenceModel
 from edge.features.type_of_play import ABERTA, INDIVIDUAL, PARADA, TypeOfPlay
 
 CONTATO = 120
@@ -257,6 +260,22 @@ class TestEvidenciaEmUnidadesReais:
             )
         return Perception(clip_id="c", frames=tuple(quadros))
 
+    def test_as_acoes_do_tdeed_entram_na_evidencia_sem_mudar_a_classe(self) -> None:
+        cena = self._com_jogadores(100.0)
+        chute = _Shot()
+        chute.actions = ShotActions(  # pyright: ignore[reportAttributeAccessIssue]
+            classes=("BACKGROUND", "CROSS", "SHOT"),
+            frame_indices=(CONTATO - 60, CONTATO),
+            probabilities=((0.2, 0.8, 0.0), (0.1, 0.0, 0.9)),
+        )
+
+        com_acoes = TypeOfPlay().extract(cena, chute)
+        sem_acoes = TypeOfPlay().extract(cena, _Shot())
+
+        assert com_acoes.value == sem_acoes.value
+        assert com_acoes.evidence["ultima_acao"] == "CROSS"
+        assert sem_acoes.evidence["acoes_antes_do_chute"] is None
+
     def test_publica_as_chaves_novas_sem_mexer_nas_antigas(self) -> None:
         valor = TypeOfPlay().extract(self._com_jogadores(100.0), _Shot())
 
@@ -348,6 +367,7 @@ class TestEvidenciaEmUnidadesReais:
             "fracao_observada",
             "toque_anterior",
             "toque_anterior_do_finalizador",
+            "toque_anterior_relacao",
             "idade_do_toque_anterior_s",
             "corte_de_camera",
             "procedencia_do_instante",
@@ -356,6 +376,13 @@ class TestEvidenciaEmUnidadesReais:
             "quadros_na_janela",
             "bola_detectada",
             "episodios_de_posse",
+            "acoes_antes_do_chute",
+            "ultima_acao",
+            "ultima_acao_antecedencia_s",
+            "reinicio_s",
+            "reinicio_antecedencia_s",
+            "plano_fechado_antecedencia_s",
+            "ultimo_corte_antecedencia_s",
         }
 
     def test_a_evidencia_nao_carrega_o_track_do_jogador(self) -> None:
@@ -497,3 +524,36 @@ class TestFronteirasDosLimiares:
         )
 
         assert valor.status == "ok" and valor.value == PARADA
+
+
+def _modelo_que_troca_parada_por_individual(destino: Path) -> Path:
+    modelo = EvidenceModel(
+        feature="type_of_play",
+        classes=(INDIVIDUAL, ABERTA, PARADA),
+        columns=(Column((VALOR,), "equals", PARADA),),
+        mean=(0.0,),
+        scale=(1.0,),
+        coef=((5.0,), (0.0,), (0.0,)),
+        intercept=(0.0, 0.0, 0.0),
+    )
+    modelo.save(destino)
+    return destino
+
+
+def test_com_modelo_a_classe_sai_do_artefato_e_a_da_regra_fica_na_evidencia(tmp_path: Path) -> None:
+    feature = TypeOfPlay(model=str(_modelo_que_troca_parada_por_individual(tmp_path / "m.json")))
+
+    valor = feature.extract(_trajetoria(_parada_ate(CONTATO, 5)), _Shot())
+
+    assert valor.value == INDIVIDUAL
+    assert valor.evidence["classe_da_regra"] == PARADA
+    assert valor.version == "0.3.0+modelo"
+    assert valor.confidence is not None and valor.confidence > 0.9
+
+
+def test_modelo_de_outra_feature_e_recusado(tmp_path: Path) -> None:
+    destino = _modelo_que_troca_parada_por_individual(tmp_path / "m.json")
+    destino.write_text(destino.read_text().replace('"type_of_play"', '"occupied_area"'))
+
+    with pytest.raises(ValueError, match="occupied_area"):
+        TypeOfPlay(model=str(destino))

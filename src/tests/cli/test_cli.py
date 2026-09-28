@@ -286,6 +286,78 @@ def test_data_check_counts_what_the_dataset_has(
     assert "fold" in resultado.output.lower()
 
 
+def test_eval_imprime_a_matriz_de_uma_metrica_enum_com_recall_de_cada_linha(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    execucao = tmp_path / "run"
+    execucao.mkdir()
+    previstos = {"1": "open play", "2": "open play", "3": "individual"}
+    linhas = [
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "shot_id": f"{clip}:5",
+                "clip_id": clip,
+                "match_id": "900",
+                "shot_timestamp_s": 1.0,
+                "features": [
+                    {
+                        "name": "jogada",
+                        "version": "0.1.0",
+                        "status": "ok",
+                        "value": valor,
+                        "confidence": None,
+                        "reason": None,
+                        "evidence": {},
+                    }
+                ],
+                "pipeline": {
+                    "versions": {},
+                    "timings_ms": {},
+                    "host": "h",
+                    "started_at": "2026-08-24T00:00:00Z",
+                },
+            }
+        )
+        for clip, valor in previstos.items()
+    ]
+    (execucao / "events.jsonl").write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    labels = tmp_path / "labels.toml"
+    labels.write_text(
+        '[[label]]\nname = "jogada"\ntable = "t"\ncolumn = "jogada"\ntype = "enum"\n'
+        'domain = ["open play", "set piece", "individual"]\nmissing = [""]\n'
+        '[[metric]]\nfeature = "jogada"\nlabel = "jogada"\n',
+        encoding="utf-8",
+    )
+    truth = tmp_path / "truth.json"
+    truth.write_text(
+        json.dumps(
+            {
+                "1": {"jogada": "open play"},
+                "2": {"jogada": "set piece"},
+                "3": {"jogada": "open play"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resultado = runner.invoke(
+        app, ["eval", str(execucao), "--labels", str(labels), "--truth", str(truth)]
+    )
+
+    assert resultado.exit_code == 0, resultado.output
+    assert "linha e o rotulo" in resultado.output
+    linha_da_bola_parada = next(
+        linha for linha in resultado.output.splitlines() if linha.strip().startswith("set piece")
+    )
+    assert linha_da_bola_parada.split()[-3:] == ["0.000", "-", "0.000"]
+    relatorio = json.loads((execucao / "report.json").read_text(encoding="utf-8"))
+    (metrica,) = relatorio["metrics"]
+    assert metrica["confusion_matrix"]["set piece"]["open play"] == 1
+
+
 def test_eval_on_a_run_prints_one_line_per_metric_with_the_majority_beside_it(
     tmp_path: Path,
 ) -> None:

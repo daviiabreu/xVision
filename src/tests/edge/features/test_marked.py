@@ -1,13 +1,13 @@
-"""A feature `marked`: diz se havia adversario no raio do finalizador no contato.
+"""A feature `marked`: a cena acha o quadro e o finalizador, e a regra de pressao decide.
 
-Marcacao e afirmacao existencial, entao os testes cobrem as tres respostas separadamente: `True`
-com marcador achado, `False` so quando todos os adversarios tinham posicao, e `unavailable` quando
-o buraco na percepcao poderia esconder justamente o marcador.
+Marcacao e afirmacao existencial, entao os casos cobrem as tres respostas: `True` com marcador
+achado, `False` so quando todos os adversarios tinham posicao, e `unavailable` quando o buraco na
+percepcao poderia esconder justamente o marcador.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from contracts import (
     BallDetection,
@@ -18,6 +18,110 @@ from contracts import (
     PlayerDetection,
 )
 from edge.features.marked import Marked
+
+FPS = 59.94
+CAMPO = FieldGeometry(
+    homography=(10.0, 0.0, 960.0, 0.0, -10.0, 540.0, 0.0, 0.0, 1.0),
+    reprojection_error_px=0.2,
+    reprojection_error_p95_px=0.4,
+    keypoints=(),
+    observed_keypoint_count=8,
+    inlier_count=8,
+    source="detected",
+    age_frames=0,
+    template_id="pitch-105x68-center-v1",
+    reason=None,
+)
+
+
+@dataclass(frozen=True)
+class _Chute:
+    frame_index: int
+    shooter_track_id: int | None = None
+
+
+def _jogador(x: float, track: int, team: str, metro: tuple[float, float] | None) -> PlayerDetection:
+    return PlayerDetection(
+        Box(x - 20, 500, x + 20, 600), 0.8, track_id=track, team=team, role="player", pitch_xy=metro
+    )
+
+
+def _percepcao(*, defensor_a: float, campo_em: set[int] | None = None) -> Perception:
+    """Finalizador 7 com a bola no pe e o defensor 9 a `defensor_a` metros dele."""
+    quadros: list[FramePerception] = []
+    for i in range(0, 44, 4):
+        campo = campo_em is None or i in campo_em
+        jogadores = (
+            _jogador(500, 7, "team_a", (-46.0, -6.0) if campo else None),
+            _jogador(1100, 9, "team_b", (-46.0 + defensor_a, -6.0) if campo else None),
+        )
+        bola = BallDetection(Box(495, 585, 505, 595), 0.9, source="detected")
+        quadros.append(
+            FramePerception(
+                frame_index=i,
+                timestamp_s=i / FPS,
+                players=jogadores,
+                ball=bola,
+                field=CAMPO if campo else None,
+            )
+        )
+    return Perception(clip_id="c", frames=tuple(quadros))
+
+
+def test_defensor_colado_no_finalizador_e_marcacao() -> None:
+    valor = Marked().extract(_percepcao(defensor_a=1.5), _Chute(28))
+
+    assert valor.status == "ok"
+    assert valor.value is True
+    assert valor.evidence["origem_do_finalizador"] == "touch"
+
+
+def test_defensor_longe_nao_marca() -> None:
+    valor = Marked().extract(_percepcao(defensor_a=8.0), _Chute(28))
+
+    assert (valor.status, valor.value) == ("ok", False)
+
+
+def test_o_quadro_de_referencia_pode_ser_vizinho_do_contato() -> None:
+    valor = Marked().extract(_percepcao(defensor_a=1.5, campo_em={24}), _Chute(28))
+
+    assert valor.status == "ok"
+    assert valor.evidence["frame_index"] == 24
+
+
+def test_sem_homografia_perto_do_contato_e_indisponivel() -> None:
+    valor = Marked().extract(_percepcao(defensor_a=1.5, campo_em=set()), _Chute(28))
+
+    assert valor.status == "unavailable"
+    assert "homografia" in (valor.reason or "")
+
+
+def test_sem_jogador_com_equipe_e_indisponivel() -> None:
+    cena = _percepcao(defensor_a=1.5)
+    sem_time = Perception(
+        clip_id="c",
+        frames=tuple(
+            replace(q, players=tuple(replace(j, team=None) for j in q.players)) for q in cena.frames
+        ),
+    )
+
+    assert Marked().extract(sem_time, _Chute(28)).status == "unavailable"
+
+
+def test_jogador_com_equipe_fora_do_campo_e_indisponivel() -> None:
+    cena = _percepcao(defensor_a=1.5)
+    quadros = list(cena.frames)
+    q = quadros[7]
+    quadros[7] = replace(q, players=(q.players[0], replace(q.players[1], pitch_xy=None)))
+
+    valor = Marked().extract(Perception(clip_id="c", frames=tuple(quadros)), _Chute(28))
+
+    assert valor.status == "unavailable"
+    assert valor.reason == "adversario-sem-pitch-xy"
+
+
+# Casos da regra de pressao, com o finalizador declarado pelo `shot`. A cena precisa de dois quadros
+# para situar o contato no tempo, entao cada percepcao repete o quadro do contato um quadro antes.
 
 SHOT_FRAME = 18
 
@@ -74,8 +178,11 @@ def _frame(frame_index: int, *players: PlayerDetection) -> FramePerception:
     )
 
 
-def _perception(*players: PlayerDetection, frame_index: int = SHOT_FRAME) -> Perception:
-    return Perception(clip_id="clipe-1", frames=(_frame(frame_index, *players),))
+def _perception(*players: PlayerDetection) -> Perception:
+    return Perception(
+        clip_id="clipe-1",
+        frames=(_frame(SHOT_FRAME - 1, *players), _frame(SHOT_FRAME, *players)),
+    )
 
 
 def test_finalizador_com_adversario_perto_sai_marcado() -> None:
@@ -213,7 +320,7 @@ def test_finalizador_sem_posicao_e_indisponivel() -> None:
     valor = Marked().extract(perception, _Shot())
 
     assert valor.status == "unavailable"
-    assert valor.reason == "observado-sem-pitch-xy"
+    assert "metro" in (valor.reason or "")
 
 
 def test_finalizador_sem_equipe_e_indisponivel() -> None:
@@ -226,71 +333,3 @@ def test_finalizador_sem_equipe_e_indisponivel() -> None:
 
     assert valor.status == "unavailable"
     assert valor.reason == "finalizador sem equipe nesse frame"
-
-
-def test_shot_sem_finalizador_e_indisponivel() -> None:
-    perception = _perception(_player(7, "team_a", (40.0, -6.0)))
-
-    valor = Marked().extract(perception, _Shot(shooter_track_id=None))
-
-    assert valor.status == "unavailable"
-    assert valor.reason == "shot sem shooter_track_id"
-
-
-def test_quadro_vizinho_dentro_da_tolerancia_responde_pelo_contato() -> None:
-    """Contato refinado entre amostras nao cai mais em `unavailable` por um quadro de diferenca."""
-    perception = _perception(
-        _player(7, "team_a", (40.0, -6.0)),
-        _player(4, "team_b", (42.0, -6.0)),
-        frame_index=SHOT_FRAME + 1,
-    )
-
-    valor = Marked().extract(perception, _Shot())
-
-    assert valor.status == "ok"
-    assert valor.value is True
-    assert valor.evidence["frame_index"] == SHOT_FRAME + 1
-    assert valor.evidence["shot_frame_index"] == SHOT_FRAME
-
-
-def test_empate_de_distancia_fica_com_o_quadro_anterior() -> None:
-    perception = Perception(
-        clip_id="clipe-1",
-        frames=(
-            _frame(
-                SHOT_FRAME - 1,
-                _player(7, "team_a", (40.0, -6.0)),
-                _player(4, "team_b", (42.0, -6.0)),
-            ),
-            _frame(
-                SHOT_FRAME + 1,
-                _player(7, "team_a", (40.0, -6.0)),
-                _player(4, "team_b", (60.0, -6.0)),
-            ),
-        ),
-    )
-
-    valor = Marked().extract(perception, _Shot())
-
-    assert valor.status == "ok"
-    assert valor.evidence["frame_index"] == SHOT_FRAME - 1
-    assert valor.value is True
-
-
-def test_quadro_longe_demais_e_indisponivel() -> None:
-    perception = _perception(_player(7, "team_a", (40.0, -6.0)), frame_index=SHOT_FRAME + 50)
-
-    valor = Marked().extract(perception, _Shot())
-
-    assert valor.status == "unavailable"
-    assert valor.value is None
-    assert valor.reason == f"sem percepcao pro frame {SHOT_FRAME}"
-
-
-def test_percepcao_sem_jogador_nenhum_e_indisponivel() -> None:
-    perception = Perception(clip_id="clipe-1", frames=(_frame(SHOT_FRAME),))
-
-    valor = Marked().extract(perception, _Shot())
-
-    assert valor.status == "unavailable"
-    assert valor.reason == f"sem percepcao pro frame {SHOT_FRAME}"

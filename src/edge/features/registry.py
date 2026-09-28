@@ -13,8 +13,8 @@ editando a mesma tupla num arquivo Python.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import cast
@@ -34,6 +34,8 @@ class UnknownFeature(FeatureError): ...
 class FeatureConfig:
     entry: str
     impl: str
+    options: Mapping[str, object] = field(default_factory=dict[str, object])
+    """Chaves da secao alem de `impl`, passadas ao construtor da feature."""
 
 
 def read_feature_config(source: str | Path) -> tuple[FeatureConfig, ...]:
@@ -45,14 +47,19 @@ def read_feature_config(source: str | Path) -> tuple[FeatureConfig, ...]:
         impl = corpo.get("impl")
         if not isinstance(impl, str):
             raise UnknownFeature(f"features.{entry} precisa declarar impl")
-        configuracoes.append(FeatureConfig(entry=entry, impl=impl))
+        opcoes = {chave: valor for chave, valor in corpo.items() if chave != "impl"}
+        configuracoes.append(FeatureConfig(entry=entry, impl=impl, options=opcoes))
     return tuple(configuracoes)
 
 
 def load_extractors(configs: tuple[FeatureConfig, ...]) -> tuple[FeatureExtractor, ...]:
     extractors: list[FeatureExtractor] = []
     for config in configs:
-        extractor = _resolve(config)()
+        construtor = _resolve(config)
+        try:
+            extractor = construtor(**config.options)
+        except TypeError as erro:
+            raise UnknownFeature(f"features.{config.entry} recusou as opcoes: {erro}") from erro
         if extractor.spec.name != config.entry:
             raise UnknownFeature(
                 f"features.{config.entry} carrega uma feature chamada {extractor.spec.name!r}. "
@@ -62,7 +69,7 @@ def load_extractors(configs: tuple[FeatureConfig, ...]) -> tuple[FeatureExtracto
     return tuple(extractors)
 
 
-def _resolve(config: FeatureConfig) -> Callable[[], FeatureExtractor]:
+def _resolve(config: FeatureConfig) -> Callable[..., FeatureExtractor]:
     caminho, _, atributo = config.impl.partition(":")
     if not atributo:
         raise UnknownFeature(
@@ -70,7 +77,7 @@ def _resolve(config: FeatureConfig) -> Callable[[], FeatureExtractor]:
             "depois do dois-pontos"
         )
     try:
-        return cast("Callable[[], FeatureExtractor]", getattr(import_module(caminho), atributo))
+        return cast("Callable[..., FeatureExtractor]", getattr(import_module(caminho), atributo))
     except (ImportError, AttributeError) as erro:
         raise UnknownFeature(
             f"features.{config.entry} aponta para {config.impl!r}: {erro}"

@@ -328,11 +328,17 @@ def _assemble_or_report(
         return Perception(clip_id=clip.clip_id, frames=()), etapa
 
 
+QUADRO_DA_PERCEPCAO = ("players", "ball", "field")
+"""So os indices destas especies viram quadro: as outras nao preenchem o `FramePerception`."""
+
+
 def assemble(clip: Clip, saidas: Mapping[str, ModuleOutput]) -> Perception:
     por_quadro: dict[str, dict[int, tuple[Mapping[str, object], ...]]] = {
         kind: dict(zip(saida.frames, saida.records, strict=True)) for kind, saida in saidas.items()
     }
-    indices = sorted({indice for mapa in por_quadro.values() for indice in mapa})
+    indices = sorted(
+        {indice for kind in QUADRO_DA_PERCEPCAO for indice in por_quadro.get(kind, {})}
+    )
     return Perception(
         clip_id=clip.clip_id,
         frames=tuple(_frame(clip, indice, por_quadro) for indice in indices),

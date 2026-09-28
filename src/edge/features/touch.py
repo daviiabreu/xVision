@@ -90,6 +90,8 @@ class ContactPlayerEvidence:
     player_track_id: int
     confidence: float
     source: Fonte
+    team: str | None = None
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,7 @@ class TouchEvidence:
     team: str | None
     confidence: float
     source: Fonte
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,7 @@ class _Posse:
     team: str | None
     confidence: float
     source: Fonte
+    role: str | None = None
 
 
 def shooter_at_contact(perception: Perception, frame_index: int) -> ContactPlayerEvidence | None:
@@ -154,6 +158,8 @@ def shooter_at_contact(perception: Perception, frame_index: int) -> ContactPlaye
         player_track_id=episodio.track_id,
         confidence=episodio.confidence,
         source=episodio.source,
+        team=episodio.team,
+        role=episodio.role,
     )
 
 
@@ -196,6 +202,7 @@ def previous_touch(perception: Perception, frame_index: int) -> TouchEvidence | 
         team=ultimo.team,
         confidence=ultimo.confidence,
         source=ultimo.source,
+        role=ultimo.role,
     )
 
 
@@ -316,6 +323,7 @@ def _episodios(perception: Perception) -> tuple[_Posse, ...]:
                 team=jogador.team,
                 confidence=_confianca(jogador.confidence, melhor[2]),
                 source=DETECTADO if melhor[2] <= 0.0 else ASSOCIADO,
+                role=jogador.role,
             )
         )
         atual.clear()
@@ -414,10 +422,10 @@ def _passo(perception: Perception) -> float:
     conjunto, e um numero fixo de quadros significaria tolerancias diferentes em cada um.
 
     Medido sobre os quadros que tem bola, e nao sobre todos. `assemble` monta `perception.frames`
-    como a uniao dos indices de todas as especies, entao uma configuracao que ponha `pose` num
-    conjunto mais fino que o da bola, como a `oracle-janela` faz, produz tres quadros sem bola entre
-    cada dois com bola. O menor salto da uniao seria um, quando a cadencia real da bola e quatro, e
-    a tolerancia do contato sairia quatro vezes menor do que devia.
+    como a uniao dos indices de `players`, `ball` e `field`, entao uma configuracao que ponha
+    jogadores ou campo num conjunto mais fino que o da bola produz quadros sem bola entre cada dois
+    com bola. O menor salto da uniao seria um, quando a cadencia real da bola e quatro, e a
+    tolerancia do contato sairia quatro vezes menor do que devia.
 
     O menor salto positivo, e nao a mediana. `uniform_indices` amostra em passo constante, entao
     dentro de uma especie qualquer salto maior que o menor e buraco, e a mediana de uma percepcao

@@ -7,8 +7,11 @@ a tupla ser explicita.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from edge.features.evidence_model import EvidenceModel
 from edge.features.registry import UnknownFeature, load_extractors, read_feature_config
 
 CONFIG = """
@@ -61,3 +64,31 @@ def test_the_section_name_has_to_be_the_feature_name() -> None:
 
     with pytest.raises(UnknownFeature, match="distancia"):
         load_extractors(read_feature_config(config))
+
+
+def test_chave_alem_de_impl_vira_opcao_do_construtor(tmp_path: Path) -> None:
+    modelo = EvidenceModel(
+        feature="type_of_play",
+        classes=("individual", "open play", "set piece"),
+        columns=(),
+        mean=(),
+        scale=(),
+        coef=((), (), ()),
+        intercept=(0.0, 1.0, 0.0),
+    )
+    modelo.save(tmp_path / "m.json")
+    texto = (
+        '[features.type_of_play]\nimpl = "edge.features.type_of_play:TypeOfPlay"\n'
+        f'model = "{tmp_path / "m.json"}"\n'
+    )
+
+    (extractor,) = load_extractors(read_feature_config(texto))
+
+    assert extractor.spec.version.endswith("+modelo")
+
+
+def test_opcao_que_a_feature_nao_conhece_e_recusada() -> None:
+    texto = '[features.type_of_play]\nimpl = "edge.features.type_of_play:TypeOfPlay"\nlimiar = 3\n'
+
+    with pytest.raises(UnknownFeature, match="opcoes"):
+        load_extractors(read_feature_config(texto))

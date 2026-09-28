@@ -504,6 +504,36 @@ def test_assembler_preserves_ball_trajectory_evidence() -> None:
     assert ball.velocity_source == "trajectory-model"
 
 
+def test_o_indice_que_so_o_shot_amostrou_nao_vira_quadro_vazio() -> None:
+    """O T-DEED amostra em passo 5 e o `dense` em passo 4."""
+    jogador = {"box": (100.0, 100.0, 140.0, 220.0), "confidence": 0.8}
+    bola = {"box": (118.0, 210.0, 126.0, 218.0), "confidence": 0.6, "source": "detected"}
+    denso = (0, 4, 8)
+    outputs = {
+        "players": ModuleOutput("players", denso, ((jogador,),) * len(denso)),
+        "ball": ModuleOutput("ball", denso, ((bola,),) * len(denso)),
+        "shot": ModuleOutput("shot", (0, 5, 10), ((), ({"frame_index": 5},), ())),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert [quadro.frame_index for quadro in perception.frames] == [0, 4, 8]
+    assert all(quadro.players and quadro.ball is not None for quadro in perception.frames)
+
+
+def test_quadro_sem_deteccao_continua_na_percepcao_e_pose_sozinha_nao_cria_quadro() -> None:
+    jogador = {"box": (100.0, 100.0, 140.0, 220.0), "confidence": 0.8}
+    outputs = {
+        "players": ModuleOutput("players", (0, 4), ((jogador,), ())),
+        "pose": ModuleOutput("pose", (0, 1, 2, 3, 4), ((),) * 5),
+    }
+
+    perception = assemble(clipe(), outputs)
+
+    assert [quadro.frame_index for quadro in perception.frames] == [0, 4]
+    assert perception.frames[1].players == ()
+
+
 def _stub(kind: str) -> PerceptionModule:
     return next(classe for classe in STUBS if classe.spec.kind == kind)()
 

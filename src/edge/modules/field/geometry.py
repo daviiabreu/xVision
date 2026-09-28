@@ -29,6 +29,7 @@ class FieldTemplate:
 
 
 CalibrationMethod = Literal["least-squares", "ransac", "magsac"]
+SafeProjection = Literal["pitch", "visible"]
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ class CalibrationConfig:
     threshold_diagonal_fraction: float = 0.0025
     min_inliers: int = 6
     max_reprojection_p95_px: float = 10.0
+    safe_projection: SafeProjection = "pitch"
+    """`pitch` exige o campo inteiro na frente da camera; `visible`, so a parte que aparece."""
 
 
 @dataclass(frozen=True)
@@ -172,7 +175,11 @@ def calibrate(
     error_p95 = float(cast("Any", np.percentile(errors, 95)))
     if error_p95 > settings.max_reprojection_p95_px:
         return _unavailable(len(selected), "high-reprojection-error", inliers)
-    if not has_safe_pitch_projection(matrix, template):
+    if settings.safe_projection == "visible":
+        segura = has_safe_visible_projection(matrix, frame_size, template)
+    else:
+        segura = has_safe_pitch_projection(matrix, template)
+    if not segura:
         return _unavailable(len(selected), "degenerate-homography", inliers)
     return CalibrationResult(
         homography=tuple(float(value) for value in matrix.flat),
@@ -208,6 +215,33 @@ def has_safe_pitch_projection(
     )
     denominators = corners @ normalized[2]
     return bool(np.isfinite(inverse).all() and (denominators > 1e-6).all())
+
+
+def has_safe_visible_projection(
+    matrix: np.ndarray[Any, Any],
+    frame_size: tuple[int, int],
+    template: FieldTemplate = PITCH_105X68,
+) -> bool:
+    """Todo ponto do campo que cai dentro do quadro fica na frente da camera, e algum cai."""
+    if not np.isfinite(matrix).all() or abs(float(matrix[2, 2])) < 1e-12:
+        return False
+    normalized = matrix / matrix[2, 2]
+    if abs(float(np.linalg.det(normalized))) < 1e-12:
+        return False
+    width, height = frame_size
+    grid = np.array(
+        [
+            (x, y, 1.0)
+            for x in np.linspace(-template.length_m / 2, template.length_m / 2, 43)
+            for y in np.linspace(-template.width_m / 2, template.width_m / 2, 29)
+        ]
+    )
+    projected = grid @ normalized.T
+    depth = projected[:, 2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        u, v = projected[:, 0] / depth, projected[:, 1] / depth
+    inside = np.isfinite(u) & np.isfinite(v) & (u >= 0) & (u <= width) & (v >= 0) & (v <= height)
+    return bool(inside.any() and (depth[inside] > 1e-6).all())
 
 
 def _transform(homography: tuple[float, ...], point: tuple[float, float]) -> tuple[float, float]:

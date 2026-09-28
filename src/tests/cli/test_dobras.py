@@ -375,7 +375,7 @@ def test_eval_filtra_o_gabarito_pela_dobra(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.setattr(cli, "load_catalog", lambda: [Registro("dev", 1), Registro("res", 3)])
     vistos: list[dict[str, dict[str, str]]] = []
 
-    def espia(_predicoes: Any, gabarito: Any, _tabela: Any) -> Any:
+    def espia(_predicoes: Any, gabarito: Any, _tabela: Any, **_opcoes: Any) -> Any:
         vistos.append(dict(gabarito))
         raise SystemExit(0)
 
@@ -383,6 +383,55 @@ def test_eval_filtra_o_gabarito_pela_dobra(tmp_path: Path, monkeypatch: pytest.M
     runner.invoke(app, ["eval", str(execucao), "--truth", str(verdade), "--dobra", "ajuste"])
 
     assert vistos == [{"dev": {"c": "x"}}]
+
+
+def test_eval_com_bootstrap_imprime_o_intervalo_por_partida(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cli
+
+    execucao = tmp_path / "run"
+    execucao.mkdir()
+    linhas: list[str] = []
+    for chute, valor in (("a1", True), ("a2", True), ("b1", False), ("b2", True)):
+        feature = {"name": "marcado", "version": "0.1.0", "status": "ok", "value": valor}
+        feature |= {"confidence": None, "reason": None, "evidence": {}}
+        linhas.append(json.dumps({"clip_id": chute, "features": [feature]}))
+    (execucao / "events.jsonl").write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    labels = tmp_path / "labels.toml"
+    labels.write_text(
+        '[[label]]\nname = "marked"\ntable = "t"\ncolumn = "marked"\ntype = "bool"\n'
+        'domain = ["true", "false"]\nmissing = [""]\n'
+        '[[metric]]\nfeature = "marcado"\nlabel = "marked"\n',
+        encoding="utf-8",
+    )
+    verdade = tmp_path / "truth.json"
+    verdade.write_text(json.dumps({c: {"marked": "true"} for c in ("a1", "a2", "b1", "b2")}))
+
+    class Registro:
+        def __init__(self, shot_id: str, match_id: str) -> None:
+            self.shot_id, self.match_id = shot_id, match_id
+
+    monkeypatch.setattr(
+        cli, "load_catalog", lambda: [Registro(c, c[0]) for c in ("a1", "a2", "b1", "b2")]
+    )
+
+    resultado = runner.invoke(
+        app,
+        [
+            "eval",
+            str(execucao),
+            "--labels",
+            str(labels),
+            "--truth",
+            str(verdade),
+            "--bootstrap",
+            "50",
+        ],
+    )
+
+    assert resultado.exit_code == 0, resultado.output
+    assert "95% por partida (2 partidas)" in resultado.output
 
 
 def test_eval_recusa_dobra_que_deixa_o_gabarito_vazio(

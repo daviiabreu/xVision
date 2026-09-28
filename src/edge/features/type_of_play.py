@@ -27,10 +27,15 @@ Nao decide quem tocou antes, nao mede assistencia e nao distingue falta de escan
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
+from pathlib import Path
 
 from contracts import FeatureValue, FramePerception, Perception
 from edge.features.base import FeatureSpec, ShotOutput, shot_provenance, unavailable
+from edge.features.evidence_model import EvidenceModel
+from edge.features.play_actions import ActionEvidence, measure_actions
 from edge.features.play_evidence import PlayEvidence, PlayTelemetry, measure
+from edge.features.play_restart import RestartEvidence, measure_restart
 
 ABERTA = "open play"
 PARADA = "set piece"
@@ -74,10 +79,18 @@ por falta de declaracao, e todos os dubles de teste do projeto nao declaram.
 class TypeOfPlay:
     spec = FeatureSpec(
         name="type_of_play",
-        version="0.2.0",
+        version="0.3.0",
         requires=("ball",),
         unit="classe",
     )
+
+    def __init__(self, model: str | None = None) -> None:
+        """Com `model`, o artefato do `xvision treino` decide a classe; sem ele, decide a regra."""
+        self._modelo = None if model is None else EvidenceModel.load(Path(model))
+        if self._modelo is not None:
+            if self._modelo.feature != self.spec.name:
+                raise ValueError(f"{model} foi treinado para {self._modelo.feature!r}")
+            self.spec = replace(TypeOfPlay.spec, version=f"{TypeOfPlay.spec.version}+modelo")
 
     def extract(self, perception: Perception, shot: ShotOutput) -> FeatureValue:
         procedencia = shot_provenance(shot)
@@ -113,21 +126,61 @@ class TypeOfPlay:
             valor, motivo = ABERTA, f"bola chegou a {chegada:.1f} px por quadro"
 
         evidencia, contagem = measure(perception, shot, procedencia)
+        publicada: dict[str, object] = {
+            "quadros_lidos": len(antes),
+            "quadros_imoveis": imoveis,
+            "velocidade_de_chegada_px_por_quadro": round(chegada, 2),
+            "leitura": motivo,
+            **_em_unidades(evidencia, contagem),
+            **_acoes(measure_actions(perception, shot)),
+            **_reinicio(measure_restart(perception, shot)),
+        }
+        confianca = None
+        if self._modelo is not None:
+            probabilidades = self._modelo.probabilities([(valor, publicada)])[0]
+            publicada["classe_da_regra"] = valor
+            publicada["probabilidades"] = {
+                c: round(float(p), 4)
+                for c, p in zip(self._modelo.classes, probabilidades, strict=True)
+            }
+            valor = self._modelo.classes[int(probabilidades.argmax())]
+            confianca = round(float(probabilidades.max()), 4)
         return FeatureValue(
             name=self.spec.name,
             version=self.spec.version,
             status="ok",
             value=valor,
-            confidence=None,
+            confidence=confianca,
             reason=None,
-            evidence={
-                "quadros_lidos": len(antes),
-                "quadros_imoveis": imoveis,
-                "velocidade_de_chegada_px_por_quadro": round(chegada, 2),
-                "leitura": motivo,
-                **_em_unidades(evidencia, contagem),
-            },
+            evidence=publicada,
         )
+
+
+def _acoes(acoes: ActionEvidence | None) -> dict[str, object]:
+    """As acoes do T-DEED antes do chute; tudo `None` quando o instante nao veio dele."""
+    if acoes is None:
+        return {
+            "acoes_antes_do_chute": None,
+            "ultima_acao": None,
+            "ultima_acao_antecedencia_s": None,
+        }
+    return {
+        "acoes_antes_do_chute": {
+            classe: {"probabilidade": pico.probability, "antecedencia_s": pico.lead_s}
+            for classe, pico in acoes.peaks.items()
+        },
+        "ultima_acao": acoes.last_action,
+        "ultima_acao_antecedencia_s": acoes.last_action_lead_s,
+    }
+
+
+def _reinicio(reinicio: RestartEvidence) -> dict[str, object]:
+    return {
+        "reinicio_s": reinicio.restart_s,
+        "reinicio_antecedencia_s": reinicio.restart_lead_s,
+        "plano_fechado_antecedencia_s": reinicio.close_up_lead_s,
+        "ultimo_corte_antecedencia_s": reinicio.cut_lead_s,
+    }
 
 
 def _em_unidades(evidencia: PlayEvidence, contagem: PlayTelemetry) -> dict[str, object]:
@@ -150,6 +203,7 @@ def _em_unidades(evidencia: PlayEvidence, contagem: PlayTelemetry) -> dict[str, 
         "fracao_observada": round(evidencia.observed_fraction, 4),
         "toque_anterior": ASSOCIADO if evidencia.previous_touch_source else INDISPONIVEL,
         "toque_anterior_do_finalizador": evidencia.previous_touch_is_shooter,
+        "toque_anterior_relacao": evidencia.previous_touch_relation,
         "idade_do_toque_anterior_s": _arredonda(evidencia.previous_touch_age_s),
         "corte_de_camera": evidencia.camera_cut,
         "procedencia_do_instante": evidencia.shot_source,

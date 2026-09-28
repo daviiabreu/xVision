@@ -25,6 +25,7 @@ restrito permite descrever.
 
 from __future__ import annotations
 
+import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -56,6 +57,9 @@ class MetricReport:
     mcnemar: Mapping[str, float] | None = None
     threshold: Mapping[str, float] | None = None
     label_grain: Mapping[str, object] | None = None
+    per_class: Mapping[str, Mapping[str, float | int | None]] | None = None
+    confusion_matrix: Mapping[str, Mapping[str, int]] | None = None
+    bootstrap: Mapping[str, object] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +84,17 @@ class MetricReport:
             "mcnemar": None if self.mcnemar is None else dict(self.mcnemar),
             "threshold": None if self.threshold is None else dict(self.threshold),
             "label_grain": None if self.label_grain is None else dict(self.label_grain),
+            "per_class": (
+                None
+                if self.per_class is None
+                else {classe: dict(valores) for classe, valores in self.per_class.items()}
+            ),
+            "confusion_matrix": (
+                None
+                if self.confusion_matrix is None
+                else {classe: dict(linha) for classe, linha in self.confusion_matrix.items()}
+            ),
+            "bootstrap": None if self.bootstrap is None else dict(self.bootstrap),
         }
 
 
@@ -102,13 +117,18 @@ def evaluate(
     table: Labels,
     *,
     population: str = "",
+    groups: Mapping[str, str] | None = None,
+    resamples: int = 0,
+    seed: int = 0,
 ) -> Report:
     declaradas = [m.feature for m in table.metrics]
     extras = sorted(
         {nome for por_tiro in predictions.values() for nome in por_tiro} - set(declaradas)
     )
     features = declaradas + extras
-    relatorios = [_metric(nome, predictions, truth, table) for nome in features]
+    relatorios = [
+        _metric(nome, predictions, truth, table, groups or {}, resamples, seed) for nome in features
+    ]
     return Report(population=population or f"n={len(truth)}", metrics=tuple(relatorios))
 
 
@@ -117,6 +137,9 @@ def _metric(
     predictions: Mapping[str, Mapping[str, Predicted]],
     truth: Mapping[str, Mapping[str, str]],
     table: Labels,
+    groups: Mapping[str, str],
+    resamples: int,
+    seed: int,
 ) -> MetricReport:
     metrica = table.metric_for(feature)
     rotulo = table.label_for(feature)
@@ -126,6 +149,7 @@ def _metric(
             "diz qual coluna do parceiro ela mede"
         )
     pares: list[tuple[object, object]] = []
+    por_grupo: dict[str, list[tuple[object, object]]] = {}
     esperados: list[object] = []
     indisponiveis = 0
     for shot_id, colunas in truth.items():
@@ -138,6 +162,7 @@ def _metric(
             indisponiveis += 1
             continue
         pares.append((previsto[0], alvo))
+        por_grupo.setdefault(groups.get(shot_id, shot_id), []).append((previsto[0], alvo))
     n = len(esperados)
     return MetricReport(
         feature=feature,
@@ -159,6 +184,13 @@ def _metric(
         mcnemar=None if rotulo.type == "numeric" or not pares else mcnemar(pares),
         threshold=_threshold(pares) if rotulo.type == "bool" else None,
         label_grain=(None if rotulo.grain is None else {"unit": "m", "step": rotulo.grain}),
+        per_class=per_class(pares) if pares and rotulo.type != "numeric" else None,
+        confusion_matrix=confusion_matrix(pares) if pares and rotulo.type == "enum" else None,
+        bootstrap=(
+            bootstrap_by_group(por_grupo, resamples, seed)
+            if resamples > 0 and pares and rotulo.type != "numeric"
+            else None
+        ),
     )
 
 
@@ -185,14 +217,76 @@ def _as_bool(valor: object) -> object:
 
 
 def _f1(pares: Sequence[tuple[object, object]]) -> dict[str, float]:
-    classes = sorted({str(a) for _, a in pares} | {str(_as_bool(p)) for p, _ in pares})
-    por_classe: list[float] = []
-    for classe in classes:
-        tp = sum(1 for p, a in pares if str(_as_bool(p)) == classe and str(a) == classe)
-        fp = sum(1 for p, a in pares if str(_as_bool(p)) == classe and str(a) != classe)
-        fn = sum(1 for p, a in pares if str(_as_bool(p)) != classe and str(a) == classe)
-        por_classe.append(0.0 if not tp else tp / (tp + 0.5 * (fp + fn)))
+    por_classe = [_f1_da_classe(*_contagens(pares, classe)) for classe in _classes(pares)]
     return {"macro_f1": sum(por_classe) / len(por_classe) if por_classe else 0.0}
+
+
+def per_class(pares: Sequence[tuple[object, object]]) -> dict[str, dict[str, float | int | None]]:
+    """Metricas por classe com a mesma contagem do macro F1; divisao por zero sai `None`."""
+    resultado: dict[str, dict[str, float | int | None]] = {}
+    for classe in _classes(pares):
+        tp, fp, fn = _contagens(pares, classe)
+        resultado[classe] = {
+            "precision": tp / (tp + fp) if tp + fp else None,
+            "recall": tp / (tp + fn) if tp + fn else None,
+            "f1": _f1_da_classe(tp, fp, fn),
+            "support": tp + fn,
+            "predicted": tp + fp,
+        }
+    return resultado
+
+
+def confusion_matrix(pares: Sequence[tuple[object, object]]) -> dict[str, dict[str, int]]:
+    """Linha e o rotulo, coluna e a predicao, com toda classe vista nos dois eixos."""
+    classes = _classes(pares)
+    matriz = {verdade: dict.fromkeys(classes, 0) for verdade in classes}
+    for p, a in pares:
+        matriz[str(a)][str(_as_bool(p))] += 1
+    return matriz
+
+
+def bootstrap_by_group(
+    por_grupo: Mapping[str, Sequence[tuple[object, object]]], resamples: int, seed: int
+) -> dict[str, object]:
+    """Intervalo de 95% de acuracia e macro F1 reamostrando partidas inteiras, e nao clipes."""
+    grupos = sorted(por_grupo)
+    sorteio = random.Random(seed)
+    acuracias: list[float] = []
+    macros: list[float] = []
+    for _ in range(resamples):
+        amostra = [par for g in sorteio.choices(grupos, k=len(grupos)) for par in por_grupo[g]]
+        acuracias.append(sum(1 for p, a in amostra if _as_bool(p) == a) / len(amostra))
+        macros.append(_f1(amostra)["macro_f1"])
+    return {
+        "accuracy": _faixa(acuracias),
+        "macro_f1": _faixa(macros),
+        "groups": len(grupos),
+        "resamples": resamples,
+        "level": 0.95,
+    }
+
+
+def _faixa(valores: list[float]) -> list[float]:
+    ordenados = sorted(valores)
+    return [
+        ordenados[int(0.025 * (len(ordenados) - 1))],
+        ordenados[int(0.975 * (len(ordenados) - 1))],
+    ]
+
+
+def _classes(pares: Sequence[tuple[object, object]]) -> list[str]:
+    return sorted({str(a) for _, a in pares} | {str(_as_bool(p)) for p, _ in pares})
+
+
+def _contagens(pares: Sequence[tuple[object, object]], classe: str) -> tuple[int, int, int]:
+    tp = sum(1 for p, a in pares if str(_as_bool(p)) == classe and str(a) == classe)
+    fp = sum(1 for p, a in pares if str(_as_bool(p)) == classe and str(a) != classe)
+    fn = sum(1 for p, a in pares if str(_as_bool(p)) != classe and str(a) == classe)
+    return tp, fp, fn
+
+
+def _f1_da_classe(tp: int, fp: int, fn: int) -> float:
+    return 0.0 if not tp else tp / (tp + 0.5 * (fp + fn))
 
 
 def confusion(pares: Sequence[tuple[object, object]]) -> dict[str, int]:

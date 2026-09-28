@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from contracts import FeatureValue, Perception
 from edge.modules.base import MODULE_KINDS
@@ -98,6 +98,85 @@ def shot_provenance(shot: ShotOutput) -> ShotProvenance:
         confidence=_confianca(confianca),
         ball_support=apoio if isinstance(apoio, str) else None,
     )
+
+
+@dataclass(frozen=True)
+class ShotActions:
+    """Probabilidade de cada acao com bola por passo, em quadro nativo. Saida de modelo."""
+
+    classes: tuple[str, ...]
+    frame_indices: tuple[int, ...]
+    probabilities: tuple[tuple[float, ...], ...]
+
+    def __post_init__(self) -> None:
+        if len(self.probabilities) != len(self.frame_indices):
+            raise ValueError(
+                f"{len(self.probabilities)} linhas de probabilidade para "
+                f"{len(self.frame_indices)} passos"
+            )
+        if any(len(linha) != len(self.classes) for linha in self.probabilities):
+            raise ValueError(f"linha de probabilidade sem as {len(self.classes)} classes")
+
+    def serie(self, classe: str) -> tuple[tuple[int, float], ...]:
+        """Pares de quadro e probabilidade; classe que o detector nao pontua devolve vazio."""
+        if classe not in self.classes:
+            return ()
+        coluna = self.classes.index(classe)
+        return tuple(
+            (quadro, linha[coluna])
+            for quadro, linha in zip(self.frame_indices, self.probabilities, strict=True)
+        )
+
+
+def parse_shot_actions(valor: object) -> ShotActions | None:
+    """Le `actions` do registro de `shot`; qualquer defeito devolve `None`, nunca parcial."""
+    if not isinstance(valor, Mapping):
+        return None
+    campos = cast("Mapping[str, object]", valor)
+    classes = _lista(campos.get("classes"))
+    quadros = _lista(campos.get("frame_indices"))
+    linhas = _lista(campos.get("probabilities"))
+    if classes is None or quadros is None or linhas is None or not classes:
+        return None
+    if not all(isinstance(nome, str) for nome in classes) or len(set(classes)) != len(classes):
+        return None
+    if not all(isinstance(quadro, int) and not isinstance(quadro, bool) for quadro in quadros):
+        return None
+    indices = tuple(cast("int", quadro) for quadro in quadros)
+    if any(depois <= antes for antes, depois in zip(indices, indices[1:], strict=False)):
+        return None
+    matriz: list[tuple[float, ...]] = []
+    for bruta in linhas:
+        linha = _lista(bruta)
+        if linha is None or not all(_probabilidade(p) for p in linha):
+            return None
+        matriz.append(tuple(float(cast("float", p)) for p in linha))
+    try:
+        return ShotActions(
+            classes=tuple(cast("str", nome) for nome in classes),
+            frame_indices=indices,
+            probabilities=tuple(matriz),
+        )
+    except ValueError:
+        return None
+
+
+def shot_actions(shot: ShotOutput) -> ShotActions | None:
+    """As acoes do `ShotOutput`, lidas por `getattr` como em `shot_provenance`."""
+    acoes = getattr(shot, "actions", None)
+    return acoes if isinstance(acoes, ShotActions) else None
+
+
+def _lista(valor: object) -> list[object] | None:
+    if isinstance(valor, list | tuple):
+        return list(cast("Sequence[object]", valor))
+    return None
+
+
+def _probabilidade(valor: object) -> bool:
+    if isinstance(valor, bool) or not isinstance(valor, int | float):
+        return False
+    return math.isfinite(valor) and 0.0 <= valor <= 1.0
 
 
 class FeatureExtractor(Protocol):
