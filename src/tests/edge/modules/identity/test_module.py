@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import cast
 
 import numpy as np
+import pytest
 
 from edge.frames.preprocess import to_tensor_box
-from edge.modules.base import FrameBatch, ModuleOutput
+from edge.modules.base import FrameBatch, ModuleOutput, PerceptionModule
+from edge.modules.conformance import ModuleConformance
 from edge.modules.identity import TeamIdentity
 from edge.modules.players import PREPROCESS
 
@@ -83,30 +86,78 @@ def _inputs(
     }
 
 
-def test_acumula_amostras_de_cor_entre_batches_antes_de_classificar() -> None:
+class TestTeamIdentity(ModuleConformance):
+    @pytest.fixture
+    def module(self) -> PerceptionModule:
+        return TeamIdentity()
+
+
+def _lote(
+    indices: tuple[int, ...],
+    batch_de: Callable[[int], FrameBatch],
+    inputs_de: Callable[[int], Mapping[str, ModuleOutput]],
+) -> tuple[FrameBatch, dict[str, ModuleOutput]]:
+    """Junta os quadros num lote só, que é como o runner entrega o clipe à identidade."""
+    batches = [batch_de(indice) for indice in indices]
+    entradas = [inputs_de(indice) for indice in indices]
+    lote = FrameBatch(
+        indices=indices,
+        tensor=np.concatenate([batch.tensor for batch in batches]),
+        preprocess=PREPROCESS,
+        source_size=SOURCE_SIZE,
+    )
+    ctx = {
+        kind: ModuleOutput(
+            kind=kind,
+            frames=tuple(f for entrada in entradas for f in entrada[kind].frames),
+            records=tuple(r for entrada in entradas for r in entrada[kind].records),
+        )
+        for kind in entradas[0]
+    }
+    return lote, ctx
+
+
+def _no_clipe(
+    indices: tuple[int, ...],
+    batch_de: Callable[[int], FrameBatch],
+    inputs_de: Callable[[int], Mapping[str, ModuleOutput]],
+) -> dict[int, Mapping[str, object]]:
+    """Registros por trajetória no último quadro de um clipe entregue num lote só."""
+    modulo = TeamIdentity(minimum=2)
+    modulo.load()
+    saida = modulo.infer(*_lote(indices, batch_de, inputs_de))
+    return {cast(int, registro["track_id"]): registro for registro in saida.records[-1]}
+
+
+def test_classifica_com_as_amostras_de_todos_os_quadros_do_lote() -> None:
     modulo = TeamIdentity(minimum=2)
     modulo.load()
 
-    primeiro = modulo.infer(_batch(0), _inputs(0))
-    segundo = modulo.infer(_batch(1), _inputs(1))
+    saida = modulo.infer(*_lote((0, 1), _batch, _inputs))
 
-    assert all("team" not in registro for registro in primeiro.records[0])
-    teams = {cast(int, registro["track_id"]): registro["team"] for registro in segundo.records[0]}
-    assert set(teams) == {1, 2}
-    assert set(teams.values()) == {"team_a", "team_b"}
+    for registros in saida.records:
+        teams = {cast(int, registro["track_id"]): registro["team"] for registro in registros}
+        assert set(teams) == {1, 2}
+        assert set(teams.values()) == {"team_a", "team_b"}
 
 
-def test_close_descarta_evidencia_do_clipe_anterior() -> None:
+def test_cada_lote_e_julgado_sozinho_sem_herdar_amostras_do_anterior() -> None:
+    """O cache guarda a saída pela chave do lote, e ela só vale se a saída depender só dele."""
     modulo = TeamIdentity(minimum=2)
     modulo.load()
-    modulo.infer(_batch(0), _inputs(0))
-    modulo.infer(_batch(1), _inputs(1))
-    modulo.close()
-    modulo.load()
+    modulo.infer(*_lote((0, 1), _batch, _inputs))
 
-    saida = modulo.infer(_batch(0), _inputs(0))
+    saida = modulo.infer(_batch(2), _inputs(2))
 
     assert all("team" not in registro for registro in saida.records[0])
+
+
+def test_a_mesma_entrada_com_jogadores_devolve_a_mesma_saida() -> None:
+    modulo = TeamIdentity(minimum=2)
+    modulo.load()
+    lote, ctx = _lote((0, 1), _batch, _inputs)
+
+    assert modulo.infer(lote, ctx) == modulo.infer(lote, ctx)
 
 
 def test_ignora_deteccao_sem_track_sem_invalidar_as_outras() -> None:
@@ -121,11 +172,11 @@ def test_ignora_deteccao_sem_track_sem_invalidar_as_outras() -> None:
 
 
 CAIXA_DO_ARBITRO = CAIXAS[0]
-"""O árbitro entra sobre a mesma caixa do primeiro jogador, e portanto com a mesma cor.
+"""O "árbitro" entra sobre a mesma caixa do primeiro jogador, e portanto com a mesma cor.
 
-É o caso que separa as duas implementações: sem o filtro de papel, a trajetória do árbitro entra no
-agrupamento e sai com a equipe do jogador de quem ela copiou a cor. Com o filtro, ela não recebe
-equipe nenhuma e as duas dos jogadores continuam distintas.
+A trajetória não semeia o agrupamento, que fica só com jogadores, e como a cor dela é a de um time,
+a resolução a trata como jogador que o detector marcou como árbitro, o erro que os rótulos do piloto
+mostram em 4 de 15 trajetórias estáveis como árbitro.
 """
 
 
@@ -156,14 +207,138 @@ def _inputs_com_arbitro(index: int) -> dict[str, ModuleOutput]:
     }
 
 
-def test_arbitro_nao_entra_no_agrupamento_nem_recebe_equipe() -> None:
-    """A cor do árbitro é dele: deixá-la no agrupamento puxaria um dos grupos para o lado errado."""
-    modulo = TeamIdentity(minimum=2)
-    modulo.load()
+def test_arbitro_com_a_cor_de_um_time_vira_jogador_desse_time() -> None:
+    por_track = _no_clipe((0, 1), _batch, _inputs_com_arbitro)
 
-    for indice in (0, 1):
-        saida = modulo.infer(_batch(indice), _inputs_com_arbitro(indice))
-
-    por_track = {cast(int, registro["track_id"]): registro for registro in saida.records[0]}
     assert {por_track[1]["team"], por_track[2]["team"]} == {"team_a", "team_b"}
+    assert por_track[3]["role"] == "player"
+    assert por_track[3]["team"] == por_track[1]["team"]
+
+
+CAIXAS_COM_ARBITRO = ((5.0, 10.0, 35.0, 90.0), (35.0, 10.0, 65.0, 90.0), (65.0, 10.0, 95.0, 90.0))
+CORES_COM_ARBITRO = ((0, 0, 255), (255, 0, 0), (128, 128, 128))
+"""Dois times, vermelho e azul, e a arbitragem de cinza, fora dos dois."""
+
+
+def _batch_com_arbitro(index: int) -> FrameBatch:
+    frame = np.zeros((PREPROCESS.height, PREPROCESS.width, 3), dtype=np.uint8)
+    for caixa, cor in zip(CAIXAS_COM_ARBITRO, CORES_COM_ARBITRO, strict=True):
+        _pinta_torso(frame, caixa, cor)
+    return FrameBatch(
+        indices=(index,),
+        tensor=frame[np.newaxis, ...],
+        preprocess=PREPROCESS,
+        source_size=SOURCE_SIZE,
+    )
+
+
+def _inputs_arbitro_marcado_como_jogador(index: int) -> dict[str, ModuleOutput]:
+    """O detector marca o árbitro como `player` em quase todo quadro, e como `referee` só no 1."""
+    papeis = ("player", "player", "referee" if index == 1 else "player")
+    return {
+        "players": ModuleOutput(
+            kind="players",
+            frames=(index,),
+            records=(
+                tuple(
+                    {"box": caixa, "confidence": 0.9, "role": papel}
+                    for caixa, papel in zip(CAIXAS_COM_ARBITRO, papeis, strict=True)
+                ),
+            ),
+        ),
+        "tracking": ModuleOutput(
+            kind="tracking",
+            frames=(index,),
+            records=(
+                tuple(
+                    {"detection_index": posicao, "track_id": posicao + 1, "role": "player"}
+                    for posicao in range(3)
+                ),
+            ),
+        ),
+    }
+
+
+def test_um_quadro_de_referee_no_clipe_recupera_o_arbitro() -> None:
+    """O voto do tracking elege `player`; a evidência de um quadro e a cor própria corrigem."""
+    por_track = _no_clipe((0, 1, 2), _batch_com_arbitro, _inputs_arbitro_marcado_como_jogador)
+
+    assert por_track[3]["role"] == "referee"
     assert "team" not in por_track[3]
+    assert {por_track[1]["team"], por_track[2]["team"]} == {"team_a", "team_b"}
+
+
+ATE_O_GOL = (1.0, 0.0, 30.0, 0.0, 1.0, 90.0, 0.0, 0.0, 1.0)
+"""Homografia de campo para imagem que leva o pé da terceira caixa, (80, 90), a (50, 0) no campo."""
+
+
+def _inputs_com_goleiro(index: int, *, com_campo: bool) -> dict[str, ModuleOutput]:
+    """O detector marca a terceira pessoa como goleiro só no quadro 1."""
+    entradas = _inputs_arbitro_marcado_como_jogador(index)
+    papeis = ("player", "player", "goalkeeper" if index == 1 else "player")
+    entradas["players"] = ModuleOutput(
+        kind="players",
+        frames=(index,),
+        records=(
+            tuple(
+                {"box": caixa, "confidence": 0.9, "role": papel}
+                for caixa, papel in zip(CAIXAS_COM_ARBITRO, papeis, strict=True)
+            ),
+        ),
+    )
+    if com_campo:
+        entradas["field"] = ModuleOutput(
+            kind="field", frames=(index,), records=(({"homography": ATE_O_GOL},),)
+        )
+    return entradas
+
+
+def test_com_campo_quem_tem_quadro_de_goleiro_na_pequena_area_vira_goleiro() -> None:
+    sem_campo = _no_clipe(
+        (0, 1, 2), _batch_com_arbitro, lambda i: _inputs_com_goleiro(i, com_campo=False)
+    )
+    com_campo = _no_clipe(
+        (0, 1, 2), _batch_com_arbitro, lambda i: _inputs_com_goleiro(i, com_campo=True)
+    )
+
+    assert sem_campo[3]["role"] == "player"
+    assert com_campo[3]["role"] == "goalkeeper"
+
+
+ATRAS_DO_GOL = (1.0, 0.0, 20.0, 0.0, 1.0, 90.0, 0.0, 0.0, 1.0)
+"""Leva o pé da terceira caixa a (60, 0), 7,5 m atrás da linha de fundo, e os outros ao campo."""
+
+
+def _inputs_atras_do_gol(index: int) -> dict[str, ModuleOutput]:
+    entradas = _inputs_com_goleiro(index, com_campo=True)
+    entradas["field"] = ModuleOutput(
+        kind="field", frames=(index,), records=(({"homography": ATRAS_DO_GOL},),)
+    )
+    return entradas
+
+
+def test_quem_esta_fora_do_campo_sai_como_fora_do_jogo_sem_time() -> None:
+    por_track = _no_clipe((0, 1, 2), _batch_com_arbitro, _inputs_atras_do_gol)
+
+    assert por_track[3]["role"] == "off_pitch"
+    assert "team" not in por_track[3]
+    assert {por_track[1]["team"], por_track[2]["team"]} == {"team_a", "team_b"}
+
+
+def test_dois_uniformes_parecidos_demais_nao_recebem_time() -> None:
+    """Sem contraste entre os grupos, a trajetória fica sem time em vez de ganhar um errado."""
+    frame = np.zeros((PREPROCESS.height, PREPROCESS.width, 3), dtype=np.uint8)
+    for caixa, cor in zip(CAIXAS, ((0, 0, 255), (20, 20, 235)), strict=True):
+        _pinta_torso(frame, caixa, cor)
+
+    def batch_parecido(indice: int) -> FrameBatch:
+        return FrameBatch(
+            indices=(indice,),
+            tensor=frame[np.newaxis, ...],
+            preprocess=PREPROCESS,
+            source_size=SOURCE_SIZE,
+        )
+
+    por_track = _no_clipe((0, 1), batch_parecido, _inputs)
+
+    assert all("team" not in registro for registro in por_track.values())

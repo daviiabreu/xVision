@@ -374,6 +374,13 @@ def _frame(
         for r in por_quadro.get("identity", {}).get(indice, ())
         if "team" in r
     }
+    # O papel de `identity` sai da cor e corrige o arbitro que o detector marca como jogador, entao
+    # prevalece sobre o papel estavel do tracking quando existe, pela mesma regra do time.
+    papeis_da_identidade = {
+        int(cast("Any", r["track_id"])): str(r["role"])
+        for r in por_quadro.get("identity", {}).get(indice, ())
+        if isinstance(r.get("role"), str)
+    }
     poses = {
         int(cast("Any", r["track_id"])): _keypoints(r["keypoints"])
         for r in por_quadro.get("pose", {}).get(indice, ())
@@ -383,7 +390,7 @@ def _frame(
         _player(
             registro,
             trajetorias.get(posicao),
-            papeis.get(posicao),
+            _papel(trajetorias.get(posicao), papeis.get(posicao), papeis_da_identidade),
             camisas,
             times,
             poses,
@@ -398,6 +405,14 @@ def _frame(
         ball=_ball(por_quadro.get("ball", {}).get(indice, ())),
         field=campo,
     )
+
+
+def _papel(
+    track_id: int | None, papel_estavel: str | None, papeis_da_identidade: Mapping[int, str]
+) -> str | None:
+    if track_id is not None and track_id in papeis_da_identidade:
+        return papeis_da_identidade[track_id]
+    return papel_estavel
 
 
 def _player(

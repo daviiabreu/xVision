@@ -5,9 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from math import dist
 from pathlib import Path
-from statistics import median
 from typing import Any, Literal, TypedDict, cast
 
 import cv2
@@ -15,11 +13,13 @@ import cv2
 from edge.participants.detector import Frame
 from edge.participants.identity import (
     LabColor,
+    RoleSource,
     Team,
     TrackObservation,
     cluster_teams,
     extract_shirt_color,
     representative_shirt_color,
+    resolve_roles_and_teams,
     select_sample_observations,
     stabilize_role,
 )
@@ -37,7 +37,6 @@ IDENTIFICATION_SCHEMA_VERSION = "player-identification.v0"
 ACCEPTED_TRACKING_SCHEMAS = frozenset({SCHEMA_VERSION, "player-tracking.v0"})
 """A `v0` usava `frames[].detections`; a `v1` usa `players`. Artefatos antigos seguem legiveis."""
 IdentityStatus = Literal["available", "unavailable", "not_applicable"]
-RoleSource = Literal["temporal_vote", "color_assisted"]
 
 
 @dataclass(frozen=True)
@@ -162,111 +161,6 @@ def _group_observations(tracking: TrackingInput) -> dict[int, list[TrackObservat
                     TrackObservation(frame.frame_index, detection)
                 )
     return dict(observations)
-
-
-def _nearest_team(color: LabColor, centroids: dict[Team, LabColor]) -> tuple[Team, float]:
-    distances: dict[Team, float] = {
-        team: dist(color[1:], centroid[1:]) for team, centroid in centroids.items()
-    }
-    return min(distances.items(), key=lambda item: (item[1], item[0]))
-
-
-def _robust_distance_limit(values: list[float]) -> float:
-    if not values:
-        return 30.0
-    center = median(values)
-    deviation = median(abs(value - center) for value in values)
-    return min(max(center + 3 * deviation + 5, 18.0), 60.0)
-
-
-def resolve_roles_and_teams(
-    stable_roles: dict[int, Role],
-    colors: dict[int, LabColor],
-    seed_assignments: dict[int, Team],
-    centroids: dict[Team, LabColor],
-    *,
-    role_evidence: dict[int, set[Role]] | None = None,
-    color_samples: dict[int, list[LabColor]] | None = None,
-) -> tuple[dict[int, Role], dict[int, Team], dict[int, RoleSource]]:
-    resolved_roles = dict(stable_roles)
-    resolved_teams: dict[int, Team] = {}
-    sources: dict[int, RoleSource] = {track_id: "temporal_vote" for track_id in stable_roles}
-    if len(centroids) != 2:
-        return resolved_roles, resolved_teams, sources
-    role_evidence = role_evidence or {}
-    color_samples = color_samples or {}
-
-    distances_by_team: dict[Team, list[float]] = defaultdict(list)
-    for track_id, team in seed_assignments.items():
-        color = colors.get(track_id)
-        if color is not None:
-            distances_by_team[team].append(dist(color[1:], centroids[team][1:]))
-    team_limits = {
-        team: max(_robust_distance_limit(distances_by_team.get(team, [])), 30.0)
-        for team in centroids
-    }
-    full_distances_by_team: dict[Team, list[float]] = defaultdict(list)
-    for track_id, team in seed_assignments.items():
-        color = colors.get(track_id)
-        if color is not None:
-            full_distances_by_team[team].append(dist(color, centroids[team]))
-    full_team_limits = {
-        team: _robust_distance_limit(full_distances_by_team.get(team, [])) for team in centroids
-    }
-
-    referee_candidates: list[LabColor] = []
-    for track_id, role in stable_roles.items():
-        color = colors.get(track_id)
-        if role != "referee" or color is None:
-            continue
-        nearest_full_team, full_team_distance = min(
-            ((team, dist(color, centroid)) for team, centroid in centroids.items()),
-            key=lambda item: (item[1], item[0]),
-        )
-        if full_team_distance > full_team_limits[nearest_full_team]:
-            referee_candidates.append(color)
-    referee_centroid = representative_shirt_color(referee_candidates)
-    referee_limit = _robust_distance_limit(
-        [dist(color, referee_centroid) for color in referee_candidates]
-        if referee_centroid is not None
-        else []
-    )
-
-    for track_id, stable_role in stable_roles.items():
-        if stable_role == "goalkeeper":
-            continue
-        color = colors.get(track_id)
-        if color is None:
-            continue
-
-        nearest_team, team_distance = _nearest_team(color, centroids)
-        referee_distance = (
-            dist(color, referee_centroid) if referee_centroid is not None else float("inf")
-        )
-        sample_referee_distance = (
-            min(
-                (dist(sample, referee_centroid) for sample in color_samples.get(track_id, ())),
-                default=float("inf"),
-            )
-            if referee_centroid is not None
-            else float("inf")
-        )
-        has_referee_evidence = stable_role == "referee" or "referee" in role_evidence.get(
-            track_id, set()
-        )
-        if has_referee_evidence and (
-            sample_referee_distance <= referee_limit or referee_distance <= referee_limit
-        ):
-            resolved_roles[track_id] = "referee"
-            if stable_role != "referee":
-                sources[track_id] = "color_assisted"
-        elif team_distance <= team_limits[nearest_team]:
-            resolved_roles[track_id] = "player"
-            resolved_teams[track_id] = nearest_team
-            if stable_role != "player":
-                sources[track_id] = "color_assisted"
-
-    return resolved_roles, resolved_teams, sources
 
 
 def _box_iou(first: Box, second: Box) -> float:

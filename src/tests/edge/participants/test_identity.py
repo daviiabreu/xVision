@@ -6,15 +6,21 @@ from numpy.typing import NDArray
 from edge.participants import Box
 from edge.participants.identity import (
     LabColor,
+    Team,
     TrackObservation,
+    ambiguous_team,
     cluster_teams,
+    enough_team_contrast,
     extract_shirt_color,
+    off_pitch,
     representative_shirt_color,
+    resolve_goalkeepers,
+    resolve_roles_and_teams,
     select_sample_observations,
     stabilize_role,
     teams_from_color_samples,
 )
-from edge.participants.types import player
+from edge.participants.types import Role, player
 
 
 def observation(
@@ -198,3 +204,198 @@ def test_limites_de_amostragem_invalidos_sao_erro() -> None:
         teams_from_color_samples({}, limit=0)
     with pytest.raises(ValueError, match="limites de amostragem"):
         teams_from_color_samples({}, limit=2, minimum=3)
+
+
+UNIFORME_CLARO: LabColor = (200, 118, 138)
+AMARELO: LabColor = (211, 120, 204)
+PRETO: LabColor = (70, 126, 132)
+"""O preto da arbitragem tem quase a crominancia do uniforme claro e so difere no brilho."""
+
+
+def test_arbitro_sem_papel_estavel_de_arbitro_ainda_semeia_o_centroide() -> None:
+    """Clipe em que o voto deixa todos como jogador: um quadro de `referee` basta de semente."""
+    roles, teams, sources = resolve_roles_and_teams(
+        {1: "player", 2: "player", 3: "player"},
+        {1: UNIFORME_CLARO, 2: AMARELO, 3: PRETO},
+        {1: "team_a", 2: "team_b"},
+        {"team_a": UNIFORME_CLARO, "team_b": AMARELO},
+        role_evidence={3: {"player", "referee"}},
+    )
+
+    assert roles[3] == "referee"
+    assert 3 not in teams
+    assert sources[3] == "color_assisted"
+
+
+def test_arbitro_de_preto_sem_evidencia_vira_arbitro_pela_cor_e_nao_jogador_do_time_claro() -> None:
+    """Sem quadro de `referee`, a cor perto da arbitragem e fora dos dois times decide."""
+    estaveis: dict[int, Role] = {1: "player", 2: "player", 3: "referee", 4: "player", 5: "player"}
+    roles, teams, _ = resolve_roles_and_teams(
+        estaveis,
+        {1: UNIFORME_CLARO, 2: AMARELO, 3: PRETO, 4: (60, 124, 134), 5: (212, 121, 203)},
+        {1: "team_a", 2: "team_b", 5: "team_b"},
+        {"team_a": UNIFORME_CLARO, "team_b": AMARELO},
+        role_evidence={5: {"player", "referee"}},
+    )
+
+    assert roles[4] == "referee"
+    assert 4 not in teams
+    # O jogador de amarelo que o detector marcou como arbitro em algum quadro continua jogador.
+    assert roles[5] == "player"
+    assert teams[5] == "team_b"
+
+
+VERDE_AGUA: LabColor = (180, 112, 110)
+"""O uniforme do goleiro do piloto, a menos de 40 do uniforme claro em Lab completo."""
+CENTROIDES: dict[Team, LabColor] = {"team_a": UNIFORME_CLARO, "team_b": AMARELO}
+
+
+def _goleiros(
+    roles: dict[int, Role],
+    colors: dict[int, LabColor],
+    *,
+    teams: dict[int, Team] | None = None,
+    votos: dict[int, float] | None = None,
+    posicoes: dict[int, tuple[float, float]] | None = None,
+    quadros: dict[int, set[int]] | None = None,
+) -> tuple[dict[int, Role], dict[int, Team]]:
+    return resolve_goalkeepers(
+        roles,
+        teams or {},
+        colors,
+        CENTROIDES,
+        goalkeeper_votes=votos or {},
+        positions=posicoes or {},
+        frames=quadros or {},
+    )
+
+
+def test_goleiro_estavel_com_cor_perto_de_um_time_continua_goleiro() -> None:
+    roles, teams = _goleiros({1: "goalkeeper"}, {1: VERDE_AGUA})
+
+    assert roles[1] == "goalkeeper"
+    assert 1 not in teams
+
+
+def test_fragmento_com_quadro_de_goleiro_e_a_cor_do_goleiro_vira_goleiro() -> None:
+    """Sem posição, a cor do goleiro estável e algum quadro de `goalkeeper` bastam."""
+    roles, teams = _goleiros(
+        {1: "goalkeeper", 2: "player", 3: "player"},
+        {1: VERDE_AGUA, 2: (178, 113, 112), 3: (179, 112, 111)},
+        teams={2: "team_a", 3: "team_a"},
+        votos={1: 5.0, 2: 0.4},
+    )
+
+    assert roles[2] == "goalkeeper"
+    assert 2 not in teams
+    # Mesma cor, mas nenhum quadro de goleiro e nenhuma posição: continua jogador.
+    assert roles[3] == "player"
+    assert teams[3] == "team_a"
+
+
+def test_na_pequena_area_com_quadro_de_goleiro_vira_goleiro_e_o_amarelo_na_grande_area_nao() -> (
+    None
+):
+    roles, _ = _goleiros(
+        {1: "player", 2: "player"},
+        {1: VERDE_AGUA, 2: (160, 124, 190)},
+        teams={1: "team_a", 2: "team_b"},
+        votos={1: 1.5},
+        posicoes={1: (48.2, -1.8), 2: (41.5, -7.0)},
+    )
+
+    assert roles[1] == "goalkeeper"
+    assert roles[2] == "player"
+
+
+def test_a_area_termina_na_linha_de_fundo() -> None:
+    """O fotógrafo atrás do gol projeta em x acima de 52,5 e não é goleiro pela área."""
+    roles, _ = _goleiros({1: "player"}, {1: VERDE_AGUA}, votos={1: 2.0}, posicoes={1: (60.9, 0.0)})
+
+    assert roles[1] == "player"
+
+
+def test_dois_goleiros_do_mesmo_lado_ao_mesmo_tempo_fica_a_cor_mais_longe_dos_times() -> None:
+    roles, teams = _goleiros(
+        {1: "goalkeeper", 2: "goalkeeper"},
+        # A cor do goleiro do 4995957 e o amarelo na sombra que o detector chamou de goleiro.
+        {1: (150, 114, 112), 2: (166, 125, 194)},
+        votos={1: 10.0, 2: 30.0},
+        posicoes={1: (49.9, 0.3), 2: (51.2, -7.5)},
+        quadros={1: {0, 4, 8}, 2: {4, 8, 12}},
+    )
+
+    assert roles[1] == "goalkeeper"
+    assert roles[2] == "player"
+    assert teams[2] == "team_b"
+
+
+def test_goleiros_de_lados_opostos_convivem() -> None:
+    roles, _ = _goleiros(
+        {1: "goalkeeper", 2: "goalkeeper"},
+        {1: VERDE_AGUA, 2: (150, 180, 120)},
+        posicoes={1: (50.0, 0.0), 2: (-50.0, 0.0)},
+        quadros={1: {0, 4}, 2: {0, 4}},
+    )
+
+    assert roles == {1: "goalkeeper", 2: "goalkeeper"}
+
+
+def test_o_goleiro_recebe_o_time_que_defende_o_gol_dele() -> None:
+    """Quem defende tem os jogadores, na mediana, mais perto do próprio gol."""
+    roles, teams = _goleiros(
+        {1: "goalkeeper", 2: "player", 3: "player", 4: "player", 5: "player"},
+        {1: VERDE_AGUA, 2: UNIFORME_CLARO, 3: UNIFORME_CLARO, 4: AMARELO, 5: AMARELO},
+        teams={2: "team_a", 3: "team_a", 4: "team_b", 5: "team_b"},
+        posicoes={1: (50.0, 0.0), 2: (30.0, 5.0), 3: (20.0, -5.0), 4: (45.0, 3.0), 5: (40.0, -8.0)},
+    )
+
+    assert roles[1] == "goalkeeper"
+    assert teams[1] == "team_b"
+
+
+def test_fora_do_campo_e_alem_das_linhas_com_a_margem_da_projecao() -> None:
+    assert off_pitch((60.9, -0.5))  # fotógrafo atrás do gol
+    assert off_pitch((20.0, -38.0))  # banco, além da lateral
+    assert not off_pitch((51.8, -35.0))  # jogador perto da bandeirinha de escanteio
+    assert not off_pitch((0.0, 0.0))
+
+
+def test_times_com_croma_perto_demais_nao_tem_contraste() -> None:
+    """Um uniforme só, dividido em dois pelo agrupamento, fica a menos do limite de croma."""
+    assert not enough_team_contrast({"team_a": (200, 118, 138), "team_b": (170, 122, 150)})
+    assert enough_team_contrast({"team_a": UNIFORME_CLARO, "team_b": AMARELO})
+    assert not enough_team_contrast({})
+
+
+def test_branco_contra_azul_marinho_tem_contraste_mesmo_com_croma_parecida() -> None:
+    """A Tunísia contra o Japão difere quase só no brilho, e o agrupamento acerta a divisão."""
+    assert enough_team_contrast({"team_a": (172, 130, 131), "team_b": (62, 136, 110)})
+
+
+def test_cor_a_meio_caminho_entre_os_times_e_ambigua() -> None:
+    assert ambiguous_team((205, 119, 171), CENTROIDES)
+    assert not ambiguous_team((205, 119, 140), CENTROIDES)
+
+
+def test_com_votos_so_o_arbitro_mais_votado_e_quem_fica_perto_dele_semeiam_o_centroide() -> None:
+    """Branco contra azul, árbitro de verde-limão e um jogador de branco na sombra com um quadro
+    de `referee`: sem os votos a semente mistura os dois e o cinza da mistura leva o jogador."""
+    entradas = dict(
+        stable_roles={1: "player", 2: "player", 3: "referee", 4: "player"},
+        colors={1: (216, 126, 134), 2: (88, 144, 84), 3: (204, 72, 160), 4: (150, 128, 140)},
+        seed_assignments={1: "team_a", 2: "team_b"},
+        centroids={"team_a": (216, 126, 134), "team_b": (88, 144, 84)},
+        role_evidence={4: {"player", "referee"}},
+    )
+
+    sem_votos, _, _ = resolve_roles_and_teams(**entradas)  # type: ignore[arg-type]
+    com_votos, teams, _ = resolve_roles_and_teams(
+        **entradas,  # type: ignore[arg-type]
+        referee_votes={3: 20.0, 4: 0.6},
+    )
+
+    assert sem_votos[4] == "referee"
+    assert com_votos[3] == "referee"
+    assert com_votos[4] == "player"
+    assert teams[4] == "team_a"

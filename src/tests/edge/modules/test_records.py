@@ -211,3 +211,29 @@ def test_o_time_do_detector_sobrevive_quando_identity_ainda_nao_classificou() ->
     percepcao = _percepcao_com_identity({"track_id": 7})
 
     assert percepcao.frames[0].players[0].team == "detector"
+
+
+def test_o_papel_de_identity_prevalece_sobre_o_papel_estavel_do_tracking() -> None:
+    """A identidade corrige pela cor o árbitro que o voto do tracking deixou como jogador."""
+    from edge.graph.runner import assemble
+
+    percepcao = assemble(
+        clipe(),
+        {
+            "players": ModuleOutput(
+                kind="players",
+                frames=(0,),
+                records=(({"box": (0.0, 0.0, 1.0, 1.0), "confidence": 0.9, "role": "player"},),),
+            ),
+            "tracking": ModuleOutput(
+                kind="tracking",
+                frames=(0,),
+                records=(({"detection_index": 0, "track_id": 7, "role": "player"},),),
+            ),
+            "identity": ModuleOutput(
+                kind="identity", frames=(0,), records=(({"track_id": 7, "role": "referee"},),)
+            ),
+        },
+    )
+
+    assert percepcao.frames[0].players[0].role == "referee"
