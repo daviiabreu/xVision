@@ -1,0 +1,287 @@
+---
+title: Pose do finalizador
+description: Ajuste do estimador de pose em recortes de jogador, os números do treino e a medida que julga o peso pelo tornozelo
+---
+
+Esta página trata do modelo que sustenta `body_part` e `looked_before`. A espécie `pose` da borda
+existe desde a Sprint 3 e carregava o `yolov8n-pose` genérico do COCO, sem ajuste ao domínio e sem
+medida própria. Esta entrega montou o que faltava em volta dele: o pipeline que produz um peso
+adaptado, a métrica que decide se o peso novo é melhor, o comando que aplica essa métrica sobre o
+vídeo do parceiro, e um primeiro treino executado numa RTX A4000.
+
+Estado em 28/09/2026: existe um peso treinado, e ele não foi promovido. A configuração de produção
+continua apontando para o peso genérico. O motivo está na seção de limitações: os números que o
+treino produziu são do protocolo do Ultralytics, medidos no mesmo domínio em que o modelo treinou, e
+nenhum deles é o número que autoriza a troca.
+
+## Por que é aqui que sobra ganho
+
+`body_part` é a feature com mais folga do conjunto. A maioria vale 0,519 sobre os 604 registros,
+contra 0,894 de `looked_before` e 0,876 de `goalkeeper_position`. O teto de quem não separa perna
+esquerda de direita é 0,6705, e hoje a feature entrega 0,438 sobre os 32 clipes que responde. Ela
+empata com a constante em vez de ganhar dela.
+
+Todo o ganho acima do teto mora no tornozelo, e o tornozelo é o ponto que o estimador genérico tem
+mais dificuldade de sustentar nesta escala: em 5 dos 24 clipes da dobra de ajuste os dois tornozelos
+ficam abaixo do piso de confiança na janela inteira, e ali a feature sai `unavailable` por contrato.
+
+## Onde se encaixa no fluxo
+
+```text
+keypoints COCO (person_keypoints_*.json) ou conjunto de futebol no mesmo formato
+  -> models/pose/dataset.py: filtra por escala, por pose e pelos dois tornozelos
+  -> recorta com a MARGEM da produção, reescreve o rótulo no espaço do recorte
+  -> dataset.yaml com kpt_shape [17,3] e flip_idx conferido
+  -> models/pose/train.py: ajuste fino no mesmo IMGSZ que o adaptador usa
+  -> models/pose/validate.py: mede no domínio do dataset
+  -> xvision artifact add: o peso vira manifesto versionado
+  -> xvision eval-pose: mede no vídeo do parceiro, contra anotação humana
+```
+
+## Componentes e responsabilidades
+
+| Componente | Responsabilidade | O que não faz |
+| --- | --- | --- |
+| `models/pose/dataset.py` | montar recortes de jogador em YOLO-pose, com a margem da produção e o `flip_idx` do COCO | não baixa dado, não anota e não trata COCO como se fosse futebol |
+| `models/pose/train.py` | ajustar o peso no `IMGSZ` do adaptador, com espelhamento ligado e mosaico desligado | não escolhe arquitetura por conta própria nem troca o manifesto |
+| `models/pose/validate.py` | publicar OKS, disponibilidade e lado do tornozelo no domínio do dataset | não substitui a medida no vídeo do parceiro |
+| `mlops/pose_quality.py` | ler a anotação validada por schema e medir o que a feature consome | não decide quem é o finalizador |
+| `pose-keypoints-v1.schema.json` | fixar os 17 pontos na ordem do COCO, com visibilidade e procedência | não aceita ponto ausente com coordenada |
+| `YoloPose.estimate_boxes` | estimar keypoints de uma caixa dada, já de volta ao pixel do quadro original | não escolhe o corpo |
+| `xvision eval-pose` | medir o peso sobre a caixa anotada, por dobra, com o vídeo conferido antes | não mede a escolha do finalizador |
+
+## A decisão que organiza a entrega
+
+A média de OKS é a métrica errada para este consumidor. Sobre os 38 clipes com o instante anotado à
+mão, o finalizador tem 93,4 px de altura na imagem (mediana; 23,5 mínimo) e os dois tornozelos ficam
+a 10,7 px um do outro (mediana; 2,0 mínimo). Um estimador que acerte os quinze pontos do tronco e da
+cabeça e troque os dois tornozelos de lado sai com OKS acima de 0,9, passa no PCK a 0,2 da altura da
+caixa (que aqui vale 18,7 px), e entrega a `body_part` a resposta invertida. A troca é invisível para
+o protocolo e fatal para a entrega.
+
+Por isso o relatório publica quatro números, e o `score` é o último:
+
+| Número | O que mede | Denominador |
+| --- | --- | --- |
+| `oks_median` | comparabilidade com a literatura e com o peso de partida | quadros com resposta |
+| `ankle_availability` | quanto dos quadros anotados tem os dois tornozelos acima do piso de confiança | quadros cuja anotação tem os dois pés |
+| `ankle_side_accuracy` | em que fração desses o lado não foi trocado | quadros disponíveis |
+| `usable_rate` | o que chega à `body_part` como informação utilizável, e o `score` | quadros cuja anotação tem os dois pés |
+
+`usable_rate` divide pelos quadros anotados e não pelos aceitos, de propósito: tornozelo que o
+estimador recusa falha do mesmo jeito que tornozelo que ele põe no pé errado, só com motivo
+declarado. Dividir pelos disponíveis premiaria um estimador que aprendesse a não responder.
+
+O piso de confiança não é escolhido na métrica: é importado de `edge.features.body_part`. Medir
+disponibilidade com um piso e consumir com outro produziria um relatório que promete cobertura que a
+feature recusa, sem levantar exceção nenhuma.
+
+## O processo de treino
+
+### 1. Ponto de partida
+
+O peso de produção era o `yolov8n-pose.pt` do COCO, aplicado a recortes de 256 px sem nenhum ajuste.
+Não havia medida própria dele: o repositório não sabia dizer se ele acertava o tornozelo, só que a
+feature que o consome empatava com a constante.
+
+### 2. Origem do dado
+
+O conjunto de treino é o COCO person keypoints (`person_keypoints_train2017.json` com as imagens de
+`train2017/`). Não é dado de futebol. É o conjunto disponível com os 17 keypoints na ordem canônica e
+licença aberta, e o `dataset.py` aceita qualquer arquivo no mesmo formato, então um conjunto de
+futebol exportado em COCO entra pelo mesmo script sem alteração.
+
+### 3. Filtros
+
+O script descarta a maior parte do COCO antes de recortar. Cada filtro tem um motivo medido:
+
+| Filtro | Valor | Motivo |
+| --- | --- | --- |
+| categoria e multidão | `person`, sem `iscrowd` | anotação de multidão não tem keypoint por pessoa |
+| pontos rotulados | 8 dos 17, no mínimo | abaixo disso a instância é pedaço de corpo atrás de outro corpo |
+| tornozelos | os dois rotulados | é o ponto que separa perna esquerda de direita, e sem ele a instância não serve ao consumidor |
+| altura da caixa | 48 a 640 px | o piso fica acima do mínimo de 23,5 px do parceiro porque ampliar 23 px para 256 não cria pixel; o teto evita que o conjunto vire pessoa em primeiro plano, escala que o peso genérico já acerta e que a borda não vê |
+| razão altura/largura | 1,2 ou mais | filtro de pose, não de imagem: o gesto acontece de pé |
+
+O filtro dos dois tornozelos é o que mais reduz o conjunto, e é o que não pode ser afrouxado sem
+tirar do dataset exatamente a informação que a feature consome.
+
+O split é 80/10/10 por imagem, por hash com semente fixa. Dois jogadores da mesma foto dividem
+iluminação, câmera e compressão; deixar um de cada lado do split viraria memorização com aparência de
+generalização. Como o sorteio é por hash e não por `random`, rodar o script de novo com mais imagens
+não move para o treino uma imagem que já estava no teste.
+
+### 4. Recorte
+
+Cada instância aceita vira uma imagem própria: a caixa da pessoa ampliada em 25% de cada lado, com o
+rótulo reescrito no espaço do recorte. A margem vem de `edge.modules.pose.MARGEM` em vez de ser
+redigitada, porque é a mesma que o `estimate_boxes` aplica em produção.
+
+Duas consequências aparecem ao abrir o dataset:
+
+- Aparece cenário de sala, rua e cozinha. A margem de 25% traz o entorno da foto original junto, e
+  pessoa estreita em cena cheia produz recorte com muito fundo. Todo recorte é centrado numa pessoa
+  anotada; o fundo é o contexto dela, não ruído inserido.
+- Ponto que a margem não alcança vira ausente, com `v = 0`, em vez de coordenada grudada na borda.
+  Grudar na moldura ensinaria que todo tornozelo cortado mora ali.
+
+A justificativa do recorte está medida no próprio módulo que consome o peso: rodando o estimador uma
+vez por quadro num clipe do parceiro, ele achou 2 pessoas onde o detector de jogadores achou 14,
+porque jogador de transmissão tem caixa de cerca de 32 por 102 px num quadro de 1920 por 1080. Sobre
+o recorte ampliado do mesmo jogador, 14 de 14. Se a produção só vê recorte, treinar em quadro inteiro
+ajusta o modelo para um problema que ele nunca encontra.
+
+### 5. Configuração do treino
+
+| Parâmetro | Valor | Motivo |
+| --- | --- | --- |
+| peso de partida | `yolov8n-pose.pt` | continuidade com o manifesto atual e orçamento da Jetson Orin Nano |
+| `imgsz` | 256 | importado de `edge.modules.pose.yolo.IMGSZ`; treinar em 640 e inferir em 256 resolve outra escala |
+| `batch` | 64 | A4000 de 16 GB em 256 px com o nano |
+| `epochs` e `patience` | 150 e 30 | parada antecipada |
+| `seed` | 20260922, com `deterministic=True` | a corrida precisa ser repetível por outra pessoa |
+| `fliplr` | 0,5 (ligado) | ver abaixo |
+| `mosaic` | 0,0 (desligado) | ver abaixo |
+
+`fliplr` ligado é novidade neste repositório. O treino de campo usa `fliplr = 0.0` e diz por quê: a
+correspondência esquerda-direita dos 29 pontos dele nunca foi verificada. Nos 17 pontos do COCO a
+correspondência é publicada, e aqui ela é derivada dos próprios nomes e conferida por teste, em vez
+de digitada de memória. Com o `flip_idx` correto, espelhar dobra o conjunto sem custo. Com ele
+errado, espelhar ensinaria ao modelo exatamente a troca de lado que a métrica existe para pegar.
+
+Mosaico fica desligado porque junta quatro imagens numa e reduz a escala de cada uma. Num conjunto de
+recortes, em que a pessoa ocupa o quadro inteiro por construção, isso desfaz o enquadramento que o
+conjunto existe para reproduzir.
+
+### 6. Números da corrida
+
+Conjunto com cerca de 6000 recortes, treinado na A4000. O que o Ultralytics reportou no fim:
+
+| Número | Valor |
+| --- | --- |
+| mAP50 | 0,995 |
+| mAP50-95 | 0,80 |
+| precisão | 0,95 |
+
+Os três foram medidos no split de teste dos recortes do COCO, ou seja no mesmo domínio do treino. A
+seção seguinte diz o que eles não estabelecem.
+
+## Limitações
+
+O domínio não é o do problema. COCO é foto cotidiana: não tem uniforme, grama, linha de campo,
+desfoque de transmissão nem oclusão por outro jogador, e o gesto do chute não aparece. O que o
+conjunto transfere é a geometria que a borda vê (corpo em pé, recortado, ampliado para 256 px, com
+tornozelo dentro do quadro) e a faixa de escala, não o conteúdo da cena.
+
+mAP50 de 0,995 é quase tautológico neste conjunto. Cada imagem tem uma pessoa, centralizada,
+ocupando quase todo o quadro, por construção do recorte. Detectar essa caixa é o caso mais fácil
+possível. Convém registrar de qual linha da saída do Ultralytics cada número veio, `Box` ou `Pose`,
+porque a leitura muda: a linha `Box` não diz nada sobre keypoint.
+
+mAP de pose é OKS, e OKS não vê troca de lado. É a decisão registrada acima: com 10,7 px entre os
+tornozelos e 93,4 px de altura de corpo, trocar os dois pés custa quase nada em OKS e inverte a
+resposta da feature. Um mAP50-95 de 0,80 é compatível tanto com um estimador que acerta o lado quanto
+com um que o troca de forma sistemática. Existe teste que só passa se a troca continuar invisível para
+OKS e zerar o `usable_rate`
+(`tests/mlops/test_pose_quality.py::test_a_troca_de_lado_passa_na_oks_e_zera_o_que_a_feature_consome`).
+
+Não há linha de base. `validate.py` ainda não foi executado sobre o peso novo nem sobre o
+`yolov8n-pose.pt` de partida. Sem os dois no mesmo split, o `usable_rate` do peso novo não tem com o
+que ser comparado, e a única pergunta que interessa, se o ajuste melhorou o que a feature consome,
+segue sem resposta.
+
+O conjunto é pequeno e o teste é estreito. Cerca de 6000 recortes é pouco para ajuste de pose, e com
+split de 10% o teste fica em algumas centenas de imagens, o que deixa o intervalo de Wilson do
+`usable_rate` largo. Convém conferir na saída do `dataset.py` quantas instâncias foram aceitas e qual
+a mediana de altura das caixas: se essa mediana ficar muito acima dos 93,4 px do finalizador, o treino
+aconteceu numa escala que a borda não encontra, e `MAX_ALTURA_PX` precisa baixar.
+
+O gabarito do parceiro não existe. Nenhum quadro foi anotado no schema `pose-keypoints-v1`. Enquanto
+isso durar, nenhum número medido no vídeo real está disponível, e o peso novo não pode ser promovido
+com evidência.
+
+## O que a medida separa, e o que não separa
+
+`eval-pose` entra pela caixa anotada do finalizador, e não pela saída da espécie inteira. A espécie
+faz duas coisas que falham por motivos diferentes: escolher o finalizador e estimar o corpo dele. Um
+número que some as duas não diz qual delas mudou. É a mesma razão pela qual `eval-field` mede
+homografia em linhas independentes dos keypoints que ajustaram a matriz.
+
+A escolha do finalizador continua medida por `xvision eval` e por `xvision placar`. Para o avaliador
+entrar pelo mesmo caminho da produção sem refazer recorte, margem e volta de coordenada por fora, a
+espécie ganhou o método público `estimate_boxes`, e `infer` passou a usá-lo. Duas cópias da receita de
+recorte divergiriam caladas: bastaria a margem mudar no módulo para o relatório passar a medir um
+enquadramento que a produção não usa.
+
+## Anotação
+
+O schema `pose-keypoints-v1` registra, por quadro, a caixa do finalizador e os 17 pontos na ordem do
+COCO, cada um com `visible`, `occluded` ou `absent`. Ponto ocluso conta, pela convenção do COCO:
+descartá-lo mediria o estimador só onde ele tem vida fácil, e o quadro do contato numa área cheia é
+justamente onde ele não tem.
+
+O avaliador exige `human-annotated` e exclui propostas pendentes, registrando o total recebido e o
+denominador efetivamente medido. `--include-proposals` preserva o diagnóstico exploratório,
+identificado no JSON. Anotação assistida por proposta do modelo é contada à parte e não equivale a
+revisão cega: quem corrige um esqueleto já desenhado tende a aceitar o lado que o modelo escolheu, que
+é exatamente o que o relatório mede. Antes da inferência, o comando confere SHA-256, dimensões e
+índice do quadro contra o vídeo.
+
+Sem gabarito, `eval-pose` roda e recusa por falta de população. É o comportamento certo: medir zero
+quadro e devolver zero pareceria resultado.
+
+## Estado e pendências
+
+| Item | Estado |
+| --- | --- |
+| pipeline de dataset, treino e validação | pronto, coberto por 18 testes |
+| métrica e schema de anotação | pronto, coberto por 19 testes |
+| `estimate_boxes` na espécie `pose` | pronto, coberto por 8 testes; comportamento de `infer` inalterado |
+| `xvision eval-pose` | pronto, coberto por 9 testes |
+| dataset de recortes | gerado a partir do COCO, cerca de 6000 recortes |
+| treino do peso | feito na A4000: mAP50 0,995, mAP50-95 0,80, precisão 0,95 no split de teste do próprio conjunto |
+| `usable_rate` do peso novo e do de partida | não medido: `validate.py` ainda não rodou nos dois |
+| gabarito de keypoints do parceiro | não existe: nenhum quadro anotado |
+| manifesto do peso novo | não existe: depende de medida que o justifique |
+| troca da configuração de produção | não feita: depende do gabarito |
+
+A ordem das pendências não é negociável: medir o peso novo contra o de partida no mesmo split, anotar
+o gabarito do parceiro, medir com `eval-pose` no vídeo real, versionar o peso em manifesto e só então
+trocar a configuração. Trocar o manifesto agora publicaria mudança de modelo apoiada em métrica que
+não distingue lado de tornozelo, que é o erro que a página de campo da Sprint 3 registra como
+pendente lá.
+
+## Comandos
+
+```bash
+cd src
+
+# 1. dataset de recortes a partir de keypoints no formato COCO
+uv run --extra training python models/pose/dataset.py \
+    --annotations ../data/coco/annotations/person_keypoints_train2017.json \
+    --images ../data/coco/train2017 \
+    --output ../data/pose-crops
+
+# 2. ajuste fino, numa máquina com GPU
+uv run --extra training python models/pose/train.py \
+    --data ../data/pose-crops/dataset.yaml --device 0 --batch 64
+
+# 3. medida no domínio do dataset, no peso novo e no de partida
+uv run --extra training python models/pose/validate.py \
+    --weights runs/pose/xvision-pose/weights/best.pt \
+    --data ../data/pose-crops --split test
+uv run --extra training python models/pose/validate.py \
+    --weights yolov8n-pose.pt --data ../data/pose-crops --split test
+
+# 4. o peso vira manifesto versionado
+uv run --frozen --all-extras xvision artifact add <pasta do best.pt> \
+    --kind pose --name xvision-pose --version 0.1.0 --entrypoint best.pt
+
+# 5. medida no vídeo do parceiro, quando o gabarito existir
+uv run --frozen --all-extras xvision eval-pose \
+    --labels ../var/labels/pose-keypoints-v1.jsonl \
+    --config config/pipeline.models.toml --dobra ajuste
+```
+
+Os passos 1 a 3 rodam fora do repositório: `runs/`, `*.pt` e o dataset derivado são ignorados pelo
+Git, porque peso e recorte derivados de dado restrito não podem virar commit.

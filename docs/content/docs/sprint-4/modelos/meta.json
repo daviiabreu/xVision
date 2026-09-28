@@ -5,6 +5,7 @@
     "bola-e-trajetoria",
     "campo-e-homografia",
     "tipo-da-jogada-e-area-ocupada",
+    "pose-do-finalizador",
     "quantizacao-int8",
     "edge-pipeline"
   ]
