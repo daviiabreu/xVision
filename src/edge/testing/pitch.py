@@ -18,6 +18,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from edge.participants.identity import Team
+
 WIDTH = 320
 HEIGHT = 240
 FPS = 10
@@ -48,7 +50,7 @@ _CONTACT_AT = (PENALTY_SPOT_X_M, -6.0)
 @dataclass(frozen=True)
 class PlayerTruth:
     track_id: int
-    team: str
+    team: Team
     role: str
     jersey_number: int
     pitch_xy: tuple[tuple[float, float], ...]
@@ -128,15 +130,15 @@ def _ball_at(frame_index: int) -> tuple[float, float]:
 def _players(total: int) -> tuple[PlayerTruth, ...]:
     finalizador = PlayerTruth(
         track_id=SHOOTER_TRACK_ID,
-        team="home",
-        role="outfield",
+        team="team_a",
+        role="player",
         jersey_number=10,
         pitch_xy=tuple(_ball_at(min(indice, SHOT_FRAME_INDEX)) for indice in range(total)),
     )
     marcador = PlayerTruth(
         track_id=4,
-        team="away",
-        role="outfield",
+        team="team_b",
+        role="player",
         jersey_number=3,
         pitch_xy=tuple(
             _between((38.0, -12.0), (44.0, -7.5), indice / (total - 1)) for indice in range(total)
@@ -144,26 +146,27 @@ def _players(total: int) -> tuple[PlayerTruth, ...]:
     )
     goleiro = PlayerTruth(
         track_id=1,
-        team="away",
+        team="team_b",
         role="goalkeeper",
         jersey_number=1,
         pitch_xy=tuple(
             _between((51.0, -1.5), (51.0, 1.0), indice / (total - 1)) for indice in range(total)
         ),
     )
+    posicoes_paradas: tuple[tuple[int, Team, int, tuple[float, float]], ...] = (
+        (2, "team_a", 9, (44.0, 6.0)),
+        (3, "team_b", 5, (46.5, -2.0)),
+        (5, "team_a", 7, (37.0, 12.0)),
+    )
     parados = tuple(
         PlayerTruth(
             track_id=identificador,
             team=time,
-            role="outfield",
+            role="player",
             jersey_number=numero,
             pitch_xy=((posicao,) * total),
         )
-        for identificador, time, numero, posicao in (
-            (2, "home", 9, (44.0, 6.0)),
-            (3, "away", 5, (46.5, -2.0)),
-            (5, "home", 7, (37.0, 12.0)),
-        )
+        for identificador, time, numero, posicao in posicoes_paradas
     )
     return (finalizador, marcador, goleiro, *parados)
 

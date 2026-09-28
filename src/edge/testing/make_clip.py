@@ -37,7 +37,7 @@ from edge.testing.pitch import (
 
 BALL_COLOR = (255, 0, 255)
 LINE_COLOR = (240, 240, 240)
-TEAM_COLOR = {"home": (40, 40, 220), "away": (220, 60, 40)}
+TEAM_COLOR = {"team_a": (40, 40, 220), "team_b": (220, 60, 40)}
 GOALKEEPER_COLOR = (40, 220, 220)
 
 _PITCH_LINES: tuple[tuple[tuple[float, float], ...], ...] = (

@@ -61,6 +61,11 @@ class StubBall(StubModule):
                 "box": ball_box(truth, pitch_xy),
                 "confidence": CONFIDENCE,
                 "pitch_xy": pitch_xy,
+                # O gabarito desenha a bola em todo quadro, entao a procedencia honesta e
+                # `detected`. Sem ela `touch._medida` descarta a bola e nenhuma feature que
+                # dependa de posse -- `assist` entre elas -- chega a ver um episodio.
+                "source": "detected",
+                "gap_frames": 0,
             },
         )
 
@@ -136,11 +141,11 @@ class StubMarking(StubModule):
         candidates = tuple(
             MarkingCandidate(
                 key=jogador.track_id,
-                team="team_a" if jogador.team == "home" else "team_b",
+                team=jogador.team,
                 position=jogador.pitch_xy[frame_index],
             )
             for jogador in truth.players
-            if jogador.role == "outfield"
+            if jogador.role == "player"
         )
         return tuple(
             {
