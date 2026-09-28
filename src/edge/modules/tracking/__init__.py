@@ -1,5 +1,6 @@
 """A especie `tracking`: o mesmo jogador entre dois quadros, sem peso e sem video."""
 
+from edge.modules.tracking.bytetrack import ByteTrackTracking
 from edge.modules.tracking.greedy import (
     ALCANCE_EM_DIAGONAIS,
     MAX_GAP_FRAMES,
@@ -15,6 +16,7 @@ __all__ = [
     "MAX_GAP_FRAMES",
     "MIN_AFINIDADE",
     "PREPROCESS",
+    "ByteTrackTracking",
     "GreedyTracking",
     "afinidade",
     "iou",

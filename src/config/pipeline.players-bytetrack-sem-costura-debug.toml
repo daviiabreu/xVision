@@ -1,0 +1,16 @@
+# Mesmo piloto do ByteTrack, com a costura desligada. Serve para rotular as trajetorias antes da
+# costura, que e a unica forma de julgar depois se ela juntou a pessoa certa.
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[modules.players]
+impl = "edge.modules.players:YoloPlayers"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
+frames = "dense"
+
+[modules.tracking]
+impl = "edge.modules.tracking:ByteTrackTracking"
+frames = "dense"
+costura = false

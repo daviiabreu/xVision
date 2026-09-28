@@ -3,7 +3,7 @@
 # Ela existe para uma comparacao, e nao para ser o padrao. Duas implementacoes das duas especies
 # convivem no repositorio depois do merge com o `develop`:
 #
-#   `edge.modules.players:YoloPlayers`      e `edge.modules.tracking:GreedyTracking`
+#   `edge.modules.players:YoloPlayers`      e `edge.modules.tracking:ByteTrackTracking`
 #   `edge.participants.module:PlayersModule` e `:TrackingModule`
 #
 # As duas foram escritas em paralelo, por pessoas diferentes, sem que nenhuma pudesse medir a

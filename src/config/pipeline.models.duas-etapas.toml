@@ -100,8 +100,10 @@ spots  = "../var/spots/tdeed.jsonl"
 # gravou, com o T-DEED rodando sozinho na GPU. Na Orin de 8 GB os dois nao cabem juntos na memoria.
 
 [modules.tracking]
-impl   = "edge.modules.tracking:GreedyTracking"
+impl   = "edge.modules.tracking:ByteTrackTracking"
 frames   = "dense"
+# ByteTrack com costura de fragmentos por distancia, papel e cor da camisa. O greedy,
+# `edge.modules.tracking:GreedyTracking`, segue disponivel e e o de players-debug.
 
 [modules.pose]
 impl     = "edge.modules.pose:YoloPose"

@@ -26,6 +26,7 @@ from edge.participants.identification import process_identification
 from edge.participants.tracking import PlayerTracker
 from edge.participants.types import frame_to_dict
 from edge.participants.video import process_video, render_perception
+from mlops.tracking_diagnostic import diagnosticar, ler_rotulos, ler_run
 
 players_app = typer.Typer(help="Deteccao, tracking e identificacao de jogadores num clipe.")
 
@@ -42,6 +43,16 @@ CONFIGURACAO_CENTRAL = typer.Option(
     "--config",
     help="Pipeline central reduzido a players e tracking.",
 )
+ROTULOS = typer.Option(
+    Path("../var/annotations/player-pilot-v1/agent-labels.json"),
+    help="Rotulos do agente; sem o arquivo, o diagnostico sai sem trocas e costura.",
+)
+REFERENCIA = typer.Option(
+    Path("../var/runs/player-pilot-v1/refined-bytetrack"),
+    help="Run sobre o qual os rotulos foram feitos.",
+)
+COLUNAS = ("ids", "pico", "curtas", "retomadas", "arbitros", "goleiros", "sem_id")
+COLUNAS_ROTULADAS = ("trocas", "costuras_S", "costuras_D", "costuras_sem")
 
 
 def _tracker(peso: Path, device: str, confianca: float, imagem: int) -> PlayerTracker:
@@ -177,3 +188,28 @@ def players_identify(
     )
     classificadas = sum(t["status"] == "available" for t in resultado["tracks"])
     typer.echo(f"{classificadas} trajetorias classificadas")
+
+
+@players_app.command("diagnose")
+def players_diagnose(run: Path, rotulos: Path = ROTULOS, referencia: Path = REFERENCIA) -> None:
+    """Imprime a fragmentacao do tracking por clipe a partir dos detections.json de um run."""
+    clipes = ler_run(run)
+    if not clipes:
+        typer.echo(f"{run} nao tem */detections.json", err=True)
+        raise typer.Exit(code=1)
+    rotulado = ler_rotulos(rotulos, referencia) if rotulos.is_file() else None
+    colunas = COLUNAS + (COLUNAS_ROTULADAS if rotulado else ())
+    linhas = [diagnosticar(clipe, rotulado) for clipe in clipes]
+    typer.echo(" ".join(["clipe".ljust(8), *(c.rjust(12) for c in colunas)]))
+    for linha in linhas:
+        typer.echo(
+            " ".join([str(linha["clipe"]).ljust(8), *(str(linha[c]).rjust(12) for c in colunas)])
+        )
+    total = {c: sum(int(linha[c]) for linha in linhas) for c in (*colunas, "deteccoes")}
+    typer.echo(" ".join(["total".ljust(8), *(str(total[c]).rjust(12) for c in colunas)]))
+    typer.echo(f"IDs por pessoa visivel: {total['ids'] / max(total['pico'], 1):.2f}")
+    typer.echo(f"deteccoes sem ID: {total['sem_id'] / max(total['deteccoes'], 1):.1%}")
+    if rotulado is not None:
+        julgadas = total["costuras_S"] + total["costuras_D"]
+        precisao = f"{total['costuras_S'] / julgadas:.2f}" if julgadas else "sem costura julgada"
+        typer.echo(f"precisao da costura, rotulo de agente: {precisao}")

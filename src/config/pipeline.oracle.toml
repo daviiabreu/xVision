@@ -68,7 +68,7 @@ impl   = "mlops.oracle:AnnotatedShot"
 frames = "dense"
 
 [modules.tracking]
-impl   = "edge.modules.tracking:GreedyTracking"
+impl   = "edge.modules.tracking:ByteTrackTracking"
 frames   = "dense"
 
 [modules.pose]

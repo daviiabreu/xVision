@@ -70,7 +70,7 @@ class _Trajetoria:
 
 
 @dataclass(frozen=True)
-class _Deteccao:
+class Deteccao:
     detection_index: int
     box: Box
     confidence: float
@@ -107,13 +107,13 @@ class GreedyTracking:
         if not batch.indices:
             return ModuleOutput(kind=self.spec.kind, frames=(), records=())
 
-        jogadores = _por_quadro(ctx.get("players"))
+        jogadores = por_quadro(ctx.get("players"))
         vivas: list[_Trajetoria] = []
         proximo = 1
         registros: list[tuple[Mapping[str, object], ...]] = []
         papeis: dict[int, dict[str, float]] = {}
         for indice in batch.indices:
-            deteccoes = _deteccoes(jogadores.get(indice, ()))
+            deteccoes = deteccoes_do_quadro(jogadores.get(indice, ()))
             do_quadro, vivas, proximo, observacoes = self._associar(
                 deteccoes, vivas, proximo, indice
             )
@@ -124,12 +124,12 @@ class GreedyTracking:
         return ModuleOutput(
             kind=self.spec.kind,
             frames=batch.indices,
-            records=_com_papeis_estaveis(registros, papeis),
+            records=com_papeis_estaveis(registros, papeis),
         )
 
     def _associar(
         self,
-        deteccoes: Sequence[_Deteccao],
+        deteccoes: Sequence[Deteccao],
         vivas: list[_Trajetoria],
         proximo: int,
         indice: int,
@@ -204,15 +204,15 @@ def _previsto(trajetoria: _Trajetoria) -> Box:
     )
 
 
-def _por_quadro(saida: ModuleOutput | None) -> dict[int, tuple[Mapping[str, object], ...]]:
+def por_quadro(saida: ModuleOutput | None) -> dict[int, tuple[Mapping[str, object], ...]]:
     if saida is None:
         return {}
     return dict(zip(saida.frames, saida.records, strict=True))
 
 
-def _deteccoes(registros: Sequence[Mapping[str, object]]) -> tuple[_Deteccao, ...]:
+def deteccoes_do_quadro(registros: Sequence[Mapping[str, object]]) -> tuple[Deteccao, ...]:
     return tuple(
-        _Deteccao(
+        Deteccao(
             detection_index=posicao,
             box=Box(*cast("Any", registro["box"])),
             confidence=float(cast("Any", registro.get("confidence", 0.0))),
@@ -228,14 +228,21 @@ def _papel(registro: Mapping[str, object]) -> str | None:
     return valor if isinstance(valor, str) else None
 
 
-def _com_papeis_estaveis(
+def papel_estavel(por_papel: Mapping[str, float]) -> str | None:
+    """O papel de maior confianca somada, com empate decidido pela ordem de `PAPEIS`."""
+    if sum(por_papel.values()) <= 0:
+        return None
+    return max(PAPEIS, key=lambda papel: (por_papel.get(papel, 0.0), -PAPEIS.index(papel)))
+
+
+def com_papeis_estaveis(
     registros: Sequence[Sequence[Mapping[str, object]]],
     pontuacoes: Mapping[int, Mapping[str, float]],
 ) -> tuple[tuple[Mapping[str, object], ...], ...]:
     estaveis = {
-        track_id: max(PAPEIS, key=lambda papel: (por_papel.get(papel, 0.0), -PAPEIS.index(papel)))
+        track_id: papel
         for track_id, por_papel in pontuacoes.items()
-        if sum(por_papel.values()) > 0
+        if (papel := papel_estavel(por_papel)) is not None
     }
     return tuple(
         tuple(

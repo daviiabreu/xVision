@@ -104,8 +104,10 @@ frames   = "tdeed"
 # disponivel e e a que o pipeline de stubs usa.
 
 [modules.tracking]
-impl   = "edge.modules.tracking:GreedyTracking"
+impl   = "edge.modules.tracking:ByteTrackTracking"
 frames   = "dense"
+# ByteTrack com costura de fragmentos por distancia, papel e cor da camisa. O greedy,
+# `edge.modules.tracking:GreedyTracking`, segue disponivel e e o de players-debug.
 
 [modules.pose]
 impl     = "edge.modules.pose:YoloPose"

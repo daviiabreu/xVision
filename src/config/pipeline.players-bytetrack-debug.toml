@@ -1,0 +1,14 @@
+# Mesmo piloto central, trocando somente o algoritmo de associacao para ByteTrack.
+
+[frames.dense]
+strategy = "uniform"
+fps = 15
+
+[modules.players]
+impl = "edge.modules.players:YoloPlayers"
+artifact = "models/manifests/players/football-player-detection-1.0.0.toml"
+frames = "dense"
+
+[modules.tracking]
+impl = "edge.modules.tracking:ByteTrackTracking"
+frames = "dense"
