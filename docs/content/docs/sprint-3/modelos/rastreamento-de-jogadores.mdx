@@ -51,9 +51,10 @@ quando a maior parte das evidências aponta para jogador de linha.
 
 ## Comparação com ByteTrack
 
-O ByteTrack também foi adaptado para consumir exatamente as caixas produzidas pelo detector
-central, sem executar uma segunda detecção. Ele associa observações de alta e baixa confiança e
-mantém trajetórias por uma janela maior, características que podem favorecer cenas com oclusão.
+O ByteTrack também foi adaptado, numa branch de trabalho, para consumir exatamente as caixas
+produzidas pelo detector central, sem executar uma segunda detecção. Ele associa observações de
+alta e baixa confiança e mantém trajetórias por uma janela maior, características que podem
+favorecer cenas com oclusão.
 
 Na amostra de oito clipes, as duas alternativas apresentaram os seguintes resultados operacionais:
 
@@ -72,8 +73,9 @@ eles incluem fragmentações geradas por cortes de câmera, oclusões e perda te
 <Callout type="success" title="Decisão adotada">
 
 A associação gulosa refinada permanece como configuração principal por produzir identificadores
-para todas as observações e preservar o comportamento determinístico do pipeline. O ByteTrack fica
-disponível como alternativa experimental até que a comparação visual seja concluída.
+para todas as observações e preservar o comportamento determinístico do pipeline. O ByteTrack não
+entrou no código desta sprint, ele existia só na branch em que a comparação foi feita, e passou
+a ser o tracking do pipeline na Sprint 4, com costura de fragmentos.
 
 </Callout>
 

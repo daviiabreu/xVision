@@ -38,7 +38,10 @@ Os pesos precisam estar em `var/models`, que é ignorado pelo git. O fluxo HTTP 
 
 O registro completo, com commit, sha256 da configuração, máquina, versões de runtime, fixture e o
 resultado de cada etapa, está em
-[`operacao-modulos-reais-20260922.json`](/sprint-4/produto/evidencias/operacao-modulos-reais-20260922.json).
+[`operacao-modulos-reais-20260922.json`](/sprint-4/produto/evidencias/operacao-modulos-reais-20260922.json),
+que é do commit `3a96de0`, com o tracking guloso, `GreedyTracking`. Desde 27/09 a configuração usa o
+ByteTrack com costura, então o mesmo comando no `develop` de hoje exercita outro tracking, e a
+duração da etapa `tracking` abaixo não vale para ele.
 
 As sete operações do fluxo passaram: cadastro 201, login 200, reserva 200, envio 202, conclusão
 `Finalizado` com progresso 100, resultado 200 e o vídeo presente no histórico. O fluxo levou 23,3

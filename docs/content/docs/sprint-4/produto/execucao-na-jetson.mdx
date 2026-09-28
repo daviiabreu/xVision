@@ -221,6 +221,12 @@ Os dados brutos agregados, sem identificador de clipe, estão em
 [`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json) e, para o catálogo, em
 [`jetson-catalogo-20260925.json`](/sprint-4/produto/evidencias/jetson-catalogo-20260925.json).
 
+Esses números são dos commits gravados nos dois arquivos, `782beee` nos 24 clipes e `d6b57ec` e
+`c6fd9fb` no catálogo, todos com o tracking guloso, `GreedyTracking`. Desde 27/09 as configurações
+de modelos usam o ByteTrack com costura, que lê a cor da camisa e ainda não foi medido na placa,
+então os comandos acima rodados no `develop` de hoje medem outro pipeline, e reproduzir os números
+desta página exige fazer checkout desses commits.
+
 ## Decisões
 
 **O instante sai antes do resto do pipeline.** A alternativa descartada era desligar a interface
