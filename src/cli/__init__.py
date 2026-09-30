@@ -67,6 +67,7 @@ from mlops.checkpoint import (
     write_checkpoint,
 )
 from mlops.evaluate import EvaluationError, MetricReport, evaluate
+from mlops.event_input import EventInputError, read_event_features
 from mlops.evidence_training import Exemplo, evaluate_model, train
 from mlops.instant import (
     OBSERVATIONS_FILE,
@@ -1005,17 +1006,17 @@ def evaluate_run(
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
 
-    predicoes: dict[str, dict[str, tuple[object, str | None]]] = {}
     try:
-        linhas = eventos.read_text(encoding="utf-8").splitlines()
-        carregadas = [json.loads(linha) for linha in linhas]
-    except (OSError, json.JSONDecodeError) as erro:
+        carregadas = read_event_features(eventos)
+    except (OSError, UnicodeError, EventInputError) as erro:
         typer.echo(f"{eventos}: {erro}", err=True)
         raise typer.Exit(code=1) from erro
-    for evento in carregadas:
-        predicoes[evento["clip_id"]] = {
-            f["name"]: (_valor_para_avaliacao(f, tabela), f["reason"]) for f in evento["features"]
+    predicoes = {
+        clip: {
+            name: (_valor_para_avaliacao(f, tabela), f["reason"]) for name, f in features.items()
         }
+        for clip, features in carregadas.items()
+    }
     grupos = {r.shot_id: r.match_id for r in load_catalog()} if bootstrap > 0 else None
     try:
         relatorio = evaluate(predicoes, gabarito, tabela, groups=grupos, resamples=bootstrap)

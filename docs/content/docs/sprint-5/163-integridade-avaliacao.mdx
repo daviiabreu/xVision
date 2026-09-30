@@ -1,0 +1,49 @@
+---
+title: Integridade das previsões na avaliação
+description: Recusa de eventos e features duplicados antes de calcular métricas
+---
+
+O comando `xvision eval` compara uma previsão por clipe e feature com o gabarito. Esta correção, encontrada na revisão geral do [card 162](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/162), protege a leitura de `events.jsonl` antes do cálculo. O fluxo de operação está no [manual do produto](/docs/sprint-3/produto/como-rodar).
+
+## Erro reproduzido
+
+Dois eventos sintéticos com `clip_id` igual a `c1`, um prevendo `marked=false` e outro `marked=true`, eram aceitos como uma previsão só. Para o gabarito `marked=true`, a acurácia variava entre 0% e 100% apenas pela ordem das linhas. O comando terminava com sucesso e sobrescrevia `report.json`.
+
+O mesmo conflito podia ocorrer entre duas features com o mesmo nome dentro de um evento. Esses números são da reprodução sintética, sem vídeo ou avaliação do conjunto reservado.
+
+## Regra de leitura
+
+| Entrada | Resultado |
+| --- | --- |
+| Eventos com clipes distintos | Avaliação normal |
+| Clipe repetido, mesmo com valores idênticos | Erro com arquivo, linha e identificador |
+| Nome de feature repetido no mesmo evento | Erro com arquivo, linha e nome |
+| Evento sem identificador textual ou lista de features | Erro de estrutura |
+| Feature sem nome textual ou motivo em texto ou `null` | Erro de estrutura |
+| Linhas em branco | Ignoradas, preservando a numeração original |
+| Feature indisponível | Continua separada dos acertos e erros |
+
+O leitor recusa o conflito antes de calcular métricas ou gravar o relatório. Um `report.json` existente permanece intacto após a falha.
+
+## Uso
+
+```bash
+cd src
+uv run --frozen --all-extras xvision eval ../var/runs/EXECUCAO
+```
+
+Uma duplicata na segunda linha é indicada como `events.jsonl:2: clip_id 'c1' duplicado`. A CLI retorna código 1. Corrigir a origem do arquivo é responsabilidade de quem opera; o comando não escolhe nem junta previsões conflitantes.
+
+## Decisão e limite
+
+**Recusar duplicatas em vez de manter a primeira ou a última.** Uma escolha por posição altera o resultado sem critério rastreável. Agregar os valores também foi descartado porque redefiniria a previsão que o pipeline produziu. A desvantagem é exigir que execuções combinadas sejam separadas ou corrigidas na origem antes da avaliação.
+
+A validação verifica a estrutura consumida pelo avaliador. Ela não substitui a validação completa do contrato do evento, não comprova a origem de um arquivo e não modifica relatórios congelados. O cálculo das métricas e os critérios de sucesso permanecem os mesmos.
+
+## Validação e referências
+
+As regressões executam a CLI com clipes repetidos, features repetidas, estruturas inválidas e um relatório preexistente. Um controle usa clipes distintos com cobertura parcial para conferir que a indisponibilidade continua sendo declarada. As regressões de duplicatas falharam na versão original e passaram após a correção.
+
+- [Card 163: erro, reprodução e resultados dos gates](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/163).
+- [Leitor de eventos usado na avaliação](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/mlops/event_input.py).
+- [Regressões pela CLI](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/tests/cli/test_evaluation_integrity.py).
