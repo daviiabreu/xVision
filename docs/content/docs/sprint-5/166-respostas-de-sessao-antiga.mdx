@@ -1,0 +1,35 @@
+---
+title: Respostas de uma sessão antiga
+description: Respostas 401 de consultas e uploads anteriores preservam a sessão atual
+---
+
+A interface pode manter consultas e uploads em andamento enquanto a pessoa troca a senha ou entra em outra conta. Esta correção limita a invalidação à credencial usada na requisição recusada. O fluxo de autenticação está no [backend](/docs/sprint-3/produto/backend) e o erro foi registrado na [revisão geral 162](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/162).
+
+## Erro reproduzido
+
+Uma consulta iniciou com um token antigo. A renovação gravou outro token, mas a consulta anterior recebeu HTTP 401 depois disso. O cliente apagou a sessão nova e emitiu o evento `sessao-perdida`, desconectando a interface após uma troca de senha bem-sucedida. O upload tinha a mesma condição.
+
+## Regra de invalidação
+
+| Credencial recusada | Resultado |
+| --- | --- |
+| Ainda é o token da sessão atual | Apaga a sessão e informa a falha |
+| É um token anterior à renovação | Mantém a sessão atual e recusa a requisição antiga |
+| É uma credencial explícita diferente | Mantém a sessão atual |
+| A requisição iniciou sem sessão e houve login depois | Mantém o login novo |
+
+O cliente captura a credencial enviada antes de esperar a resposta. No 401, compara o token recusado com o token atualmente armazenado. Tanto consultas por `fetch` quanto uploads por XHR seguem a regra.
+
+## Decisão e limite
+
+**Invalidar somente a sessão correspondente ao token recusado.** Apagar qualquer sessão no 401 foi descartado porque a resposta pode chegar depois de uma troca legítima. Repetir automaticamente a requisição também foi descartado: um upload ou uma operação de escrita pode ter efeito e exige uma decisão de quem chama.
+
+A desvantagem é que a requisição antiga continua falhando e pode precisar ser refeita. O erro HTTP permanece disponível ao chamador. A correção não concede acesso ao token antigo, não muda a validação no backend e não implementa atualização automática de credenciais.
+
+## Validação e referências
+
+As regressões usam respostas adiadas e verificam a preservação da sessão após renovação, troca de conta e login posterior, incluindo upload e credencial explícita. Também verificam que o 401 do token atual continua apagando a sessão. Os testes de preservação falharam na implementação original.
+
+- [Card 166: reprodução e resultados dos gates](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/166).
+- [Cliente HTTP e upload](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/services/api.ts).
+- [Regressões do cliente](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/tests/services/api.test.ts).

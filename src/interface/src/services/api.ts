@@ -67,25 +67,35 @@ async function detalheDe(resposta: Response): Promise<string> {
   }
 }
 
+function apagarSessaoDaRequisicao(credencial: string | null): void {
+  const token = credencial?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const atual = lerSessao();
+  if (atual && token === atual.token) {
+    apagarSessao();
+  }
+}
+
 export async function pedir(caminho: string, init: RequestInit = {}): Promise<Response> {
   const sessao = lerSessao();
   const alvo = alvoDe(caminho);
+  const headers = {
+    ...(sessao ? { Authorization: `Bearer ${sessao.token}` } : {}),
+    ...init.headers,
+  };
+  const credencial = new Headers(headers).get("Authorization");
   let resposta: Response;
 
   try {
     resposta = await fetch(alvo, {
       ...init,
-      headers: {
-        ...(sessao ? { Authorization: `Bearer ${sessao.token}` } : {}),
-        ...init.headers,
-      },
+      headers,
     });
   } catch {
     throw new Error(ERROR_MESSAGES.NO_CONNECTION);
   }
 
   if (resposta.status === 401) {
-    apagarSessao();
+    apagarSessaoDaRequisicao(credencial);
     throw new NaoAutenticado(await detalheDe(resposta));
   }
 
@@ -142,7 +152,7 @@ export function apiUpload(
         }
       })();
       if (xhr.status === 401) {
-        apagarSessao();
+        apagarSessaoDaRequisicao(sessao ? `Bearer ${sessao.token}` : null);
         reject(new NaoAutenticado(detalhe));
         return;
       }

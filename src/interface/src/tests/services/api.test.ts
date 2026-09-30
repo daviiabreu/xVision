@@ -8,7 +8,7 @@ import {
   ErroHttp,
   NaoAutenticado,
 } from "../../services/api";
-import { guardarSessao, lerSessao } from "../../services/sessao";
+import { guardarSessao, lerSessao, renovarSessao, SESSAO_PERDIDA } from "../../services/sessao";
 import { ERROR_MESSAGES } from "../../utils/errorMessages";
 import { XMLHttpRequestMock } from "../xhrMock";
 
@@ -81,6 +81,85 @@ describe("api", () => {
     responde(401);
 
     await expect(apiFetch("/v1/auth/me")).rejects.toBeInstanceOf(NaoAutenticado);
+    expect(lerSessao()).toBeNull();
+  });
+
+  it.each(["renovada", "outra-conta"])(
+    "preserva uma sessao %s quando uma consulta antiga retorna 401",
+    async (troca) => {
+      guardarSessao("antigo", 3600, 1, "original");
+      let responder: (resposta: Response) => void = () => {
+        throw new Error("Resposta nao preparada");
+      };
+      fetchMock.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          responder = resolve;
+        }),
+      );
+      const perdeu = vi.fn();
+      window.addEventListener(SESSAO_PERDIDA, perdeu);
+      try {
+        const consulta = apiFetch("/v1/videos");
+        if (troca === "renovada") {
+          renovarSessao("novo", 3600);
+        } else {
+          guardarSessao("novo", 3600, 2, "outra");
+        }
+        responder(new Response("{}", { status: 401 }));
+
+        await expect(consulta).rejects.toBeInstanceOf(NaoAutenticado);
+        expect(lerSessao()?.token).toBe("novo");
+        expect(perdeu).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener(SESSAO_PERDIDA, perdeu);
+      }
+    },
+  );
+
+  it("preserva a sessao quando a credencial explicitamente recusada e outra", async () => {
+    guardarSessao("atual", 3600);
+    responde(401);
+
+    await expect(
+      apiFetch("/v1/auth/me", { headers: { Authorization: "Bearer outra" } }),
+    ).rejects.toBeInstanceOf(NaoAutenticado);
+
+    expect(lerSessao()?.token).toBe("atual");
+  });
+
+  it("preserva um login feito depois de uma requisicao sem sessao", async () => {
+    responde(401);
+    const consulta = apiFetch("/v1/auth/me");
+    guardarSessao("nova", 3600);
+
+    await expect(consulta).rejects.toBeInstanceOf(NaoAutenticado);
+    expect(lerSessao()?.token).toBe("nova");
+  });
+
+  it("preserva a sessao renovada quando um upload antigo retorna 401", async () => {
+    guardarSessao("antigo", 3600);
+    XMLHttpRequestMock.nextStatus = 401;
+    const perdeu = vi.fn();
+    window.addEventListener(SESSAO_PERDIDA, perdeu);
+    try {
+      const upload = apiUpload("/v1/videos/upload/t", new File(["x"], "c.mp4"));
+      renovarSessao("novo", 3600);
+
+      await expect(upload).rejects.toBeInstanceOf(NaoAutenticado);
+      expect(lerSessao()?.token).toBe("novo");
+      expect(perdeu).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(SESSAO_PERDIDA, perdeu);
+    }
+  });
+
+  it("apaga a sessao quando o upload recusa a credencial atual", async () => {
+    guardarSessao("atual", 3600);
+    XMLHttpRequestMock.nextStatus = 401;
+
+    await expect(apiUpload("/v1/videos/upload/t", new File(["x"], "c.mp4"))).rejects.toBeInstanceOf(
+      NaoAutenticado,
+    );
     expect(lerSessao()).toBeNull();
   });
 
