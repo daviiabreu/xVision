@@ -347,11 +347,11 @@ def mcnemar(pares: Sequence[tuple[object, object]]) -> dict[str, float]:
     return {
         "modelo_acertou_constante_errou": b,
         "modelo_errou_constante_acertou": c,
-        "p_value": _binomial_bilateral(b, c),
+        "p_value": binomial_bilateral(b, c),
     }
 
 
-def _binomial_bilateral(b: int, c: int) -> float:
+def binomial_bilateral(b: int, c: int) -> float:
     n = b + c
     if n == 0:
         return 1.0

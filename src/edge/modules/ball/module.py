@@ -81,6 +81,7 @@ from edge.modules.base import (
 )
 from edge.modules.device import preferred_device
 from edge.modules.inference import shared
+from edge.runtime import RuntimeInfo
 
 PREPROCESS = PreprocessSpec(width=1920, height=1088, color="bgr", letterbox=True, normalize="none")
 """Resolucao nativa, porque reduzir antes de detectar joga fora um terco do diametro da bola.
@@ -156,6 +157,12 @@ class YoloBall:
     @property
     def telemetry(self) -> Mapping[str, int | float]:
         return dict(self._telemetry)
+
+    @property
+    def runtime_info(self) -> RuntimeInfo | None:
+        """O runtime que abriu o peso, e `None` sem detector ou com detector que nao o declara."""
+        info = getattr(self._detector, "runtime_info", None)
+        return info if isinstance(info, RuntimeInfo) else None
 
     def fingerprint(self) -> str:
         """O ajuste em vigor, para o cache de percepcao nao servir medida de outro limiar.
@@ -279,14 +286,7 @@ class YoloBall:
             "ranking_motion_frames": 0,
             "ranking_score_sum": 0.0,
         }
-        self._candidate_stats = {
-            "tiles_executed": 0,
-            "raw_candidates": 0,
-            "candidates_after_nms": 0,
-            "candidates_after_filter": 0,
-            "inference_ms": 0.0,
-            "nms_ms": 0.0,
-        }
+        self._candidate_stats = _estatisticas_zeradas()
         if not batch.indices:
             self._telemetry = self._report(0, 0.0, 0.0, BallTracker().telemetry)
             return ModuleOutput(kind=self.spec.kind, frames=(), records=())
@@ -305,6 +305,24 @@ class YoloBall:
             kind=self.spec.kind,
             frames=batch.indices,
             records=tuple(registro_de(pontos.get(indice)) for indice in batch.indices),
+        )
+
+    def candidatos(self, batch: FrameBatch) -> tuple[tuple[BallDetection, ...], ...]:
+        """Os candidatos de cada quadro, no espaco do quadro original, antes do ranking.
+
+        E o nivel em que o TB-04 compara runtimes: depois do ranking a lista ja foi cortada em
+        `ranking_candidates`, e a confianca que a precisao muda e a do detector. Sem detector
+        levanta em vez de devolver vazio, porque vazio dos dois lados passaria por paridade.
+        """
+        if not self._pronto:
+            raise ModuleNotLoaded(self.spec.name)
+        if self._detector is None:
+            raise ModuleNotLoaded(f"{self.spec.name} sem detector: o modulo nao declara peso")
+        check_preprocess(batch, self.spec.preprocess)
+        self._candidate_stats = _estatisticas_zeradas()
+        return tuple(
+            self._candidatos(batch.tensor[posicao], batch, batch.source_size, indice)
+            for posicao, indice in enumerate(batch.indices)
         )
 
     def _observar(self, batch: FrameBatch) -> list[BallObservation]:
@@ -453,6 +471,17 @@ def chave_do_cache(config: DetectorConfig) -> str:
     return (
         f"{config.weights}#conf={config.conf:g}#imgsz={config.imgsz:d}#quantize={config.quantize}"
     )
+
+
+def _estatisticas_zeradas() -> dict[str, int | float]:
+    return {
+        "tiles_executed": 0,
+        "raw_candidates": 0,
+        "candidates_after_nms": 0,
+        "candidates_after_filter": 0,
+        "inference_ms": 0.0,
+        "nms_ms": 0.0,
+    }
 
 
 def _artefato_valido(nome: object) -> str:

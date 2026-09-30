@@ -595,3 +595,58 @@ def test_a_chave_do_cache_compartilhado_separa_a_precisao() -> None:
     meia = chave_do_cache(DetectorConfig(weights=peso, quantize="fp16"))
 
     assert cheia != meia
+
+
+def test_candidatos_saem_no_quadro_original_e_antes_do_ranking() -> None:
+    """O TB-04 compara o detector: o ranking corta a lista, e o cortado tambem tem de parear."""
+    from edge.frames.preprocess import to_source_box
+
+    modulo = YoloBall(_duas_caixas(), ranking=True, ranking_candidates=1)
+    modulo.load()
+
+    (candidatos,) = modulo.candidatos(_lote((0,)))
+
+    esperados = [to_source_box(_as_caixa(c), PREPROCESS, FONTE) for c in _duas_caixas().caixas]
+    assert [_as_caixa(c.box) for c in candidatos] == esperados
+    assert [c.confidence for c in candidatos] == [0.5, 0.5]
+    assert len(modulo.infer(_lote((0,)), {}).records[0]) == 1
+
+
+def test_candidatos_sem_detector_levantam_em_vez_de_devolver_vazio() -> None:
+    """Vazio dos dois lados de uma comparacao passaria por paridade perfeita."""
+    modulo = YoloBall()
+    with pytest.raises(ModuleNotLoaded):
+        modulo.candidatos(_lote((0,)))
+    modulo.load()
+
+    with pytest.raises(ModuleNotLoaded, match="sem detector"):
+        modulo.candidatos(_lote((0,)))
+
+
+def test_runtime_info_e_o_do_detector_e_some_sem_ele() -> None:
+    from edge.runtime import RuntimeInfo
+
+    info = RuntimeInfo(
+        backend="tensorrt",
+        provider="tensorrt",
+        device="cuda",
+        precision="float32",
+        runtime_versions=(("tensorrt", "11.3"),),
+        artifact_sha256="0" * 64,
+        parent_onnx_sha256="1" * 64,
+        inputs=(),
+        outputs=(),
+        inference_count=0,
+        fallback_reason=None,
+    )
+
+    class _ComRuntime(_DetectorFalso):
+        runtime_info = info
+
+    modulo = YoloBall(_ComRuntime(None))
+    modulo.load()
+
+    assert modulo.runtime_info is info
+    assert YoloBall(_DetectorFalso(None)).runtime_info is None
+    modulo.close()
+    assert modulo.runtime_info is None

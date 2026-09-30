@@ -53,8 +53,10 @@ from edge.paths import (
     var_dir,
 )
 from edge.pipeline import ClipResult, PipelineError, process_clip
+from edge.runtime import RuntimeInfo
 from edge.testing.make_clip import make_synthetic_clip
 from edge.video import RenderUnavailable
+from mlops.ball_parity import RAIO_PAR_PX, ParidadeReport
 from mlops.catalog import CatalogError, ShotRecord, catalog_counts, load_catalog
 from mlops.checkpoint import (
     CHECKPOINT_FILE,
@@ -1623,19 +1625,8 @@ def eval_ball(
     if not caminho.is_file():
         typer.echo(f"{caminho} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
-    try:
-        gabarito = consensus(read())
-        catalogo = {r.shot_id: r for r in load_catalog() if r.big_enough}
-    except ERROS_DE_USO as erro:
-        typer.echo(str(erro), err=True)
-        raise typer.Exit(code=1) from erro
+    alvos = _contatos_anotados(dobra, limit)
     dobras = dobras_de(dobra)
-    alvos = sorted(c for c in gabarito if c in catalogo and catalogo[c].fold in dobras)
-    if limit:
-        alvos = alvos[:limit]
-    if not alvos:
-        typer.echo("nenhum clipe anotado; rode `xvision label scrub`", err=True)
-        raise typer.Exit(code=1)
     modulos = {
         kind: module
         for kind, module in load_modules(read_config(caminho)).items()
@@ -1648,9 +1639,8 @@ def eval_ball(
         for modulo in modulos.values():
             modulo.load()
             carregados.append(modulo)
-        for clip_id in alvos:
-            registro = catalogo[clip_id]
-            clip = probe(registro.clip_path, clip_id=clip_id)
+        for registro, contato in alvos:
+            clip = probe(registro.clip_path, clip_id=registro.shot_id)
             provider = FrameProvider(VideoSource(registro.clip_path))
             try:
                 percepcao = run_pipeline(
@@ -1660,8 +1650,8 @@ def eval_ball(
                 provider.close()
             contatos.append(
                 contato_de(
-                    clip_id,
-                    quadro_do_contato(percepcao.frames, gabarito[clip_id]),
+                    registro.shot_id,
+                    quadro_do_contato(percepcao.frames, contato),
                     clip.height,
                 )
             )
@@ -1702,9 +1692,196 @@ def eval_ball(
         typer.echo(f"  {saida}")
 
 
+def _contatos_anotados(dobra: str, limit: int) -> list[tuple[ShotRecord, int]]:
+    """Os clipes com contato anotado na dobra e o quadro do contato: a populacao do `eval-ball`.
+
+    Um lugar so porque a paridade do TB-04 precisa medir exatamente os contatos do TB-02.
+    """
+    try:
+        gabarito = consensus(read())
+        catalogo = {r.shot_id: r for r in load_catalog() if r.big_enough}
+    except ERROS_DE_USO as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    dobras = dobras_de(dobra)
+    alvos = sorted(c for c in gabarito if c in catalogo and catalogo[c].fold in dobras)
+    if limit:
+        alvos = alvos[:limit]
+    if not alvos:
+        typer.echo("nenhum clipe anotado; rode `xvision label scrub`", err=True)
+        raise typer.Exit(code=1)
+    return [(catalogo[c], gabarito[c]) for c in alvos]
+
+
+PARIDADE_CONFIG = typer.Option(..., "--config", help="Configuracao de referencia, a do PyTorch.")
+PARIDADE_CONTRA = typer.Option(..., "--contra", help="Configuracao comparada, a do TensorRT.")
+PARIDADE_RAIO = typer.Option(RAIO_PAR_PX, help="Distancia maxima entre centros do par, em px.")
+PARIDADE_JSON = typer.Option(None, help="Grava o relatorio e o par de cada contato em JSON.")
+
+
+@app.command("eval-ball-paridade")
+def eval_ball_paridade(
+    config: Path = PARIDADE_CONFIG,
+    contra: Path = PARIDADE_CONTRA,
+    dobra: str = BALL_DOBRA,
+    limit: int = BALL_LIMIT,
+    raio: float = PARIDADE_RAIO,
+    saida: Path | None = PARIDADE_JSON,
+) -> None:
+    """Compara dois runtimes da bola no contato anotado, candidato a candidato, para o TB-04.
+
+    Subcomando e nao opcao do `eval-ball`: compara duas configuracoes so da bola e sem jogador.
+    """
+    from edge import runtime
+    from mlops.ball_parity import ParidadeError, compara
+
+    configs = {"referencia": config, "comparada": contra}
+    alvos = _contatos_anotados(dobra, limit)
+    bolas: dict[str, Any] = {}
+    lados: dict[str, list[Any]] = {rotulo: [] for rotulo in configs}
+    try:
+        for rotulo, caminho in configs.items():
+            bolas[rotulo] = _bola_carregada(caminho)
+        runtimes = {rotulo: _runtime(bola.runtime_info) for rotulo, bola in bolas.items()}
+        quadros = _mesmos_quadros(bolas, configs)
+        for registro, contato in alvos:
+            for rotulo, lado in _lados_do_contato(bolas, quadros, registro, contato).items():
+                lados[rotulo].append(lado)
+        relatorio = compara(lados["referencia"], lados["comparada"], raio)
+    except ERROS_DE_USO + (ParidadeError, runtime.RuntimeError) as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+    finally:
+        for bola in bolas.values():
+            bola.close()
+    _publica_paridade(relatorio, runtimes, configs, saida)
+
+
+def _lados_do_contato(
+    bolas: Mapping[str, Any], quadros: Any, registro: ShotRecord, contato: int
+) -> dict[str, Any]:
+    """Um decode por clipe e o mesmo lote nas duas bolas, para a diferenca ser so do runtime."""
+    from edge.graph.framesets import resolve as quadros_de
+    from mlops.ball_parity import lado_do_contato
+
+    clip = probe(registro.clip_path, clip_id=registro.shot_id)
+    provider = FrameProvider(VideoSource(registro.clip_path))
+    try:
+        lote = provider.frames(quadros_de(quadros, clip), bolas["referencia"].spec.preprocess)
+    finally:
+        provider.close()
+    return {rotulo: lado_do_contato(bola, clip, lote, contato) for rotulo, bola in bolas.items()}
+
+
+def _bola_carregada(caminho: Path) -> Any:
+    """A bola da configuracao ja carregada, ou saida com erro: nunca uma troca de runtime calada.
+
+    Plano que nao abre, binding que nao importa ou peso ausente encerram aqui, antes do primeiro
+    clipe, com o arquivo que falhou. E modulo sem runtime declarado tambem: sem detector ele sai
+    sem candidato nenhum, e os dois lados vazios passariam por paridade perfeita.
+    """
+    from edge import runtime
+
+    if not caminho.is_file():
+        typer.echo(f"{caminho} nao existe: passe o caminho do arquivo", err=True)
+        raise typer.Exit(code=1)
+    try:
+        bola = load_modules(read_config(caminho)).get("ball")
+        if bola is not None:
+            bola.load()
+    except ERROS_DE_USO + (runtime.RuntimeError, ImportError, RuntimeError) as erro:
+        typer.echo(f"{caminho}: a bola nao carregou: {type(erro).__name__}: {erro}", err=True)
+        raise typer.Exit(code=1) from erro
+    if bola is None:
+        typer.echo(f"{caminho} nao declara modules.ball", err=True)
+        raise typer.Exit(code=1)
+    if getattr(bola, "runtime_info", None) is None or not callable(
+        getattr(bola, "candidatos", None)
+    ):
+        bola.close()
+        typer.echo(f"{caminho}: modules.ball carregou sem runtime declarado", err=True)
+        raise typer.Exit(code=1)
+    return bola
+
+
+def _mesmos_quadros(bolas: Mapping[str, Any], configs: Mapping[str, Path]) -> Any:
+    """O conjunto de quadros da bola, que tem de ser o mesmo nas duas para o lote ser um so."""
+    quadros = {
+        rotulo: read_framesets(configs[rotulo])[b.spec.frames] for rotulo, b in bolas.items()
+    }
+    preparos = {b.spec.preprocess for b in bolas.values()}
+    if len(set(quadros.values())) != 1 or len(preparos) != 1:
+        raise FrameSetError("as duas configuracoes nao dao os mesmos quadros a bola")
+    return quadros["referencia"]
+
+
+def _publica_paridade(
+    relatorio: ParidadeReport,
+    runtimes: Mapping[str, Mapping[str, str]],
+    configs: Mapping[str, Path],
+    saida: Path | None,
+) -> None:
+    """O runtime de cada lado sai antes, senao dois lados no mesmo runtime passam por paridade."""
+    for rotulo, info in runtimes.items():
+        typer.echo(
+            f"  {rotulo}: {configs[rotulo]}  {info['backend']} {info['device']} "
+            f"{info['precision']}  {info['artifact_sha256'][:12]}"
+        )
+    resumo = relatorio.to_dict()
+    typer.echo(json.dumps(resumo, indent=2, ensure_ascii=False))
+    typer.echo(
+        f"  {resumo['pareados']} pares a ate {resumo['raio_par_px']:g} px, "
+        f"{resumo['so_na_referencia']} so na referencia, {resumo['so_na_comparada']} so na "
+        f"comparada; ponto escolhido mudou em {resumo['escolha_mudou']} de "
+        f"{resumo['n_contatos']} contatos"
+    )
+    veredito = "passa" if resumo["dentro_do_criterio"] else "nao passa"
+    typer.echo(
+        f"  criterio do TB-04 (confianca ate {resumo['limite_confianca']:g}, centro ate "
+        f"{resumo['limite_centro_px']:g} px, nenhuma escolha mudada): {veredito}"
+    )
+    if saida is not None:
+        documento = {
+            "configs": {rotulo: str(caminho) for rotulo, caminho in configs.items()},
+            "runtimes": runtimes,
+            "resumo": resumo,
+            "por_contato": {
+                c.clip_id: {
+                    "frame_index": c.frame_index,
+                    "pareados": len(c.pares),
+                    "so_na_referencia": c.so_na_referencia,
+                    "so_na_comparada": c.so_na_comparada,
+                    "confianca_diferenca_max": max(c.diferencas_de_confianca, default=None),
+                    "centro_distancia_max_px": max(c.distancias_px, default=None),
+                    "escolha_mudou": c.escolha_mudou,
+                }
+                for c in relatorio.contatos
+            },
+        }
+        saida.parent.mkdir(parents=True, exist_ok=True)
+        saida.write_text(json.dumps(documento, indent=2) + "\n", encoding="utf-8")
+        typer.echo(f"  {saida}")
+
+
+def _runtime(info: RuntimeInfo) -> dict[str, str]:
+    return {
+        "backend": str(info.backend),
+        "provider": str(info.provider),
+        "device": str(info.device),
+        "precision": str(info.precision),
+        "artifact_sha256": str(info.artifact_sha256),
+        "runtime_versions": ", ".join(f"{nome} {versao}" for nome, versao in info.runtime_versions),
+    }
+
+
 BALL_TRAJECTORY_LABELS = typer.Option(..., help="JSONL validado pelo schema ball-trajectory-v1.")
 BALL_TRAJECTORY_CONFIG = typer.Option(None, help="Configuracao com o modulo ball a medir.")
-BALL_TRAJECTORY_JSON = typer.Option(None, help="Grava somente o relatorio agregado em JSON.")
+BALL_TRAJECTORY_JSON = typer.Option(
+    None, help="Grava o relatorio agregado e o desfecho de cada quadro visivel em JSON."
+)
+BALL_TRAJECTORY_BASE = typer.Option(
+    None, help="JSON de outra execucao com --saida, para contar ganhos e perdas quadro a quadro."
+)
 BALL_TRAJECTORY_DOBRA = typer.Option(
     "ajuste", help="ajuste (dobras 0 a 2), reservado (3 e 4) ou tudo."
 )
@@ -1715,6 +1892,7 @@ def eval_ball_trajectory(
     labels: Path = BALL_TRAJECTORY_LABELS,
     config: Path | None = BALL_TRAJECTORY_CONFIG,
     saida: Path | None = BALL_TRAJECTORY_JSON,
+    base: Path | None = BALL_TRAJECTORY_BASE,
     dobra: str = BALL_TRAJECTORY_DOBRA,
 ) -> None:
     """Mede posicao e continuidade em rotulos privados, sem depender de jogadores."""
@@ -1723,7 +1901,10 @@ def eval_ball_trajectory(
     from mlops.ball_trajectory import (
         BallTrajectoryLabelError,
         aggregate_telemetry,
+        frame_outcomes,
+        label_set_sha256,
         read_ball_trajectory_labels,
+        read_frame_outcomes,
         validate_match_folds,
     )
     from mlops.ball_trajectory import measure as measure_trajectory
@@ -1735,6 +1916,7 @@ def eval_ball_trajectory(
         catalog = {record.shot_id: record for record in load_catalog() if record.big_enough}
         validate_match_folds((record.match_id, record.fold) for record in catalog.values())
         modules = load_modules(read_config(path))
+        previous = None if base is None else read_frame_outcomes(base)
     except ERROS_DE_USO + (BallTrajectoryLabelError,) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(code=1) from error
@@ -1751,6 +1933,14 @@ def eval_ball_trajectory(
     )
     if not selected:
         typer.echo("nenhum frame anotado pertence a dobra e ao catalogo selecionados", err=True)
+        raise typer.Exit(code=1)
+    digest = label_set_sha256(selected)
+    if previous is not None and previous[0] != digest:
+        typer.echo(
+            f"{base} foi medido em outro conjunto de rotulos: o pareamento exige o mesmo "
+            "gabarito e a mesma dobra",
+            err=True,
+        )
         raise typer.Exit(code=1)
 
     grouped: dict[str, list[Any]] = {}
@@ -1789,15 +1979,58 @@ def eval_ball_trajectory(
         ball.close()
 
     report = measure_trajectory(selected, predictions)
-    document = {
+    document: dict[str, object] = {
         "population": f"folds={sorted(folds)}",
         "telemetry": aggregate_telemetry(telemetry_runs),
         **report.to_dict(),
     }
     typer.echo(json.dumps(document, indent=2, ensure_ascii=False))
+    _publica_pareamento(
+        document,
+        digest,
+        frame_outcomes(selected, predictions),
+        None if previous is None or base is None else (base, previous[1]),
+        saida,
+    )
+
+
+def _publica_pareamento(
+    document: Mapping[str, object],
+    digest: str,
+    outcomes: Mapping[tuple[str, int], str],
+    previous: tuple[Path, Mapping[tuple[str, int], str]] | None,
+    saida: Path | None,
+) -> None:
+    """O agregado fica como estava; o arquivo ganha o desfecho por quadro e, com base, o par.
+
+    Sem o par ganhou e perdeu, duas configuracoes com o mesmo PCK parecem equivalentes quando uma
+    acertou os quadros que a outra errou, pelo mesmo motivo de `_comparar_bola`.
+    """
+    from mlops.ball_trajectory import (
+        BallTrajectoryLabelError,
+        compare_outcomes,
+        outcomes_document,
+    )
+
+    stored = {**document, "label_set_sha256": digest, "frame_outcomes": outcomes_document(outcomes)}
+    if previous is not None:
+        base, before = previous
+        try:
+            paired = compare_outcomes(before, outcomes)
+        except BallTrajectoryLabelError as error:
+            typer.echo(f"{base}: {error}", err=True)
+            raise typer.Exit(code=1) from error
+        n = paired.n_frames
+        typer.echo(
+            f"  contra {base.name}: PCK {paired.base_hits / n if n else 0.0:.4f} -> "
+            f"{paired.new_hits / n if n else 0.0:.4f}   ganhou {paired.gains}, "
+            f"perdeu {paired.losses}, igual {paired.unchanged}, em {n} quadros visiveis   "
+            f"p = {paired.p_value:.3g} (sinal exato, bilateral)"
+        )
+        stored["paired"] = {"base": str(base), **paired.to_dict()}
     if saida is not None:
         saida.parent.mkdir(parents=True, exist_ok=True)
-        saida.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        saida.write_text(json.dumps(stored, indent=2) + "\n", encoding="utf-8")
         typer.echo(f"  {saida}")
 
 

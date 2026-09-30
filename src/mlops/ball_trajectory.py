@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
@@ -13,9 +14,13 @@ import numpy as np
 from jsonschema import Draft202012Validator, FormatChecker
 
 from contracts import BallDetection
+from mlops.evaluate import binomial_bilateral
 
 SCHEMA = Path(__file__).with_name("ball-trajectory-v1.schema.json")
 Visibility = Literal["visible", "occluded", "not-visible", "ambiguous"]
+Outcome = Literal["hit", "miss", "absent"]
+OUTCOMES: frozenset[str] = frozenset({"hit", "miss", "absent"})
+FrameKey = tuple[str, int]
 
 
 class BallTrajectoryLabelError(ValueError): ...
@@ -90,6 +95,29 @@ class BallTrajectoryReport:
             "center_error_p95_px": self.center_error_p95_px,
             "detected_error_median_px": self.detected_error_median_px,
             "interpolated_error_median_px": self.interpolated_error_median_px,
+        }
+
+
+@dataclass(frozen=True)
+class PairedComparison:
+    n_frames: int
+    base_hits: int
+    new_hits: int
+    gains: int
+    losses: int
+    unchanged: int
+    p_value: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "n_frames": self.n_frames,
+            "base_hits": self.base_hits,
+            "new_hits": self.new_hits,
+            "gains": self.gains,
+            "losses": self.losses,
+            "unchanged": self.unchanged,
+            "p_value": self.p_value,
+            "test": "sign-exact-two-sided",
         }
 
 
@@ -197,7 +225,7 @@ def measure(
         (interpolated_errors if prediction.source == "interpolated" else detected_errors).append(
             error
         )
-        if label.apparent_diameter_px is not None and error <= label.apparent_diameter_px:
+        if _inside_tolerance(label, prediction):
             true_positive += 1
         else:
             false_positive += 1
@@ -235,6 +263,117 @@ def measure(
         center_error_p95_px=_percentile(errors, 95),
         detected_error_median_px=_percentile(detected_errors, 50),
         interpolated_error_median_px=_percentile(interpolated_errors, 50),
+    )
+
+
+def frame_outcomes(
+    labels: Sequence[BallTrajectoryLabel],
+    predictions: Mapping[FrameKey, BallDetection],
+) -> dict[FrameKey, Outcome]:
+    """O desfecho de cada quadro visivel, com a tolerancia do PCK e a chave de `measure`.
+
+    So o visivel entra porque ele e o denominador do PCK: quadro sem bola visivel nao tem acerto a
+    ganhar nem a perder. `absent` fica separado de `miss` porque a correcao de cada um e outra, e no
+    pareamento os dois contam como nao acerto.
+    """
+    outcomes: dict[FrameKey, Outcome] = {}
+    for label in labels:
+        if label.visibility != "visible":
+            continue
+        key = (label.clip_id, label.frame_index)
+        prediction = predictions.get(key)
+        if prediction is None:
+            outcomes[key] = "absent"
+        else:
+            outcomes[key] = "hit" if _inside_tolerance(label, prediction) else "miss"
+    return outcomes
+
+
+def label_set_sha256(labels: Iterable[BallTrajectoryLabel]) -> str:
+    """Impressao dos rotulos medidos, para o pareamento recusar execucoes de gabaritos diferentes.
+
+    Cobre o que decide o desfecho, e nao so a chave: com a mesma chave e um centro corrigido numa
+    revisao, o ganho seria do rotulo e nao da configuracao.
+    """
+    rows = [
+        [
+            label.clip_id,
+            label.frame_index,
+            label.video_sha256,
+            label.visibility,
+            None if label.center_xy is None else list(label.center_xy),
+            label.apparent_diameter_px,
+        ]
+        for label in sorted(labels, key=lambda label: (label.clip_id, label.frame_index))
+    ]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def outcomes_document(outcomes: Mapping[FrameKey, str]) -> dict[str, dict[str, str]]:
+    """O desfecho por clipe e por quadro, na forma que o JSON aceita como chave."""
+    document: dict[str, dict[str, str]] = {}
+    for (clip_id, frame_index), outcome in sorted(outcomes.items()):
+        document.setdefault(clip_id, {})[str(frame_index)] = outcome
+    return document
+
+
+def read_frame_outcomes(path: Path) -> tuple[str, dict[FrameKey, Outcome]]:
+    """A impressao dos rotulos e o desfecho por quadro de uma execucao gravada com `--saida`."""
+    if not path.is_file():
+        raise BallTrajectoryLabelError(f"{path} nao existe")
+    try:
+        raw: object = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise BallTrajectoryLabelError(f"{path.name}: JSON invalido: {error.msg}") from error
+    if not isinstance(raw, dict):
+        raise BallTrajectoryLabelError(f"{path.name}: documento de base invalido")
+    document = cast("dict[str, Any]", raw)
+    digest = document.get("label_set_sha256")
+    by_clip = document.get("frame_outcomes")
+    if not isinstance(digest, str) or not isinstance(by_clip, dict):
+        raise BallTrajectoryLabelError(
+            f"{path.name} nao tem o desfecho por quadro: grave a base de novo com --saida"
+        )
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise BallTrajectoryLabelError(f"{path.name}: label_set_sha256 invalido")
+    outcomes: dict[FrameKey, Outcome] = {}
+    for clip_id, frames in cast("dict[str, Any]", by_clip).items():
+        if not clip_id or not isinstance(frames, dict):
+            raise BallTrajectoryLabelError(f"{path.name}: mapa de quadros invalido")
+        for frame_index, outcome in cast("dict[str, Any]", frames).items():
+            if (
+                not isinstance(outcome, str)
+                or outcome not in OUTCOMES
+                or not frame_index.isascii()
+                or not frame_index.isdecimal()
+                or (frame_index != "0" and frame_index.startswith("0"))
+            ):
+                raise BallTrajectoryLabelError(
+                    f"{path.name}: quadro {frame_index!r} com desfecho {outcome!r} invalido"
+                )
+            outcomes[(str(clip_id), int(frame_index))] = cast("Outcome", outcome)
+    return digest, outcomes
+
+
+def compare_outcomes(base: Mapping[FrameKey, str], new: Mapping[FrameKey, str]) -> PairedComparison:
+    """Ganho e perda de acerto quadro a quadro, com o teste do sinal exato nos discordantes.
+
+    O PCK agregado esconde troca: uma configuracao pode acertar 100 quadros novos e errar 80 que a
+    base acertava, e a media mostra so o saldo de 20. A informacao esta nos discordantes, e com
+    eles na casa das dezenas vale o exato binomial, pelo mesmo motivo do `mcnemar` da avaliacao.
+    """
+    if set(base) != set(new):
+        raise BallTrajectoryLabelError("as duas execucoes nao mediram os mesmos quadros visiveis")
+    gains = sum(1 for key, outcome in new.items() if outcome == "hit" and base[key] != "hit")
+    losses = sum(1 for key, outcome in new.items() if outcome != "hit" and base[key] == "hit")
+    return PairedComparison(
+        n_frames=len(new),
+        base_hits=sum(1 for outcome in base.values() if outcome == "hit"),
+        new_hits=sum(1 for outcome in new.values() if outcome == "hit"),
+        gains=gains,
+        losses=losses,
+        unchanged=len(new) - gains - losses,
+        p_value=binomial_bilateral(gains, losses),
     )
 
 
@@ -280,6 +419,14 @@ def _check_temporal_order(labels: Sequence[BallTrajectoryLabel], path: Path) -> 
                 raise BallTrajectoryLabelError(
                     f"{path.name}: timestamps do clipe {clip_id} nao sao crescentes"
                 )
+
+
+def _inside_tolerance(label: BallTrajectoryLabel, prediction: BallDetection) -> bool:
+    return (
+        label.center_xy is not None
+        and label.apparent_diameter_px is not None
+        and _center_error(prediction, label.center_xy) <= label.apparent_diameter_px
+    )
 
 
 def _center_error(prediction: BallDetection, target: tuple[float, float]) -> float:
