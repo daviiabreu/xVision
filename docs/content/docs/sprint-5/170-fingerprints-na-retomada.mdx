@@ -1,0 +1,48 @@
+---
+title: Fingerprints dos módulos na retomada
+description: Recusa de entradas externas alteradas antes de modificar a execução parcial
+---
+
+A segunda passada da [revisão geral](/docs/sprint-5/162-revisao-geral) encontrou uma mistura de instantes na retomada de duas etapas. O [card 170](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/170) registra a correção realizada por Davi Silveira e a reprodução com vídeo sintético.
+
+## Falha reproduzida
+
+O catálogo tinha 12 clipes e o arquivo de finalizações indicava o quadro 20 em todos. Após uma interrupção, o checkpoint respondia por dez eventos. O conteúdo de `spots.jsonl` foi alterado para o quadro 10, mantendo o TOML byte a byte.
+
+A retomada retornava sucesso: os dez eventos antigos conservavam o quadro 20 e os dois novos usavam o quadro 10. A procedência final declarava somente o fingerprint posterior. Conferir o digest do TOML não distinguia os conteúdos diferentes no mesmo caminho externo.
+
+## Decisão
+
+**Persistir os fingerprints configurados antes de iniciar o catálogo.** O campo `module_tunings` do checkpoint guarda os ajustes que os módulos já expõem pelo método `fingerprint`. A construção e a configuração dos módulos não carregam os modelos para essa conferência.
+
+Na retomada, o mapa atual precisa ser igual ao mapa salvo. A comparação acontece antes de truncar o parcial ou atualizar o checkpoint. Uma recusa preserva os dois arquivos, permitindo restaurar a entrada original ou iniciar outra execução em outro diretório.
+
+Usar somente o caminho do arquivo foi descartado porque o conteúdo pode mudar sem alterar o TOML. Reconstruir a identidade antiga a partir do arquivo atual também foi descartado, pois atribuiria uma origem que não foi registrada. A desvantagem é ler os arquivos necessários aos fingerprints na abertura e na retomada.
+
+Os ajustes salvos também inicializam a procedência retomada. A saída continua usando o campo `modules.<espécie>.tuning` do `run.json`.
+
+## Compatibilidade
+
+| Checkpoint | Retomada |
+| --- | --- |
+| Fingerprints presentes e iguais | Permitida |
+| Arquivo externo alterado ou removido | Recusada antes de escrever |
+| Legado sem fingerprints, configuração atual exige algum | Recusada, pois a identidade original não é verificável |
+| Legado e configuração sem fingerprints | Permitida |
+| Campo malformado | Recusado pela validação do checkpoint |
+
+O schema permanece compatível na leitura: o campo ausente vira mapa vazio. A guarda decide se a ausência é suficiente para a configuração atual.
+
+## Verificação e limites
+
+A reprodução percorreu CLI, decodificação e pipeline reais, com `StubBall`, `PrecomputedShot` e um vídeo sintético. Os testes conferem troca de conteúdo, remoção do arquivo, checkpoint legado, retomada com o mesmo conteúdo, integridade dos arquivos após recusa e procedência final.
+
+Os 72 testes focados de retomada e checkpoint passaram após o fix. Nenhum modelo foi carregado e não houve inferência em GPU ou acesso a dados privados.
+
+A guarda depende dos fingerprints expostos pelos módulos; não substitui a identidade de todos os arquivos transitivos ou o congelamento de artefatos. A comparação ocorre na abertura e na retomada, sem coordenar escritores externos que alterem arquivos durante uma execução em andamento. Relatórios congelados e o conjunto reservado não foram reexecutados.
+
+## Referências
+
+- [Card 170: reprodução e critérios](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/170).
+- [Fingerprint do instante pré-calculado](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/mlops/spots.py).
+- [Checkpoint do catálogo](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/mlops/checkpoint.py).

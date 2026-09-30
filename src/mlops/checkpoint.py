@@ -64,6 +64,7 @@ class Checkpoint:
     versao, entao ele mede as duas juntas sem perceber. E o mesmo defeito que `config_sha256` evita
     um nivel acima, e ele ficou alcancavel um nivel abaixo.
     """
+    module_tunings: dict[str, str] = field(default_factory=dict[str, str])
     done: list[str] = field(default_factory=list[str])
     ok: int = 0
     failed: int = 0
@@ -123,6 +124,7 @@ class Checkpoint:
             "started_at": self.started_at,
             "selection_sha256": self.selection_sha256,
             "features_sha256": self.features_sha256,
+            "module_tunings": self.module_tunings,
             "cache_enabled": self.cache_enabled,
             "done": self.done,
             "ok": self.ok,
@@ -181,6 +183,7 @@ def read_checkpoint(destino: Path) -> Checkpoint:
         started_at=documento["started_at"],
         selection_sha256=documento.get("selection_sha256", ""),
         features_sha256=documento.get("features_sha256", ""),
+        module_tunings=cast("dict[str, str]", documento.get("module_tunings", {})),
         cache_enabled=documento.get("cache_enabled", True),
         done=documento["done"],
         ok=documento["ok"],
@@ -255,6 +258,9 @@ def _list(value: object, name: str) -> list[Any]:
 def _validate_progress(document: dict[str, Any]) -> None:
     if not isinstance(document.get("cache_enabled", True), bool):
         raise _invalid("cache_enabled")
+    tunings = _mapping(document, "module_tunings")
+    if any(not isinstance(value, str) or not value for value in tunings.values()):
+        raise _invalid("module_tunings")
     for name in ("config_sha256", "started_at", "selection_sha256", "features_sha256"):
         if not isinstance(document.get(name, ""), str):
             raise _invalid(name)

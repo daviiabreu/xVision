@@ -17,6 +17,9 @@ from .test_run_resume import (
     "changes",
     [
         {"ok": -1},
+        {"module_tunings": []},
+        {"module_tunings": {"shot": 42}},
+        {"module_tunings": {"shot": ""}},
         {"ok": "10"},
         {"ok": 10.9},
         {"failed": True},

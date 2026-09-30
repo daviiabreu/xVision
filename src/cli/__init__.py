@@ -28,7 +28,7 @@ from cli.players import players_app
 from contracts import Perception
 from contracts.events import ContractError
 from edge.artifacts import ArtifactError, ArtifactMissing, read_manifest, resolve, sha256_of
-from edge.cache.perception import PerceptionCache
+from edge.cache.perception import PerceptionCache, tuning_of
 from edge.features.base import FeatureError
 from edge.features.registry import load_extractors, read_feature_config
 from edge.frames.provider import (
@@ -296,7 +296,6 @@ def spots(
     segunda etapa e `xvision run` com `config/pipeline.models.duas-etapas.toml`, que le este
     arquivo. Clipe ja gravado e pulado, entao a mesma chamada retoma de onde parou.
     """
-    from edge.cache.perception import tuning_of
     from edge.graph.framesets import read_framesets
     from edge.paths import var_dir
     from mlops.spots import SpotsError, gera
@@ -526,6 +525,7 @@ def _run_selected_catalog(
     digest = sha256_of(config)
     selecao = hashlib.sha256("\0".join(sorted(r.shot_id for r in escolhidos)).encode()).hexdigest()
     feature_digest = _feature_digest(config)
+    module_tunings = _module_tunings(config)
     agora = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     if not resume:
@@ -535,6 +535,7 @@ def _run_selected_catalog(
             started_at=agora,
             selection_sha256=selecao,
             features_sha256=feature_digest,
+            module_tunings=module_tunings,
             cache_enabled=cache_enabled,
         )
         modo = "w"
@@ -545,6 +546,7 @@ def _run_selected_catalog(
             len(escolhidos),
             selecao,
             feature_digest,
+            module_tunings=module_tunings,
             selected_clips={record.shot_id for record in escolhidos},
             cache_enabled=cache_enabled,
         )
@@ -563,7 +565,7 @@ def _run_selected_catalog(
         for k, v in estado.falhas.items()
         if len(v) == 2
     }
-    ajustes: dict[str, str] = {}
+    ajustes: dict[str, str] = dict(estado.module_tunings)
     origens: dict[str, int] = dict(estado.origens)
     fontes: dict[str, str] = dict(estado.fontes)
     apoios: dict[str, str] = dict(estado.apoios)
@@ -723,6 +725,18 @@ def _feature_digest(config: Path) -> str:
     return hashlib.sha256("\0".join(pairs).encode()).hexdigest()
 
 
+def _module_tunings(config: Path) -> dict[str, str]:
+    try:
+        return {
+            kind: tuning
+            for kind, module in load_modules(read_config(config)).items()
+            if (tuning := tuning_of(module)) is not None
+        }
+    except ERROS_DE_USO as erro:
+        typer.echo(str(erro), err=True)
+        raise typer.Exit(code=1) from erro
+
+
 def _retomada(
     destino: Path,
     digest: str,
@@ -730,6 +744,7 @@ def _retomada(
     selecao: str,
     feature_digest: str,
     *,
+    module_tunings: dict[str, str],
     selected_clips: set[str],
     cache_enabled: bool,
 ) -> tuple[Checkpoint, str]:
@@ -783,6 +798,13 @@ def _retomada(
             f"a execucao em {destino} rodou features {estado.features_sha256[:12]} e agora chegou "
             f"{feature_digest[:12]}: retomar misturaria duas versoes de feature "
             "num events.jsonl so",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if estado.module_tunings != module_tunings:
+        typer.echo(
+            "fingerprints dos modulos diferentes ou ausentes no checkpoint: inicie outra "
+            "execucao; o parcial original foi preservado",
             err=True,
         )
         raise typer.Exit(code=1)
