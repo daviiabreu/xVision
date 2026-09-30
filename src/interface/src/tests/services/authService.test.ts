@@ -10,7 +10,7 @@ import {
   registrar,
   solicitarRedefinicao,
 } from "../../services/authService";
-import { lerSessao } from "../../services/sessao";
+import { apagarSessao, guardarSessao, lerSessao } from "../../services/sessao";
 
 const fetchMock = vi.fn();
 
@@ -180,5 +180,48 @@ describe("authService", () => {
 
     await expect(buscarEstatisticasConta()).resolves.toEqual(estatisticas);
     expect(chamada(0)[0]).toBe("http://api.test/v1/auth/me/statistics");
+  });
+});
+
+describe("password change response ownership", () => {
+  it.each([
+    { token: "new-account-token", account: 9, name: "other@example.com" },
+    { token: "new-login-token", account: 7, name: "analista@exemplo.com" },
+  ])("preserves a later login with $token", async ({ token, account, name }) => {
+    guardarSessao("original-token", 100, 7, "analista@exemplo.com");
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+    );
+
+    const pending = alterarSenha("senha-atual-longa", "senha-nova-bem-longa");
+    guardarSessao(token, 200, account, name);
+    const later = lerSessao();
+    finish(json({ ...SESSAO, mensagem: "Senha atualizada." }));
+    await pending;
+
+    expect(lerSessao()).toEqual(later);
+    expect((chamada(0)[1].headers as Record<string, string>).Authorization).toBe(
+      "Bearer original-token",
+    );
+  });
+
+  it("keeps logout after a successful password response", async () => {
+    guardarSessao("original-token", 100, 7, "analista@exemplo.com");
+    let finish!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+    );
+
+    const pending = alterarSenha("senha-atual-longa", "senha-nova-bem-longa");
+    apagarSessao();
+    finish(json({ ...SESSAO, mensagem: "Senha atualizada." }));
+    await pending;
+
+    expect(lerSessao()).toBeNull();
   });
 });

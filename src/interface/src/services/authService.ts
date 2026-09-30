@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import { guardarSessao, renovarSessao } from "./sessao";
+import { guardarSessao, lerSessao, renovarSessao } from "./sessao";
 
 export interface Principal {
   id: number;
@@ -66,13 +66,16 @@ export async function atualizarEmail(email: string, senhaAtual: string): Promise
 }
 
 export async function alterarSenha(senhaAtual: string, novaSenha: string): Promise<string> {
+  const tokenDaRequisicao = lerSessao()?.token;
   const resposta = await apiFetch("/v1/auth/password/change", {
     method: "POST",
     body: JSON.stringify({ senha_atual: senhaAtual, nova_senha: novaSenha }),
   });
 
   const sessao = (await resposta.json()) as SessaoResponse & { mensagem: string };
-  renovarSessao(sessao.access_token, sessao.expira_em);
+  if (tokenDaRequisicao && lerSessao()?.token === tokenDaRequisicao) {
+    renovarSessao(sessao.access_token, sessao.expira_em);
+  }
   return sessao.mensagem;
 }
 

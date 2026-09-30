@@ -1,0 +1,35 @@
+---
+title: Renovação de sessão após troca de senha
+description: Preservação do login posterior ao receber uma resposta antiga de sucesso
+---
+
+A segunda passada da [revisão geral](/docs/sprint-5/162-revisao-geral) encontrou uma corrida no caminho de sucesso da troca de senha. O [card 168](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/168) registra a reprodução e a correção realizada por Davi Silveira.
+
+## Problema reproduzido
+
+A consulta começa com o token da conta 7. Antes da resposta, o usuário inicia outra sessão, da mesma conta ou da conta 9. A resposta anterior devolve um token renovado e o serviço escreve esse token na sessão atual, preservando o id e o nome do login posterior.
+
+O resultado era uma sessão com credencial e identidade de origens diferentes. Esse caminho usa uma resposta 200; a correção anterior das respostas 401 não o cobria.
+
+## Decisão
+
+**Renovar somente a sessão que iniciou a requisição.** O serviço captura o token antes da consulta e compara com a sessão atual antes de aplicar a renovação. Se o login mudou, conserva todos os dados da sessão posterior. Se houve logout, conserva a ausência de sessão.
+
+Cancelar ou repetir automaticamente a operação foi descartado: a troca de senha já pode ter sido concluída no servidor. A desvantagem é explícita: a interface não aplica o token devolvido quando o usuário mudou de sessão, embora a operação original tenha sido concluída.
+
+A troca de senha normal continua renovando o token e preservando o id e o nome da conta. O contrato da API e o armazenamento da sessão continuam com o mesmo formato.
+
+## Verificação
+
+Dois testes com respostas diferidas falharam antes da correção: login posterior de outra conta e login posterior da mesma conta. Os 12 controles do arquivo passaram nessa reprodução. Após a correção, os 31 testes focados de autenticação, sessão e configurações da conta passaram.
+
+O controle de logout também passou. As fixtures usam tokens e contas sintéticos e fetch falso. Não houve comunicação com servidor real, envio de credenciais ou inferência de modelos.
+
+## Limites
+
+A guarda cobre a aplicação da renovação em `alterarSenha`. Ela não desfaz a troca de senha confirmada no servidor nem coordena logins simultâneos entre abas.
+
+## Referências
+
+- [Card 168: critérios e conclusão](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/168).
+- [Serviço de autenticação](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/interface/src/services/authService.ts).
