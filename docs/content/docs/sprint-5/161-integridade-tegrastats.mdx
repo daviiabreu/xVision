@@ -1,0 +1,58 @@
+---
+title: Integridade temporal do resumo de consumo
+description: Validação de logs do tegrastats antes de publicar duração, potência e energia da Jetson
+---
+
+O comando `xvision tegrastats` resume um log de memória, potência e temperatura. A correção do [card #161](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/161) valida os horários e as conversões das amostras antes de publicar as métricas usadas nas [medições da Jetson](/docs/sprint-4/produto/execucao-na-jetson).
+
+## Defeito reproduzido
+
+Um exemplo sintético com horários `10:00:02` e `10:00:00`, e potências de 4 W e 8 W, produzia duração de −2 s e energia de −12 J. A potência média continuava sendo 6 W, um valor plausível que escondia a inconsistência. Uma data impossível, como 31 de setembro, escapava como erro de conversão sem a mensagem de uso do comando.
+
+Esses valores são da reprodução sintética do defeito, não de uma execução na placa. A correção não reprocessa nem substitui as evidências congeladas.
+
+## Regras aplicadas
+
+| Entrada | Comportamento |
+| --- | --- |
+| Um horário anterior ao da amostra precedente | recusa o resumo, mesmo que o último horário seja posterior ao primeiro |
+| Todas as amostras no mesmo segundo | recusa por duração total nula |
+| Timestamps repetidos em uma série com duração positiva | aceita, respeitando a resolução de um segundo do formato |
+| Data ou temperatura inválida em uma linha reconhecida | informa o nome do arquivo e a linha original |
+| Cabeçalho ou linha que não corresponde ao formato reconhecido | mantém o comportamento anterior de ignorar a linha |
+
+A integração continua usando a potência instantânea e trapézios entre amostras consecutivas. A fórmula e o resultado dos logs válidos permanecem iguais.
+
+## Uso e saída
+
+```bash
+cd src
+uv run xvision tegrastats ../var/runs/EXECUCAO.tegrastats.log \
+  --clipes 24 --saida ../var/runs/resumo.json
+```
+
+Em caso de erro temporal, o comando retorna código 1 e explica a causa. Uma conversão inválida em uma amostra reconhecida inclui o local do problema:
+
+```text
+tegrastats.log:2: amostra invalida: day is out of range for month
+```
+
+O número da linha inclui cabeçalhos e linhas ignoradas. Se `resumo.json` já existir, seu conteúdo é preservado; se não existir, nenhum relatório é criado. A escrita ocorre somente depois que a leitura e a integração terminam com sucesso.
+
+## Decisão e trade-off
+
+**O comando recusa uma sequência temporal inválida.** Ordenar automaticamente as amostras poderia esconder a concatenação de sessões ou uma mudança do relógio, criando uma medição que o arquivo não sustenta. A alternativa de descartar intervalos negativos foi rejeitada porque reduziria a energia sem declarar a perda de amostras.
+
+A desvantagem principal é operacional: o usuário precisa localizar e resolver o problema do log antes de obter o resumo. Timestamps repetidos permanecem válidos dentro de uma série com duração positiva, pois a resolução do formato não permite exigir um instante distinto para cada amostra.
+
+## Validação e limites
+
+As regressões usam logs sintéticos. Elas cobrem ordem totalmente invertida, inversão intermediária, duração nula, timestamps repetidos válidos, datas impossíveis, temperaturas malformadas e preservação do arquivo de saída. O caso de integração com intervalos desiguais mantém o resultado esperado de 26 J.
+
+A validação não confirma a precisão do relógio, a continuidade da coleta ou a procedência do equipamento. Intervalos positivos entre amostras continuam sendo integrados pelo método existente. Os critérios e resultados dos requisitos permanecem no [pacote reservado](/docs/sprint-5/140-pacote-reservado).
+
+## Referências
+
+- [Card #161: integridade temporal do resumo](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/161).
+- [Leitor e integração do tegrastats no projeto](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/mlops/tegrastats.py).
+- [Medições de execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).

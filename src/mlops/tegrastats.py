@@ -46,21 +46,26 @@ def le(caminho: Path) -> tuple[Amostra, ...]:
     if not caminho.is_file():
         raise TegrastatsError(f"{caminho} nao existe")
     amostras: list[Amostra] = []
-    for linha in caminho.read_text(encoding="utf-8").splitlines():
+    for line_number, linha in enumerate(caminho.read_text(encoding="utf-8").splitlines(), start=1):
         achado = LINHA.match(linha)
         if achado is None:
             continue
-        amostras.append(
-            Amostra(
-                quando=datetime.strptime(achado["quando"], FORMATO),
-                ram_mb=int(achado["ram"]),
-                ram_total_mb=int(achado["total"]),
-                swap_mb=int(achado["swap"] or 0),
-                gpu_pct=int(achado["gpu"]),
-                tj_c=float(achado["tj"]),
-                vdd_in_mw=int(achado["vdd"]),
+        try:
+            amostras.append(
+                Amostra(
+                    quando=datetime.strptime(achado["quando"], FORMATO),
+                    ram_mb=int(achado["ram"]),
+                    ram_total_mb=int(achado["total"]),
+                    swap_mb=int(achado["swap"] or 0),
+                    gpu_pct=int(achado["gpu"]),
+                    tj_c=float(achado["tj"]),
+                    vdd_in_mw=int(achado["vdd"]),
+                )
             )
-        )
+        except ValueError as error:
+            raise TegrastatsError(
+                f"{caminho.name}:{line_number}: amostra invalida: {error}"
+            ) from error
     if len(amostras) < 2:
         raise TegrastatsError(f"{caminho} tem menos de duas amostras reconheciveis")
     return tuple(amostras)
@@ -79,8 +84,12 @@ def resume(amostras: Sequence[Amostra], clipes: int | None = None) -> dict[str, 
     energia_j = 0.0
     for antes, depois in pairwise(amostras):
         intervalo = (depois.quando - antes.quando).total_seconds()
+        if intervalo < 0:
+            raise TegrastatsError("amostras fora de ordem cronologica")
         energia_j += intervalo * (antes.vdd_in_mw + depois.vdd_in_mw) / 2000
     duracao = (amostras[-1].quando - amostras[0].quando).total_seconds()
+    if duracao <= 0:
+        raise TegrastatsError("a duracao total precisa ser positiva")
     potencias = sorted(a.vdd_in_mw for a in amostras)
     resumo: dict[str, object] = {
         "amostras": len(amostras),
@@ -89,7 +98,7 @@ def resume(amostras: Sequence[Amostra], clipes: int | None = None) -> dict[str, 
         "ram_pico_mb": max(a.ram_mb for a in amostras),
         "swap_pico_mb": max(a.swap_mb for a in amostras),
         "gpu_ocupada": round(sum(a.gpu_pct > 0 for a in amostras) / len(amostras), 3),
-        "potencia_media_w": round(energia_j / duracao, 2) if duracao else None,
+        "potencia_media_w": round(energia_j / duracao, 2),
         "potencia_mediana_w": round(potencias[len(potencias) // 2] / 1000, 2),
         "potencia_pico_w": round(potencias[-1] / 1000, 2),
         "energia_j": round(energia_j, 1),

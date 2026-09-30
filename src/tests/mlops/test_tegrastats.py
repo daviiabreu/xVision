@@ -103,3 +103,70 @@ def test_sem_swap_o_tegrastats_omite_o_campo_e_o_leitor_aceita(tmp_path: Path) -
 
     assert resumo["swap_pico_mb"] == 0
     assert resumo["energia_j"] == pytest.approx(4.9)
+
+
+@pytest.mark.parametrize("seconds", [(2, 0), (0, 2, 1, 3)])
+def test_summary_rejects_any_backwards_interval(tmp_path: Path, seconds: tuple[int, ...]) -> None:
+    path = _log(tmp_path, [(second, 2000, 0, 0, 50.0, 4000) for second in seconds])
+
+    with pytest.raises(TegrastatsError, match="ordem"):
+        resume(le(path))
+
+
+def test_summary_rejects_zero_total_duration(tmp_path: Path) -> None:
+    path = _log(tmp_path, [(0, 2000, 0, 0, 50.0, 4000)] * 2)
+
+    with pytest.raises(TegrastatsError, match="duracao.*positiva"):
+        resume(le(path))
+
+
+def test_repeated_seconds_are_allowed_when_total_duration_is_positive(tmp_path: Path) -> None:
+    path = _log(tmp_path, [(second, 2000, 0, 0, 50.0, 4000) for second in (0, 0, 2)])
+
+    summary = resume(le(path))
+
+    assert summary["duracao_s"] == 2
+    assert summary["energia_j"] == 8.0
+    assert summary["potencia_media_w"] == 4.0
+
+
+@pytest.mark.parametrize(
+    ("original", "invalid"),
+    [("09-24-2026", "09-31-2026"), ("tj@50.0C", "tj@50..0C")],
+)
+def test_invalid_recognized_sample_reports_file_and_original_line(
+    tmp_path: Path, original: str, invalid: str
+) -> None:
+    path = _log(tmp_path, [(0, 2000, 0, 0, 50.0, 4000), (1, 2000, 0, 0, 50.0, 4000)])
+    path.write_text(path.read_text().replace(original, invalid, 1))
+
+    with pytest.raises(TegrastatsError, match=r"tegrastats\.log:2: amostra invalida"):
+        le(path)
+
+
+@pytest.mark.parametrize("seconds", [(2, 0), (0, 0), (0, 1)])
+@pytest.mark.parametrize("existing_report", [False, True])
+def test_cli_rejects_invalid_log_without_creating_or_overwriting_report(
+    tmp_path: Path, seconds: tuple[int, ...], existing_report: bool
+) -> None:
+    path = _log(tmp_path, [(second, 2000, 0, 0, 50.0, 4000) for second in seconds])
+    if seconds == (0, 1):
+        path.write_text(path.read_text().replace("09-24-2026", "09-31-2026", 1))
+    report = tmp_path / "summary.json"
+    previous = b'{"previous": "valid report"}\n'
+    if existing_report:
+        report.write_bytes(previous)
+
+    result = CliRunner().invoke(app, ["tegrastats", str(path), "--saida", str(report)])
+
+    assert result.exit_code == 1, result.output
+    if seconds == (2, 0):
+        assert "ordem cronologica" in result.output
+    elif seconds == (0, 0):
+        assert "duracao total precisa ser positiva" in result.output
+    else:
+        assert "tegrastats.log:2: amostra invalida" in result.output
+    if existing_report:
+        assert report.read_bytes() == previous
+    else:
+        assert not report.exists()
