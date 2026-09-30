@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, cast
 
 import pytest
@@ -403,3 +404,38 @@ def test_sem_reamostra_nao_ha_intervalo_e_chute_sem_partida_vira_grupo_proprio()
 
     assert sem.bootstrap is None
     assert orfaos.bootstrap is not None and orfaos.bootstrap["groups"] == 10
+
+
+@pytest.mark.parametrize(
+    ("values", "targets"),
+    [
+        ((0.2, 0.4), (False, False)),
+        ((0.0, 0.0), (False, False)),
+        ((1.0, 1.0), (False, False)),
+        ((0.5004, 0.50049), (False, True)),
+        ((0.0, 1.0), (False, True)),
+        ((0.2, 0.4), (True, True)),
+        ((0.2, 0.8, 0.8), (False, True, True)),
+    ],
+)
+def test_threshold_search_reports_an_attainable_perfect_split(
+    values: tuple[float, ...], targets: tuple[bool, ...]
+) -> None:
+    truth = {
+        str(i): _verdade(marked="true" if target else "false") for i, target in enumerate(targets)
+    }
+    predictions = {str(i): {"marked": (value, None)} for i, value in enumerate(values)}
+    metric = next(m for m in evaluate(predictions, truth, TABELA).metrics if m.feature == "marked")
+
+    assert metric.threshold is not None
+    assert metric.threshold["best_f1"] == pytest.approx(1.0)
+    chosen = metric.threshold["best_threshold"]
+    assert tuple(value >= chosen for value in values) == targets
+    assert metric.threshold["best_f1"] >= metric.scores["macro_f1"]
+    assert metric.coverage == 1.0
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), sys.float_info.max])
+def test_threshold_search_refuses_unpublishable_extreme_scores(value: float) -> None:
+    with pytest.raises(EvaluationError, match="finit"):
+        evaluate({"c1": {"marked": (value, None)}}, {"c1": _verdade(marked="false")}, TABELA)

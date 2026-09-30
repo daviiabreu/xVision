@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -101,3 +102,32 @@ def test_eval_accepts_distinct_clips_blank_lines_and_unavailable_features(tmp_pa
     metric = next(m for m in report["metrics"] if m["feature"] == "marked")
     assert (metric["n_predicted"], metric["n_unavailable"], metric["coverage"]) == (1, 1, 0.5)
     assert metric["scores"]["accuracy"] == 1.0
+
+
+@pytest.mark.parametrize("existing_report", [False, True])
+def test_eval_refuses_unrepresentable_threshold_without_publishing_infinity(
+    tmp_path: Path, existing_report: bool
+) -> None:
+    labels = tmp_path / "labels.toml"
+    labels.write_text(
+        '[[label]]\nname="marked"\ntable="t"\ncolumn="marked"\ntype="bool"\n'
+        '[[metric]]\nfeature="marked"\nlabel="marked"\n'
+    )
+    truth = tmp_path / "truth.json"
+    truth.write_text('{"c1":{"marked":"false"}}')
+    feature = {**_feature(False), "evidence": {"score": sys.float_info.max}}
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"clip_id": "c1", "features": [feature]}, allow_nan=False) + "\n"
+    )
+    report = tmp_path / "report.json"
+    original = b'{"original":true}\n'
+    if existing_report:
+        report.write_bytes(original)
+
+    result = CliRunner().invoke(
+        app, ["eval", str(tmp_path), "--labels", str(labels), "--truth", str(truth)]
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "limiar finito" in result.output
+    assert report.read_bytes() == original if existing_report else not report.exists()

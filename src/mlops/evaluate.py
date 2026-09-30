@@ -29,6 +29,7 @@ import random
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import inf, isfinite, nextafter
 from typing import Any
 
 from mlops.labels import Labels
@@ -371,8 +372,15 @@ def _threshold(pares: Sequence[tuple[object, object]]) -> dict[str, float] | Non
     numeros = [(p, a) for p, a in pares if isinstance(p, float)]
     if not numeros:
         return None
+    if any(not isfinite(p) for p, _ in numeros):
+        raise EvaluationError("escores booleanos precisam ser finitos")
     melhor, onde = 0.0, 0.0
-    for candidato in sorted({round(p, 3) for p, _ in numeros}):
+    candidatos = sorted({p for p, _ in numeros})
+    acima = nextafter(candidatos[-1], inf)
+    if not isfinite(acima):
+        raise EvaluationError("nao ha limiar finito representavel acima do maior escore")
+    candidatos.append(acima)
+    for candidato in candidatos:
         f1 = _f1([(1.0 if p >= candidato else 0.0, a) for p, a in numeros])["macro_f1"]
         if f1 > melhor:
             melhor, onde = f1, candidato

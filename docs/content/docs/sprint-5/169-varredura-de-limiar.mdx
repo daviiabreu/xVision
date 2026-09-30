@@ -1,0 +1,41 @@
+---
+title: Varredura completa do limiar booleano
+description: Escores exatos e ponto de todas as previsões negativas no relatório de avaliação
+---
+
+A segunda passada da [revisão geral](/docs/sprint-5/162-revisao-geral) encontrou duas falhas na varredura do melhor limiar. A correção do [card 169](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/169), realizada por Davi Silveira, preserva as métricas do limiar padrão e corrige somente a recomendação agregada.
+
+## Problema e reprodução
+
+| Escores e rótulos sintéticos | Melhor F1 anterior | F1 possível |
+| --- | --- | --- |
+| 0,2 e 0,4, ambos false | 0,3333 | 1,0 com limiar acima de 0,4 |
+| 0,0 e 0,0, ambos false | 0,0 | 1,0 com limiar acima de zero |
+| 0,5004 false e 0,50049 true | 0,3333 | 1,0 no limiar 0,50049 |
+
+A varredura anterior visitava apenas os escores arredondados a três casas. Não visitava a classificação de todas as previsões negativas e fundia escores próximos que permitiam uma separação perfeita. Nos dois primeiros cenários, o melhor resultado publicado era inferior ao resultado do próprio limiar padrão 0,5.
+
+Os casos foram reproduzidos na função pública de avaliação e pela CLI, com arquivos sintéticos. O comando retornava sucesso e gravava a recomendação incorreta.
+
+## Decisão
+
+**Visitar os escores exatos e um ponto acima do máximo.** A comparação continua inclusiva: escore maior ou igual ao limiar vira true. O ponto adicional é o próximo número representável acima do maior escore, calculado com `math.nextafter`, da biblioteca padrão.
+
+Manter uma grade arredondada foi descartado porque não representa todas as separações observadas. A desvantagem da varredura exata é avaliar mais candidatos quando muitos escores diferem; a implementação mantém a mesma estratégia de calcular o F1 em cada candidato. Empates conservam o primeiro limiar visitado, em ordem crescente.
+
+Um limiar acima de 1 pode aparecer quando o maior escore é 1 e a melhor classificação é toda negativa. Ele representa esse ponto da curva, não uma mudança automática no limiar de produção.
+
+Escores não finitos e o extremo finito que não admite um limiar representável acima dele são recusados com diagnóstico. O comando preserva o relatório anterior e não publica `Infinity` em JSON. Essa guarda não impõe um domínio de zero a um aos escores.
+
+## Verificação e limites
+
+Quatro regressões falharam antes da correção: população negativa comum, escores zero, escores um e escores separados por menos de um milésimo. Os outros 30 testes do arquivo passaram. Após o fix, 56 testes focados de avaliação, preservação de escores e integridade da publicação passaram.
+
+Os controles incluem todos positivos, extremos zero/um e escores repetidos. Os testes verificam que o limiar publicado produz a classificação e o F1 esperados.
+
+A correção não escolhe o limiar de produção, não altera o formato do relatório, não recalcula evidências congeladas nem demonstra melhora dos modelos. A validação usou dados sintéticos, sem inferência ou acesso ao conjunto reservado.
+
+## Referências
+
+- [Card 169: reprodução e critérios](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/169).
+- [Implementação da avaliação](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/mlops/evaluate.py).
