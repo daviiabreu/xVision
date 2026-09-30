@@ -147,6 +147,30 @@ def test_perception_cache_key_ignores_what_the_module_did_not_declare() -> None:
     )
 
 
+def test_optional_dependency_declaration_and_output_are_part_of_cache_identity() -> None:
+    optional = replace(SPEC, optional_needs=("field",))
+    first = ModuleOutput(kind="field", frames=(0, 1), records=(({"confidence": 0.8},), ()))
+    changed = ModuleOutput(kind="field", frames=(0, 1), records=(({"confidence": 0.9},), ()))
+
+    assert chave(optional) != chave(SPEC)
+    assert chave(optional) != chave(optional, ctx={"field": first})
+    assert chave(optional, ctx={"field": first}) != chave(optional, ctx={"field": changed})
+
+
+def test_optional_context_changes_recompute_but_equal_inputs_reuse_the_cache(
+    tmp_path: Path,
+) -> None:
+    module = ModuloEspia(replace(SPEC, optional_needs=("field",)))
+    cache = PerceptionCache(tmp_path)
+    field = ModuleOutput(kind="field", frames=(0, 1), records=((), ()))
+    changed = ModuleOutput(kind="field", frames=(0, 1), records=(({"confidence": 0.9},), ()))
+
+    for context in ({}, {"field": field}, {"field": field}, {"field": changed}, {}):
+        run_module(module, lote(), context, cache=cache, clip_id="clipe-1")
+
+    assert module.execucoes == 3
+
+
 def test_perception_cache_key_does_not_confuse_two_fields_that_carry_a_separator() -> None:
     com_barra = replace(SPEC, name="espia|0.1.0", version="")
 

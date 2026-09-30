@@ -83,13 +83,17 @@ def perception_key(
             f"{spec.name}@{spec.version}",
             spec.kind,
             spec.frames,
-            list(spec.needs),
+            list(spec.needs + spec.optional_needs),
             repr(spec.batching),
             artifact_digest or spec.artifact,
             spec.preprocess.fingerprint,
             tuning or "",
             list(indices),
-            {kind: _to_json(ctx[kind]) for kind in sorted(spec.needs) if kind in ctx},
+            {
+                kind: _to_json(ctx[kind])
+                for kind in sorted(set(spec.needs + spec.optional_needs))
+                if kind in ctx
+            },
         ],
         sort_keys=True,
         separators=(",", ":"),

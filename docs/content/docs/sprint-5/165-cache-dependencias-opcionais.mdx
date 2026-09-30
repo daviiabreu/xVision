@@ -1,0 +1,48 @@
+---
+title: Cache e dependências opcionais
+description: Identidade de percepção considera o contexto opcional consumido pelo módulo
+---
+
+O cache de percepção evita repetir uma inferência com as mesmas entradas. O grafo entrega dependências obrigatórias e opcionais ao módulo; esta correção faz a chave considerar as duas. O erro foi encontrado na [revisão geral 162](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/162).
+
+## Erro reproduzido
+
+Em uma fixture sintética, `TeamIdentity` classificou uma trajetória como `player` sem a saída de `field`. Quando a mesma execução recebeu a homografia do campo, a inferência direta classificou a trajetória como `goalkeeper`, mas o cache ainda devolveu `player`. A entrada opcional alterava o resultado e ficava fora da identidade.
+
+A reprodução usa camisas e caixas sintéticas. Ela comprova um erro de reutilização do cache, sem medir qualidade dos modelos ou revisar os resultados congelados.
+
+## Identidade da entrada
+
+| Situação | Comportamento |
+| --- | --- |
+| Dependência opcional aparece ou desaparece | Seleciona outra entrada do cache |
+| Output opcional muda | Seleciona outra entrada do cache |
+| Contexto declarado permanece igual | Reutiliza a saída armazenada |
+| Output de espécie não declarada muda | Não afeta a chave |
+| Módulo não declara dependências opcionais | Mantém o formato anterior da chave |
+
+A chave inclui a lista de espécies declaradas em `needs` e `optional_needs` e a serialização dos outputs presentes no contexto. A ordenação das espécies torna o resultado determinístico. As regras de peso, implementação, configuração, lote e pré-processamento continuam compondo a identidade.
+
+## Decisão e trade-off
+
+**Endereçar a saída pelo contexto que o módulo consome.** Invalidar todo o cache quando qualquer espécie muda foi descartado: uma espécie não declarada não participa desta inferência. Ignorar as opcionais também foi descartado porque elas são entradas reais quando estão disponíveis.
+
+A desvantagem é manter mais entradas em disco quando o contexto muda. Entradas antigas dos módulos com opcionais deixam de ser usadas; não é necessário apagar o cache para aplicar a correção. O comando de limpeza continua disponível para quem precisa recuperar espaço:
+
+```bash
+cd src
+uv run --frozen --all-extras xvision cache clear
+```
+
+## Validação e limites
+
+As regressões verificam ausência, presença e alteração da dependência opcional, a reutilização de uma entrada igual e a exclusão de contexto não declarado. O teste com `TeamIdentity` exercita as classificações `player`, `goalkeeper` e `off_pitch` com o módulo real e entradas sintéticas. As três regressões novas falharam na implementação original.
+
+A garantia depende de o módulo declarar todas as espécies que lê. A correção não mede ocupação ou ganho de tempo em hardware, não muda a inferência e não repete avaliação reservada.
+
+## Referências
+
+- [Card 165: reprodução e validação](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/165).
+- [Chave do cache](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/cache/perception.py).
+- [Contexto entregue pelo grafo](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/graph/runner.py).
+- [Regressão da classificação com campo opcional](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/tests/edge/modules/identity/test_module.py).

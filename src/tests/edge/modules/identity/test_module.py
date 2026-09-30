@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import cast
 
 import numpy as np
 import pytest
 
+from edge.cache.perception import PerceptionCache, run_module
 from edge.frames.preprocess import to_tensor_box
 from edge.modules.base import FrameBatch, ModuleOutput, PerceptionModule
 from edge.modules.conformance import ModuleConformance
@@ -303,6 +305,31 @@ def test_com_campo_quem_tem_quadro_de_goleiro_na_pequena_area_vira_goleiro() -> 
 
     assert sem_campo[3]["role"] == "player"
     assert com_campo[3]["role"] == "goalkeeper"
+
+
+def test_cached_identity_uses_the_current_optional_field_output(tmp_path: Path) -> None:
+    batch, without_field = _lote(
+        (0, 1, 2), _batch_com_arbitro, lambda i: _inputs_com_goleiro(i, com_campo=False)
+    )
+    _, with_field = _lote(
+        (0, 1, 2), _batch_com_arbitro, lambda i: _inputs_com_goleiro(i, com_campo=True)
+    )
+    _, outside_field = _lote((0, 1, 2), _batch_com_arbitro, _inputs_atras_do_gol)
+    module = TeamIdentity(minimum=2)
+    cache = PerceptionCache(tmp_path)
+    module.load()
+    try:
+        for context, expected in (
+            (without_field, "player"),
+            (with_field, "goalkeeper"),
+            (outside_field, "off_pitch"),
+            (without_field, "player"),
+        ):
+            output = run_module(module, batch, context, cache=cache, clip_id="synthetic-identity")
+            role = next(r["role"] for r in output.records[-1] if r["track_id"] == 3)
+            assert role == expected
+    finally:
+        module.close()
 
 
 ATRAS_DO_GOL = (1.0, 0.0, 20.0, 0.0, 1.0, 90.0, 0.0, 0.0, 1.0)
