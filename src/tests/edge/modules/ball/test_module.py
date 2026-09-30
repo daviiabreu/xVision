@@ -571,15 +571,16 @@ def test_o_padrao_do_modulo_esta_preso_por_teste() -> None:
     assert ";ranking=False,1" in padrao.fingerprint()
 
 
-def test_production_config_keeps_rejected_ranker_disabled() -> None:
+def test_production_config_ranks_by_appearance_only() -> None:
     from pathlib import Path
 
     from edge.modules.registry import read_config
 
     entrada = {c.kind: c for c in read_config(Path("config/pipeline.models.toml"))}["ball"]
 
-    assert entrada.options["ranking"] is False
+    assert entrada.options["ranking"] is True
     assert entrada.options["ranking_candidates"] == 2
+    assert entrada.options["ranking_artifact"] == "aparencia"
 
 
 def test_a_chave_do_cache_compartilhado_separa_a_precisao() -> None:

@@ -58,10 +58,12 @@ conf            = 0.10
 imgsz           = 1600
 ladrilhos       = 2
 sobreposicao_px = 100
-# Ranking rejeitado na comparacao de desenvolvimento de 07/09/2026.
-# Decisao e resultados em sprint-3/modelos/bola-e-trajetoria.
-ranking            = false
+# Ranking so de aparencia, sem a estimativa de movimento da camera. Rejeitado em 07/09/2026 com o
+# artefato da Sprint 3 e ligado pelo catalogo de 363 clipes na Jetson, contra o braco desligado.
+# Decisao e resultados em sprint-4/modelos/bola-e-trajetoria, TB-09.
+ranking            = true
 ranking_candidates = 2
+ranking_artifact   = "aparencia"
 # Letterbox dos quatro ladrilhos no device, e nao no cv2 da CPU.
 # Medido nesta Jetson, 30 quadros reais: 260,0 ms cai para 232,9 ms por quadro, 10,4% em tres
 # rodadas intercaladas. A concordancia e a mais limpa que medimos: 108 contra 108 deteccoes, zero

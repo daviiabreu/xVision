@@ -1,6 +1,6 @@
 ---
 title: Bola e trajetória
-description: Segunda passada cega do gabarito do piloto, a bola repetida na Jetson em TensorRT e o ranking de candidatos só de aparência, que quase dobra o acerto no piloto
+description: Segunda passada cega do gabarito do piloto, a bola repetida na Jetson em TensorRT e o ranking de candidatos só de aparência, que quase dobra o acerto no piloto e passa a ser o padrão
 ---
 
 Esta página continua a [bola e trajetória da Sprint 3](/docs/sprint-3/modelos/bola-e-trajetoria)
@@ -8,8 +8,8 @@ e trata de uma pendência dela: o gabarito do piloto nunca tinha sido conferido.
 recebeu uma segunda passada cega, feita pelo mesmo anotador, e passou no critério que a spec definiu.
 A bola também foi repetida na Jetson, em TensorRT, contra o PyTorch. Por fim, a exploração de
 melhoria achou uma variante do ranking de candidatos que quase dobra o acerto no piloto, avaliada
-fora da partida em que foi ajustada; ela entra no código como opção e só vira padrão se não piorar
-as features no catálogo, e essa comparação fica para a próxima sprint.
+fora da partida em que foi ajustada; ela entrou no código como opção e virou padrão depois de não
+piorar as features no catálogo de 363 clipes na Jetson, medido em duas bases de código.
 
 ## Onde se encaixa no fluxo
 
@@ -141,18 +141,46 @@ a melhor no piloto, mas o acerto dela cai para 152 a 173 com qualquer vizinho do
 pico fica na borda da grade: é hipótese, e não recomendação. O ranking de produção avaliado no
 próprio piloto dá 215, mas foi ajustado nas mesmas seis partidas e não vale como estimativa.
 
-**Por que ele ainda não é padrão.** Em 10/09 o ranking foi desligado pelo critério da emenda 17:
-no catálogo, ele baixou a macro-F1 de `type_of_play` de 0,334 para 0,309 e a de `body_part` de 0,315
-para 0,279, e piorou o instante, que então vinha da trajetória da bola. Hoje o instante vem do
-T-DEED, e essa parte do motivo deixou de existir, mas o efeito nas features precisa ser medido de
-novo. Um teste de 24 clipes na Jetson mudou o valor de `type_of_play` e de `body_part` em 9 dos 24,
-sem direção clara: é preciso o catálogo inteiro. O braço com o ranking só de aparência foi lançado
-na Jetson em 25/09, nos 363 clipes, contra o braço desligado que terminou no mesmo dia, mas o
-resultado não foi lido a tempo desta entrega. O critério é o mesmo de 10/09.
+**Por que ele virou padrão.** Em 10/09 o ranking da Sprint 3 foi desligado pelo critério da emenda
+17: no catálogo, ele baixou a macro-F1 de `type_of_play` de 0,334 para 0,309 e a de `body_part` de
+0,315 para 0,279, e piorou o instante, que então vinha da trajetória da bola. Com o instante vindo
+do T-DEED, essa parte do motivo deixou de existir, e a comparação foi refeita com a variante só de
+aparência, pelo mesmo critério, nos 363 clipes de ajuste na Jetson. Um teste de 24 clipes tinha
+mudado `type_of_play` e `body_part` em 9 deles sem direção clara, por isso o catálogo inteiro. A
+comparação foi feita duas vezes, porque o `develop` recebeu o ByteTrack e a identidade 0.2.0 entre
+a primeira e a segunda, e em cada par só a seção `ball` muda:
+
+| Par | Código e runtime | Macro-F1 de `type_of_play` | Macro-F1 de `body_part` | Clipes com `body_part` |
+| --- | --- | ---: | ---: | ---: |
+| 25/09, desligado | `cd49c15`, PyTorch fp16 | 0,347 | 0,302 | 343 |
+| 25/09, ligado | `cd49c15`, PyTorch fp16 | 0,350 | 0,346 | 346 |
+| 29/09, desligado | `ac7a803`, TensorRT | 0,345 | 0,305 | 310 |
+| 29/09, ligado | `ac7a803`, TensorRT | 0,350 | 0,341 | 314 |
+
+Nos dois pares a macro-F1 das duas features fica pelo menos igual e a cobertura não cai, então o
+ranking passa. Pareando os clipes que os dois braços cobrem, o ganho de `body_part` foi de 0,039 em
+25/09, com intervalo de 95% por bootstrap de 0,003 a 0,076 e 49 clipes corrigidos contra 30
+piorados (McNemar exato, p = 0,042), e de 0,025 em 29/09, com intervalo de -0,016 a 0,067 e 42
+contra 32 (p = 0,30). O sentido se repete, e só o primeiro par separa o ganho do acaso. Em
+`type_of_play` a macro-F1 quase não muda, mas a acurácia sobe nos dois pares: 58 contra 37 e 59
+contra 36 clipes (p = 0,040 e 0,024). A cobertura menor de `body_part` em 29/09 aparece nos dois
+braços do par, então vem do código mesclado entre as datas, e não do ranking.
+
+No piloto, com o código de 29/09, a variante leva a trajetória de 96 para 189 acertos em 317
+quadros visíveis (PCK de 0,303 para 0,596) e o erro mediano de 256,7 para 2,8 px, sem nenhum quadro
+visível sem previsão. Na Jetson o custo não aparece: a bola levou 14,3 s por clipe na mediana sem o
+ranking e 14,5 s com ele.
+
+A melhor linha do piloto, o gate de 1.500 px/s com a lista inteira, foi medida como terceiro braço
+em 29/09, contra o de produção com o ranking, e não passa: `type_of_play` cai de 0,350 para 0,349,
+`body_part` de 0,341 para 0,334 e a cobertura de `body_part` perde um clipe. O `goalkeeper_position`
+piora em 22 clipes e melhora em 9 (p = 0,029). Ela fica fora, como a sensibilidade ao gate já
+indicava no piloto.
 
 O código ganhou a opção `ranking_artifact`, que escolhe no TOML entre o artefato da Sprint 3 e o só
-de aparência, com os coeficientes versionados e sem dado do parceiro. A produção segue com
-`ranking = false` até o resultado.
+de aparência, com os coeficientes versionados e sem dado do parceiro. As sete configurações de
+modelos reais passam a usar `ranking = true`, `ranking_candidates = 2` e
+`ranking_artifact = "aparencia"`, e um teste prende esse padrão.
 
 ## Decisões
 
@@ -168,11 +196,17 @@ mede outra coisa: quem revê uma marca tende a aceitá-la.
 
 **O resíduo de movimento fica de fora.** Ele só existe dentro do ranking com câmera, que quase dobra
 o custo por clipe do pipeline na Jetson. A variante só de aparência chega a 2 acertos dela no piloto
-sem esse custo, e é a que vai para a comparação nas features.
+sem esse custo, e foi a que entrou na comparação nas features.
 
 **O ranking volta a ser julgado pelas features, e não pelo piloto.** O piloto mede a posição da bola;
 a entrega é a feature. A alternativa descartada era ligar o ranking pelo ganho no piloto, que é o
 que a comparação de 10/09 já mostrou ser insuficiente.
+
+**O ranking só de aparência é o padrão de produção.** Ele passou no critério da emenda 17 nos dois
+pares do catálogo, quase dobra o acerto no piloto e não tem custo mensurável na Jetson. A
+alternativa descartada era mantê-lo desligado para preservar um contato do TB-02, o que deixaria de
+lado o ganho de `body_part`. A fonte é o TB-09 da
+[especificação de testes da bola](/docs/sprint-4/especificacao-de-testes/bola).
 
 **O contexto temporal fica disponível, e a marca só vale no quadro alvo.** A primeira passada teve o
 clipe inteiro. Negar movimento na segunda mediria a falta dele, e não a concordância.
@@ -188,6 +222,11 @@ validador da primeira, sem ferramenta externa.
 A desvantagem principal é o anotador único. Um viés que o anotador tenha nas duas passadas, como
 marcar o centro da mancha borrada e não o da bola, não aparece em nenhuma medida desta página.
 
+No ranking, a desvantagem principal é o quadro do contato. Nos 24 clipes de ajuste, o TB-02 cai de
+20 para 19 bolas encostadas no finalizador, uma abaixo do critério, com 22 contatos com bola
+detectada contra 24, enquanto a trajetória inteira quase dobra. O `looked_before` também perde
+cobertura nos dois pares, de 71 para 55 clipes e de 68 para 55.
+
 ## Riscos e incertezas
 
 **O clipe incompatível ainda não foi resolvido.** Até alguém decidir qual passada está certa, as
@@ -200,14 +239,19 @@ piloto é justamente a mais sensível ao parâmetro escolhido.
 **São 88 quadros, 76 deles com centro nas duas passadas.** A mediana é estável com esse n, e o p95
 não: ele é decidido por três ou quatro quadros.
 
+**O TB-02 falha por um contato com o ranking ligado.** Os intervalos de Wilson de 95% quase se
+sobrepõem inteiros, de 0,595 a 0,908 com o ranking e de 0,642 a 0,933 sem ele, então a diferença
+cabe no ruído de 24 clipes. Mas o critério foi fixado antes da medida, e o resultado é falha. O
+p95 do erro no piloto também sobe, de 566 para 774 px, porque o ranking acerta mais quadros e
+erra por mais nos que perde.
+
 ## Ainda não implementado
 
-| Pendência                                       | Próximo passo                                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| ranking só de aparência nas features            | ler o `xvision eval` do braço lançado na Jetson em 25/09, ou repeti-lo; se passar na emenda 17, `ranking = true` com `ranking_artifact = "aparencia"` vira padrão |
-| gate de 1.500 px/s com a lista inteira          | terceiro braço, só se a variante acima passar, porque a sensibilidade ao gate é alta          |
-| clipe com marcações incompatíveis               | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
-| concordância entre duas pessoas                 | a mesma amostra, pela mesma página, com outro anotador                                      |
+| Pendência | Próximo passo |
+| --- | --- |
+| contato perdido no TB-02 | identificar o contato que o ranking troca e conferir, na execução única do pacote reservado, se o TB-10 continua passando |
+| clipe com marcações incompatíveis | decidir qual passada está certa e corrigir o gabarito antes da próxima medida de trajetória |
+| concordância entre duas pessoas | a mesma amostra, pela mesma página, com outro anotador |
 
 ## Referências
 

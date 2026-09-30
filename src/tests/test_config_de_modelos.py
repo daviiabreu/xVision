@@ -341,10 +341,23 @@ def test_o_onnx_da_bola_registra_o_pt_pai_e_os_shapes_fixos() -> None:
     assert manifesto.source["output"] == "output0:float32:1x5x32550"
 
 
-@pytest.mark.parametrize("config_name", ["models", "oracle", "oracle-janela", "players-pacote"])
-def test_rejected_ball_ranker_is_disabled_in_model_configs(config_name: str) -> None:
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "models",
+        "models.duas-etapas",
+        "models.jetson",
+        "models.cpu",
+        "oracle",
+        "oracle-janela",
+        "players-pacote",
+    ],
+)
+def test_model_configs_rank_ball_candidates_by_appearance(config_name: str) -> None:
     ball = next(
         c for c in read_config(Path(f"config/pipeline.{config_name}.toml")) if c.kind == "ball"
     )
 
-    assert ball.options["ranking"] is False
+    assert ball.options["ranking"] is True
+    assert ball.options["ranking_candidates"] == 2
+    assert ball.options["ranking_artifact"] == "aparencia"
