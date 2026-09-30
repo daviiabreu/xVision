@@ -125,13 +125,7 @@ class UltralyticsFieldEstimator:
         )
 
     def _estimate_with_backend(self, frame: Any) -> tuple[ImageKeypoint, ...] | None:
-        image = np.asarray(frame)
-        if image.shape != (544, 960, 3) or image.dtype != np.uint8:
-            raise FieldModelIncompatible(
-                f"field recebeu tensor {image.shape} {image.dtype}, esperado (544, 960, 3) uint8"
-            )
-        rgb = image[:, :, ::-1].transpose(2, 0, 1)[None]
-        tensor = np.ascontiguousarray(rgb, dtype=np.float32) / np.float32(255.0)
+        tensor = tensor_de_entrada(frame)
         backend = self._backend
         if backend is None:
             raise FieldModelIncompatible("field sem backend carregado")
@@ -158,6 +152,22 @@ class UltralyticsFieldEstimator:
             )
             for point, raw_point in zip(PITCH_105X68.keypoints, keypoints, strict=True)
         )
+
+
+def tensor_de_entrada(frame: Any) -> np.ndarray[Any, Any]:
+    """O tensor que o backend do campo recebe, montado aqui e em nenhum outro lugar.
+
+    A calibracao do INT8, em `mlops.quantize_int8`, precisa do mesmo tensor que o plano recebe em
+    producao. Uma copia desta conversao la calibraria o plano com outra entrada no dia em que esta
+    mudasse.
+    """
+    image = np.asarray(frame)
+    if image.shape != (544, 960, 3) or image.dtype != np.uint8:
+        raise FieldModelIncompatible(
+            f"field recebeu tensor {image.shape} {image.dtype}, esperado (544, 960, 3) uint8"
+        )
+    rgb = image[:, :, ::-1].transpose(2, 0, 1)[None]
+    return np.ascontiguousarray(rgb, dtype=np.float32) / np.float32(255.0)
 
 
 def _largest(boxes: object) -> int:

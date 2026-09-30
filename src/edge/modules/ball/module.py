@@ -224,10 +224,18 @@ class YoloBall:
             from edge.modules.ball.detector import YoloBallDetector
 
             self._detector = YoloBallDetector.from_config(config)
-        sem_peso = DetectorConfig(weights="").com_ajustes(self._ajustes)
+        sem_peso = self.ajuste_do_detector()
         self._efetiva = config if config is not None else sem_peso
         self._ranker = load_ranker(ARTIFACTS[self._ranking_artifact]) if self._ranking else None
         self._pronto = True
+
+    def ajuste_do_detector(self) -> DetectorConfig:
+        """O ajuste que o TOML deu ao detector, sem peso e sem carregar nada.
+
+        Quem monta o tensor do despacho fora do modulo, como a calibracao do INT8, precisa de
+        ladrilhos, `imgsz` e letterbox exatamente como `configure` os separou dos ajustes do modulo.
+        """
+        return DetectorConfig(weights="").com_ajustes(self._ajustes)
 
     def _tracker_efetivo(self, ordenado: bool) -> TrackerConfig:
         """Com o ranking ligado, a ordem dos candidatos e do ranking e o rastreador nao reescolhe.

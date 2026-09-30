@@ -572,21 +572,7 @@ class YoloBallDetector:
         backend = self._backend
         if backend is None:
             raise BallModelIncompatible("detector da bola sem backend")
-        tensores: list[Any] = []
-        geometrias: list[tuple[float, tuple[float, float], int, int, float, float]] = []
-        for pedaco, dx, dy in ladrilhos:
-            image = np.asarray(pedaco)
-            if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
-                raise BallModelIncompatible(
-                    f"ball recebeu tensor {image.shape} {image.dtype}, esperado HxWx3 uint8"
-                )
-            tensor, gain, padding = _letterbox_tensor(
-                image, self._config.imgsz, self._config.letterbox
-            )
-            tensores.append(tensor)
-            altura, largura = image.shape[:2]
-            geometrias.append((gain, padding, int(largura), int(altura), dx, dy))
-        empilhado = np.ascontiguousarray(np.concatenate(tensores, axis=0))
+        empilhado, geometrias = lote_de_ladrilhos(ladrilhos, self._config)
         raw = backend.infer({"images": empilhado})[0].value
         torch = cast("Any", import_module("torch"))
         nms = cast("Any", import_module("ultralytics.utils.nms"))
@@ -694,6 +680,49 @@ def _load_ultralytics(path: Path, device: str, quantize: str = PADRAO) -> Runtim
         return {"predictions": cast("Array", np.ascontiguousarray(host))}
 
     return infer
+
+
+Geometria = tuple[float, tuple[float, float], int, int, float, float]
+"""Ganho, enchimento, largura, altura e deslocamento de um ladrilho, na ordem que a volta le."""
+
+
+def lote_de_ladrilhos(
+    ladrilhos: Sequence[tuple[FrameArray, float, float]], config: DetectorConfig
+) -> tuple[np.ndarray[Any, Any], tuple[Geometria, ...]]:
+    """O tensor de um despacho e a geometria de cada ladrilho, que a volta da caixa precisa.
+
+    Publico porque a calibracao do INT8, em `mlops.quantize_int8`, precisa do tensor que o plano
+    recebe em producao, byte a byte. Uma segunda montagem la divergiria desta no primeiro ajuste
+    de letterbox, e o plano passaria a ser calibrado com uma entrada que ele nunca ve.
+    """
+    tensores: list[Any] = []
+    geometrias: list[Geometria] = []
+    for pedaco, dx, dy in ladrilhos:
+        image = np.asarray(pedaco)
+        if image.ndim != 3 or image.shape[2] != 3 or image.dtype != np.uint8:
+            raise BallModelIncompatible(
+                f"ball recebeu tensor {image.shape} {image.dtype}, esperado HxWx3 uint8"
+            )
+        tensor, gain, padding = _letterbox_tensor(image, config.imgsz, config.letterbox)
+        tensores.append(tensor)
+        altura, largura = image.shape[:2]
+        geometrias.append((gain, padding, int(largura), int(altura), dx, dy))
+    return np.ascontiguousarray(np.concatenate(tensores, axis=0)), tuple(geometrias)
+
+
+def entradas_do_backend(
+    frame: FrameArray, config: DetectorConfig
+) -> tuple[np.ndarray[Any, Any], ...]:
+    """Os tensores que o backend recebe por quadro, um por despacho, na ordem do `detect_raw`."""
+    if config.ladrilhos <= 1:
+        tiles: list[tuple[Any, float, float]] = [(frame, 0.0, 0.0)]
+    else:
+        tiles = pedacos(frame, config.ladrilhos, config.sobreposicao_px)
+    por_lote = max(1, config.ladrilhos_por_lote)
+    return tuple(
+        lote_de_ladrilhos(tiles[inicio : inicio + por_lote], config)[0]
+        for inicio in range(0, len(tiles), por_lote)
+    )
 
 
 def _letterbox_geometria(

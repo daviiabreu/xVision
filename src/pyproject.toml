@@ -65,6 +65,14 @@ jetson = [
     "onnx==1.22.0",
     "onnxconverter-common==1.16.0",
 ]
+# So para gerar o INT8, `mlops.quantize_int8`: o TensorRT 11 nao calibra, entao o INT8 chega pelos
+# nos Q/DQ que a quantizacao estatica do ONNX Runtime grava no ONNX. Fora do `jetson` porque a
+# placa so precisa dele para construir o plano, e nunca para rodar o pipeline. O 1.23.2 e a ultima
+# versao com roda para o Python 3.10 do projeto, em macOS arm64 e em Linux aarch64.
+quantizacao = [
+    "onnxruntime==1.23.2",
+    "onnx==1.22.0",
+]
 
 [build-system]
 requires = ["hatchling"]

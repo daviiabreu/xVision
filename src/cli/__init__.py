@@ -102,6 +102,7 @@ from mlops.run import (
 )
 from mlops.run_lock import exclusive_run
 from mlops.sheets import coarse_indices, contact_sheet, fine_indices
+from mlops.split import DOBRAS as DOBRAS_DA_BOLA
 from mlops.split import SplitError, read_split, split_config
 
 CLIP_OUT = typer.Option(
@@ -1576,22 +1577,6 @@ def dobras_de(dobra: str) -> frozenset[int]:
         raise typer.Exit(code=1)
     return dobras
 
-
-DOBRAS_DA_BOLA: Mapping[str, frozenset[int]] = {
-    "ajuste": frozenset({0, 1, 2}),
-    "reservado": frozenset({3, 4}),
-    "tudo": frozenset({0, 1, 2, 3, 4}),
-}
-"""Quem calibra limiar ve `ajuste`; o numero que vale sai de `reservado`, que ninguem otimizou.
-
-A dobra e por partida e nao por clipe, entao um clipe de ajuste e um reservado nunca vem do mesmo
-gramado, da mesma camera nem da mesma iluminacao. Sem isso, um limiar de cor de gramado ajustado
-num jogo apareceria como generalizacao quando so decorou o estadio.
-
-Reservar duas das cinco dobras deixa 24 clipes para ajustar e 14 para medir. Catorze e pouco e o
-intervalo de Wilson sobre eles e largo; o alternativa era nao reservar nada, e ai o numero final
-nao significaria nada.
-"""
 
 BALL_CONFIG = typer.Option(None, help="Modulos a medir. Padrao: pipeline.toml.")
 BALL_LIMIT = typer.Option(0, help="Para depois de N clipes anotados. Zero e sem limite.")

@@ -20,6 +20,7 @@ def _trt(
     plano: bytes | None = b"plano",
     flag_fp16: bool = True,
     quantizado: bool = False,
+    tipo_fixo: bool = True,
 ) -> tuple[SimpleNamespace, dict[str, Any]]:
     visto: dict[str, Any] = {"flags": []}
 
@@ -27,6 +28,7 @@ def _trt(
         def __init__(self, logger: object) -> None: ...
 
         def create_network(self, flags: int) -> SimpleNamespace:
+            visto["rede"] = flags
             tensor = SimpleNamespace(name="images", shape=(4, 3, 992, 1600))
             saida = SimpleNamespace(name="output0", shape=(4, 5, 32550))
 
@@ -87,6 +89,9 @@ def _trt(
         OnnxParser=Parser,
         MemoryPoolType=SimpleNamespace(WORKSPACE="workspace"),
         LayerType=SimpleNamespace(QUANTIZE="quantize"),
+        NetworkDefinitionCreationFlag=SimpleNamespace(STRONGLY_TYPED=1)
+        if tipo_fixo
+        else SimpleNamespace(),
         BuilderFlag=SimpleNamespace(FP16="fp16") if flag_fp16 else SimpleNamespace(TF32="tf32"),
         __version__="11.3.0.99",
     )
@@ -100,18 +105,28 @@ def onnx(tmp_path: Path) -> Path:
     return caminho
 
 
-def _instala(monkeypatch: pytest.MonkeyPatch, modulo: SimpleNamespace, pacote: str) -> None:
+def _instala(
+    monkeypatch: pytest.MonkeyPatch, modulo: SimpleNamespace, pacote: str, *, qdq: bool = False
+) -> None:
     def carrega(caminho: str) -> SimpleNamespace:
         saida = SimpleNamespace(name="output0")
-        no = SimpleNamespace(output=["interno", "output0"])
-        grafo = SimpleNamespace(output=[saida], node=[no])
-        return SimpleNamespace(texto=Path(caminho).read_text(), graph=grafo, tipo="fp32")
+        no = SimpleNamespace(output=["interno", "output0"], op_type="Conv")
+        nos = [no, SimpleNamespace(output=["q"], op_type="QuantizeLinear")] if qdq else [no]
+        grafo = SimpleNamespace(output=[saida], node=nos)
+        opset = [SimpleNamespace(domain="", version=17)]
+        return SimpleNamespace(
+            texto=Path(caminho).read_text(), graph=grafo, tipo="fp32", opset_import=opset
+        )
 
     def salva(modelo: SimpleNamespace, caminho: str) -> None:
         nomes = ",".join(modelo.graph.node[0].output)
         Path(caminho).write_text(
             f"{modelo.texto}|{modelo.tipo}|{modelo.graph.output[0].name}|{nomes}"
         )
+
+    def sobe_opset(modelo: SimpleNamespace, alvo: int) -> SimpleNamespace:
+        modelo.opset_import = [SimpleNamespace(domain="", version=alvo)]
+        return modelo
 
     def converte(modelo: SimpleNamespace, keep_io_types: bool) -> SimpleNamespace:
         assert keep_io_types
@@ -120,7 +135,9 @@ def _instala(monkeypatch: pytest.MonkeyPatch, modulo: SimpleNamespace, pacote: s
 
     modulos = {
         "tensorrt": modulo,
-        "onnx": SimpleNamespace(load=carrega, save=salva),
+        "onnx": SimpleNamespace(
+            load=carrega, save=salva, version_converter=SimpleNamespace(convert_version=sobe_opset)
+        ),
         "onnxconverter_common.float16": SimpleNamespace(convert_float_to_float16=converte),
     }
 
@@ -154,6 +171,7 @@ def test_o_plano_sai_com_os_dois_sha256_e_a_versao(
     assert relatorio["tensorrt"] == "11.3.0.99"
     assert relatorio["inputs"] == [{"name": "images", "shape": [4, 3, 992, 1600]}]
     assert visto["flags"] == ["fp16"]
+    assert visto["rede"] == 0
     assert visto["workspace"] == 2 << 30
     assert visto["onnx"] == b"onnx de teste"
     assert json.loads(destino.with_suffix(".run.json").read_text()) == relatorio
@@ -269,3 +287,56 @@ def test_com_a_flag_fp16_so_renomear_ainda_gera_onnx_de_trabalho(
     assert visto["flags"] == ["fp16"]
     assert visto["onnx"] == b"onnx de teste|fp32|predictions|interno,predictions"
     assert "conversor" not in relatorio
+
+
+def test_onnx_com_q_dq_vira_rede_de_tipo_fixo_sem_flag_de_precisao(
+    onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rede de tipo fixo recusa flag de precisao, e o fp16 do resto vem do ONNX convertido.
+
+    Com a flag de fp16 existindo, o caminho antigo a ligaria sobre o ONNX com Q/DQ, e o TensorRT
+    recusaria a construcao.
+    """
+    modulo, visto = _trt(quantizado=True)
+    _instala(monkeypatch, modulo, "tensorrt-cu13", qdq=True)
+
+    relatorio = build(onnx, tmp_path / "ball-b4-int8.engine", fp16=True, saida="predictions")
+
+    assert visto["rede"] == 1 << 1
+    assert visto["flags"] == []
+    assert visto["onnx"] == b"onnx de teste|fp16|predictions|interno,predictions"
+    assert relatorio["opset"] == "17 -> 19"
+    assert relatorio["conversor"] == "onnxconverter-common 1.16.0"
+    assert relatorio["precisao"] == (
+        "int8 pelos nos Q/DQ do ONNX, demais camadas em fp16 pelo ONNX convertido"
+    )
+
+
+def test_onnx_com_q_dq_sem_fp16_vai_ao_parser_como_veio(
+    onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    modulo, visto = _trt(flag_fp16=False, quantizado=True)
+    _instala(monkeypatch, modulo, "tensorrt-cu13", qdq=True)
+
+    relatorio = build(onnx, tmp_path / "field-int8.engine", fp16=False)
+
+    assert visto["rede"] == 1 << 1
+    assert visto["onnx"] == b"onnx de teste"
+    assert "conversor" not in relatorio
+    assert "opset" not in relatorio
+    assert relatorio["precisao"] == "int8 pelos nos Q/DQ do ONNX, demais camadas nos tipos do ONNX"
+
+
+@pytest.mark.parametrize(("flag_fp16", "rede"), [(False, 0), (True, None)])
+def test_sem_a_flag_de_tipo_fixo_so_constroi_onde_toda_rede_ja_e_de_tipo_fixo(
+    onnx: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag_fp16: bool, rede: int | None
+) -> None:
+    modulo, visto = _trt(flag_fp16=flag_fp16, quantizado=True, tipo_fixo=False)
+    _instala(monkeypatch, modulo, "tensorrt-cu13", qdq=True)
+
+    if rede is None:
+        with pytest.raises(EngineBuildError, match="tipo fixo"):
+            build(onnx, tmp_path / "x.engine", fp16=False)
+        return
+    build(onnx, tmp_path / "x.engine", fp16=False)
+    assert visto["rede"] == rede

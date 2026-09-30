@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -80,3 +81,24 @@ def read_split(source: str | Path) -> SplitConfig:
 def fold_of(match_id: str, cfg: SplitConfig) -> int:
     bruto = hashlib.sha256(f"{cfg.salt}:{match_id}".encode()).hexdigest()[:DIGITOS]
     return int(bruto, 16) % cfg.folds
+
+
+DOBRAS: Mapping[str, frozenset[int]] = {
+    "ajuste": frozenset({0, 1, 2}),
+    "reservado": frozenset({3, 4}),
+    "tudo": frozenset({0, 1, 2, 3, 4}),
+}
+"""Quem calibra limiar ve `ajuste`; o numero que vale sai de `reservado`, que ninguem otimizou.
+
+A dobra e por partida e nao por clipe, entao um clipe de ajuste e um reservado nunca vem do mesmo
+gramado, da mesma camera nem da mesma iluminacao. Sem isso, um limiar de cor de gramado ajustado
+num jogo apareceria como generalizacao quando so decorou o estadio.
+
+Reservar duas das cinco dobras deixa 24 clipes para ajustar e 14 para medir. Catorze e pouco e o
+intervalo de Wilson sobre eles e largo; o alternativa era nao reservar nada, e ai o numero final
+nao significaria nada.
+
+Mora aqui, e nao no `cli`, porque `mlops` tambem precisa dela e nao pode importar o `cli`: a
+calibracao do INT8 so pode ver `ajuste`, e uma segunda copia do conjunto seria o lugar por onde o
+pacote reservado entraria calado.
+"""
