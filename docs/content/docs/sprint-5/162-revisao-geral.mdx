@@ -1,0 +1,45 @@
+---
+title: Revisão geral do projeto
+description: Escopo, defeitos corrigidos e verificação das entregas de Davi na Sprint 5
+---
+
+A revisão sob responsabilidade de Davi Silveira partiu do `develop` em `dc9efa4`, em 30/09/2026. O [card 162](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/162) reúne as entregas individuais, seus resultados e o fechamento no quadro.
+
+## Escopo revisado
+
+| Área | Conferência |
+| --- | --- |
+| API | Validação e posse de vídeos, uploads, execução, resultados, evidências e render |
+| Interface | Serviços HTTP, autenticação, renovação de sessão, upload e polling |
+| Borda | Dependências e falhas do grafo, batching, cache e classificação com campo opcional |
+| Avaliação | Leitura de eventos, cálculo de métricas, cobertura, filtros e entradas da CLI |
+| Retomada e procedência | Checkpoint, seleção, parciais e informações registradas na execução |
+| Operação | Configuração, Docker/Compose, CI e manuais das Sprints 3 a 5 |
+
+A revisão combinou leitura de implementação e consumidores, análise de convenções e reproduções sintéticas. Passar nos testes existentes foi tratado como uma verificação, não como prova de ausência de defeitos.
+
+## Defeitos e entregas
+
+| Card | Problema corrigido | MR |
+| --- | --- | --- |
+| [163](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/163) | Eventos ou features repetidos sobrescreviam previsões na avaliação | [136](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/merge_requests/136) |
+| [165](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/165) | Cache reutilizava a saída quando uma dependência opcional mudava | [137](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/merge_requests/137) |
+| [166](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/166) | Resposta 401 antiga apagava uma sessão nova | [138](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/merge_requests/138) |
+| [167](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/167) | Diretório, ambiente Python e saídas incorretas no manual | Esta entrega de documentação |
+
+As correções de código têm [página de integridade da avaliação](/docs/sprint-5/163-integridade-avaliacao), [página da identidade do cache](/docs/sprint-5/165-cache-dependencias-opcionais) e [página de respostas antigas](/docs/sprint-5/166-respostas-de-sessao-antiga). As [correções do manual](/docs/sprint-5/167-correcao-manual-operacao) declaram os comandos verificados e os limites de saída.
+
+## Evidência de validação
+
+- Avaliação: quatro regressões de duplicatas falharam com a implementação original replantada. A correção passou em 57 testes focados; a suíte completa passou em 2.515 testes, com quatro skips e 92,52% de cobertura.
+- Cache: três regressões falharam com a implementação original replantada, incluindo a classificação real com fixtures sintéticas. A correção passou em 54 testes focados; a suíte integrada de Python passou em 2.518 testes, com quatro skips e 92,52% de cobertura.
+- Sessão: a implementação original falhou em cinco casos de preservação, mantendo 23 controles aprovados. A correção passou em 44 testes focados e nos 156 testes da interface, com cobertura de linhas de 95,02%.
+- Operação: a ajuda de conferência do peso passou em `src/`; a ajuda de tokens passou pelo ambiente instalado do contêiner; a CLI de clipe único produziu somente `events.jsonl` na execução sintética sem cache.
+
+Ruff, formato e Pyright passaram no código Python. Lint, formato, tipos e build passaram na interface. Os quatro gates de documentação passaram nas entregas correspondentes. As revisões das correções de código não apontaram outros problemas acionáveis. O card geral registra a pipeline aprovada de cada MR antes do fechamento.
+
+## Limites
+
+A revisão não é uma auditoria exaustiva de todas as linhas. Ela cobre os fluxos e fronteiras descritos acima e corrige os defeitos reproduzidos. Não comprova melhora de qualidade, tempo ou memória dos modelos.
+
+Não houve nova inferência em GPU, repetição do conjunto reservado, alteração de evidências congeladas ou publicação de material restrito. As limitações científicas e de hardware já registradas permanecem como estavam. Os cenários reais com pesos privados e a execução prolongada em Jetson continuam dependendo de validação própria.

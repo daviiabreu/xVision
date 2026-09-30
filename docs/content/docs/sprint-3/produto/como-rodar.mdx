@@ -194,18 +194,20 @@ uv run --frozen --extra api --extra players --extra ball --extra topview --extra
 ```
 
 O `shot` precisa ainda do código do T-DEED numa revisão fixa e do peso publicado pelos autores.
-Na raiz do repositório:
+Volte de `src/` para a raiz do repositório:
 
 ```bash
+cd ..
 git clone https://github.com/arturxe2/T-DEED.git var/external/T-DEED
 git -C var/external/T-DEED checkout d953b4de8a2ad941c565e1683c5b07255cbe644e
 ```
 
 O peso vem da pasta indicada no manifesto `models/manifests/shot/tdeed-soccernetball-test-1.0.0.toml`,
 e `external/tdeed/README.md` diz em que diretório de `var/models` ele entra. A conferência é a mesma
-dos outros pesos:
+dos outros pesos, voltando para `src/`:
 
 ```bash
+cd src
 uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision artifact get models/manifests/shot/tdeed-soccernetball-test-1.0.0.toml
 ```
 
@@ -241,8 +243,10 @@ ambiente preparado, o comando é:
 uv run --frozen --extra api --extra players --extra ball --extra topview --extra shot xvision run --clip ../var/entrada.mp4 --config config/pipeline.models.toml --render
 ```
 
-`entrada.mp4` representa um clipe autorizado colocado pelo operador. A CLI informa o diretório da
-execução, que reúne evento, relatório, procedência e `annotated.mp4` quando o render é produzido.
+`entrada.mp4` representa um clipe autorizado colocado pelo operador. Para um clipe único, a CLI
+grava `events.jsonl` e, quando o render é produzido, `annotated.mp4`. Esse caminho não grava
+`run.json` nem `report.json`. A execução de catálogo com `--all` grava a procedência em `run.json`;
+o relatório de métricas é gerado separadamente por `xvision eval`, com o gabarito disponível.
 O render usa os pesos de jogadores e campo de `[render.top_view]`; a bola vem da percepção da
 mesma execução. A homografia visual tem processamento próprio e não é a saída de `modules.field`.
 

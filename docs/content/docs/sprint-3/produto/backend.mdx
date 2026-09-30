@@ -129,7 +129,7 @@ persistente do produto, descrito na
 Uma integração automatizada pode usar token de serviço, emitido pelo operador:
 
 ```bash
-docker compose exec api python -m api.tokens criar integracao-footstats
+docker compose exec api uv run --no-sync python -m api.tokens criar integracao-footstats
 ```
 
 O valor aparece uma vez; o banco armazena seu hash. A sequência é reservar o envio, fazer `PUT`

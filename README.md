@@ -163,8 +163,10 @@ uv run --frozen --all-extras xvision run --clip <arquivo.mp4>
 uv run --frozen --all-extras xvision run --all --config config/pipeline.models.toml
 ```
 
-Cada execução grava um diretório em `../var/runs/` com os eventos em JSONL, o relatório e a procedência
-(commit, configuração, host, versões dos módulos).
+Cada execução grava um diretório em `../var/runs/` com os eventos em JSONL. A execução do catálogo
+(`--all`) também grava `run.json` com a procedência (commit, configuração, host e versões dos módulos).
+O relatório de métricas é gerado por `xvision eval`, com o gabarito disponível. O caminho de clipe
+único (`--clip`) grava o evento e o render, quando solicitado, sem `run.json` ou relatório automático.
 
 ### Medição
 

@@ -1,0 +1,45 @@
+---
+title: Correções do manual de operação
+description: Diretório de execução, ambiente do contêiner e arquivos efetivamente produzidos
+---
+
+A revisão geral identificou instruções que impediam seguir o [manual do produto](/docs/sprint-3/produto/como-rodar) ou prometiam saídas ausentes. A correção ajusta os comandos e declara o que cada fluxo produz, sem adicionar uma funcionalidade ao pipeline.
+
+## Diretório da conferência do T-DEED
+
+A instalação do código externo acontece na raiz, em `var/external/T-DEED`. A conferência do peso usa o projeto Python e seus manifestos em `src/`. Os blocos agora indicam `cd ..` antes da clonagem e `cd src` antes de `xvision artifact get`.
+
+Na reprodução offline, o mesmo `artifact get --help` falhou com código 2 na raiz e passou em `src/`. Não houve clonagem, download ou leitura de peso privado nesta verificação.
+
+## Ambiente do comando de token
+
+O Dockerfile instala as dependências em `.venv`. O comando do [backend](/docs/sprint-3/produto/backend#integração-de-sistemas) passa a usar esse ambiente:
+
+```bash
+docker compose exec api uv run --no-sync python -m api.tokens criar integracao-footstats
+```
+
+Em uma imagem local existente, isolada sem rede e volumes, a ajuda de `python -m api.tokens` falhou por ausência de `fastapi`. A ajuda de `uv run --no-sync python -m api.tokens` passou. A verificação não emitiu um token nem acessou o banco do produto.
+
+## Saídas do pipeline
+
+| Fluxo | Arquivos |
+| --- | --- |
+| `run --clip` | `events.jsonl` |
+| `run --clip --render` | Evento e `annotated.mp4` quando o render é produzido |
+| `run --all` | Eventos e `run.json` com procedência |
+| `eval` | `report.json` após comparar com o gabarito |
+
+O manual e o README deixam de prometer relatório e procedência para todo clipe único. A execução sintética sem cache confirmou que esse ramo produz apenas o arquivo de eventos. O caminho de render foi conferido na revisão com um renderer falso, sem pesos reais.
+
+## Decisão e limites
+
+**Corrigir as instruções para o comportamento existente.** Acrescentar relatório ou procedência ao ramo de clipe único foi descartado nesta entrega: a revisão encontrou uma promessa incorreta, não um requisito novo. A desvantagem permanece explícita: quem precisa da procedência completa deve usar a execução de catálogo; o clipe único ainda não a produz.
+
+Não houve reconstrução da imagem, emissão de credenciais, inferência em GPU, uso de dados restritos ou nova avaliação reservada. Os gates verificam a documentação e o build do site; as reproduções verificam os comandos e as saídas descritas.
+
+## Referências
+
+- [Card 167: achados e validação](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/167).
+- [Dockerfile do produto](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/Dockerfile).
+- [Implementação da CLI](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/cli/__init__.py).
