@@ -1,9 +1,9 @@
 """A procedencia que nao cabe no evento congelado, num arquivo irmao.
 
 Guarda o sha do commit e se a arvore estava suja, a identidade do dado, nome e versao de cada
-modulo, o sha256 do `config/pipeline.toml`, o host e o status, motivo e duracao de cada etapa. E o
-que permite dizer que a versao 0.3.1 do detector mudou um numero, e o que permite outra pessoa
-repetir.
+modulo, o sha256 do `config/pipeline.toml` e o `[decode].mode` que ele declara, o host e o status,
+motivo e duracao de cada etapa. E o que permite dizer que a versao 0.3.1 do detector mudou um
+numero, e o que permite outra pessoa repetir.
 
 Arquivo irmao, e nao campo no evento, porque `shot_event.v1.json` tem `additionalProperties:
 false` nos tres niveis e um digest cravado em teste. Crescer o evento custaria bump de versao, os
@@ -34,7 +34,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, cast
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
 RUN_FILE = "run.json"
 EVENTS_FILE = "events.jsonl"
 
@@ -46,6 +46,7 @@ class RunRecord:
     git_sha: str
     git_dirty: bool
     config_sha256: str
+    decode: str
     dataset: Mapping[str, object]
     modules: Mapping[str, Mapping[str, object]]
     features: Sequence[tuple[str, str]]
@@ -63,6 +64,7 @@ class RunRecord:
             "git_sha": self.git_sha,
             "git_dirty": self.git_dirty,
             "config_sha256": self.config_sha256,
+            "decode": self.decode,
             "dataset": dict(self.dataset),
             "modules": {k: dict(v) for k, v in self.modules.items()},
             "features": [list(par) for par in self.features],

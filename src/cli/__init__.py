@@ -31,7 +31,15 @@ from edge.artifacts import ArtifactError, ArtifactMissing, read_manifest, resolv
 from edge.cache.perception import PerceptionCache
 from edge.features.base import FeatureError
 from edge.features.registry import load_extractors, read_feature_config
-from edge.frames.provider import ClipUnavailable, FrameProvider, VideoSource, probe
+from edge.frames.provider import (
+    ClipUnavailable,
+    Decode,
+    DecodeConfigError,
+    FrameProvider,
+    VideoSource,
+    probe,
+    read_decode,
+)
 from edge.graph.framesets import FrameSetError, read_framesets
 from edge.modules.base import MODULE_KINDS, ModuleError
 from edge.modules.registry import load_modules, read_config
@@ -440,11 +448,18 @@ def _run_catalog(
     if not config.is_file():
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
         raise typer.Exit(code=1)
+    try:
+        decode = read_decode(config)
+    except DecodeConfigError as erro:
+        typer.echo(f"{config}: {erro}", err=True)
+        raise typer.Exit(code=1) from erro
     escolhidos = _escolhidos(limit, gabarito, dobra)
     destino = resume if resume is not None else (runs_dir() if out is None else out) / new_run_id()
     try:
         with exclusive_run(destino):
-            _run_selected_catalog(escolhidos, config, destino, resume=resume is not None)
+            _run_selected_catalog(
+                escolhidos, config, destino, resume=resume is not None, decode=decode
+            )
     except CheckpointError as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
@@ -485,7 +500,7 @@ def _escolhidos(limit: int, gabarito: bool, dobra: str | None) -> list[ShotRecor
 
 
 def _run_selected_catalog(
-    escolhidos: Sequence[ShotRecord], config: Path, destino: Path, *, resume: bool
+    escolhidos: Sequence[ShotRecord], config: Path, destino: Path, *, resume: bool, decode: Decode
 ) -> None:
     digest = sha256_of(config)
     selecao = hashlib.sha256("\0".join(sorted(r.shot_id for r in escolhidos)).encode()).hexdigest()
@@ -592,6 +607,7 @@ def _run_selected_catalog(
             git_sha=sha,
             git_dirty=sujo,
             config_sha256=digest,
+            decode=decode,
             dataset={
                 "clips": ok,
                 "failed": falhou,
@@ -837,7 +853,7 @@ def _populacao(catalogo: Sequence[ShotRecord], tabela: Labels) -> list[ShotRecor
 
 def _processa_registro(registro: ShotRecord, config: Path) -> ClipResult:
     clipe = probe(registro.clip_path, clip_id=registro.shot_id)
-    provider = FrameProvider(VideoSource(registro.clip_path))
+    provider = FrameProvider(VideoSource(registro.clip_path), decode=read_decode(config))
     try:
         return process_clip(
             clip=replace(clipe, match_id=registro.match_id),
@@ -858,7 +874,7 @@ def nome_da_execucao(clip: Path) -> str:
 def _processa(
     clip: Path, config: Path, *, on_perception: Callable[[Perception], None] | None = None
 ) -> ClipResult:
-    provider = FrameProvider(VideoSource(clip))
+    provider = FrameProvider(VideoSource(clip), decode=read_decode(config))
     try:
         return process_clip(
             clip=probe(clip),

@@ -17,6 +17,7 @@ def _registro() -> RunRecord:
         git_sha="9179287",
         git_dirty=False,
         config_sha256="7d31",
+        decode="redecode",
         dataset={"clips": 604, "population": "todos-604"},
         modules={
             "pose": {
@@ -111,7 +112,15 @@ def test_o_schema_sobe_quando_o_registro_cresce(tmp_path: Path) -> None:
     """Consumidor que le `run.json` precisa saber que os campos novos existem a partir de quando."""
     dados = json.loads(write_run(tmp_path, _registro()).read_text(encoding="utf-8"))
 
-    assert dados["schema_version"] == "1.1"
+    assert dados["schema_version"] == "1.2"
+
+
+def test_o_modo_de_decode_fica_escrito_ao_lado_do_config(tmp_path: Path) -> None:
+    """O `config_sha256` muda com `[decode].mode`, e o hash sozinho nao diz em que modo o pico de
+    memoria foi medido: as duas execucoes teriam o mesmo tempo por etapa e memoria diferente."""
+    dados = json.loads(write_run(tmp_path, _registro()).read_text(encoding="utf-8"))
+
+    assert dados["decode"] == "redecode"
 
 
 def test_runtimes_le_versao_sem_importar_o_pacote() -> None:

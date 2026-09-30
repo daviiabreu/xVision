@@ -30,7 +30,7 @@ from api.schemas import Metrica, Resultado, tipo_de
 from contracts import Perception
 from edge.cache.perception import PerceptionCache
 from edge.features.registry import load_extractors, read_feature_config
-from edge.frames.provider import ClipUnavailable, FrameProvider, VideoSource, probe
+from edge.frames.provider import ClipUnavailable, FrameProvider, VideoSource, probe, read_decode
 from edge.graph.framesets import read_framesets
 from edge.modules.registry import load_modules, read_config
 from edge.paths import cache_dir
@@ -251,7 +251,7 @@ def _rodar(
     modules = load_modules(read_config(config))
     total = len(modules) + 2
     clipe = probe(caminho, clip_id=f"video-{identificador}")
-    provider = FrameProvider(VideoSource(caminho))
+    provider = FrameProvider(VideoSource(caminho), decode=read_decode(config))
 
     def progresso(kind: str, concluidas: int, _: int) -> None:
         store.marcar_progresso(identificador, kind, concluidas, total, banco)
