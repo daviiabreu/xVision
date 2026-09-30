@@ -29,7 +29,9 @@ def test_resume_refuses_an_active_run_without_truncating_its_events(
     monkeypatch.setattr(cli, "_populacao", population)
     monkeypatch.setattr(cli, "new_run_id", lambda: "concurrent-fixture")
 
-    def process(record: SimpleNamespace, config: Path) -> SimpleNamespace:
+    def process(
+        record: SimpleNamespace, config: Path, *, cache_enabled: bool = True
+    ) -> SimpleNamespace:
         if record.shot_id == "10":
             child.send("checkpoint-written")
             child.recv()

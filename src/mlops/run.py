@@ -34,7 +34,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, cast
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.3"
 RUN_FILE = "run.json"
 EVENTS_FILE = "events.jsonl"
 
@@ -55,6 +55,7 @@ class RunRecord:
     platform: str
     hardware: Mapping[str, object]
     runtime: Mapping[str, str]
+    cache_enabled: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +66,7 @@ class RunRecord:
             "git_dirty": self.git_dirty,
             "config_sha256": self.config_sha256,
             "decode": self.decode,
+            "cache_enabled": self.cache_enabled,
             "dataset": dict(self.dataset),
             "modules": {k: dict(v) for k, v in self.modules.items()},
             "features": [list(par) for par in self.features],

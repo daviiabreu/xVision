@@ -104,6 +104,7 @@ class Checkpoint:
     tempos: dict[str, list[float]] = field(default_factory=dict[str, list[float]])
     identidade: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
     falhas: dict[str, list[Any]] = field(default_factory=dict[str, list[Any]])
+    cache_enabled: bool = True
 
     @property
     def events_written(self) -> int:
@@ -122,6 +123,7 @@ class Checkpoint:
             "started_at": self.started_at,
             "selection_sha256": self.selection_sha256,
             "features_sha256": self.features_sha256,
+            "cache_enabled": self.cache_enabled,
             "done": self.done,
             "ok": self.ok,
             "failed": self.failed,
@@ -179,6 +181,7 @@ def read_checkpoint(destino: Path) -> Checkpoint:
         started_at=documento["started_at"],
         selection_sha256=documento.get("selection_sha256", ""),
         features_sha256=documento.get("features_sha256", ""),
+        cache_enabled=documento.get("cache_enabled", True),
         done=documento["done"],
         ok=documento["ok"],
         failed=documento.get("failed", 0),
@@ -250,6 +253,8 @@ def _list(value: object, name: str) -> list[Any]:
 
 
 def _validate_progress(document: dict[str, Any]) -> None:
+    if not isinstance(document.get("cache_enabled", True), bool):
+        raise _invalid("cache_enabled")
     for name in ("config_sha256", "started_at", "selection_sha256", "features_sha256"):
         if not isinstance(document.get(name, ""), str):
             raise _invalid(name)

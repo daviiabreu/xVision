@@ -1,0 +1,72 @@
+---
+title: Medição sem cache de percepção
+description: Como executar o pipeline sem reutilizar percepção e manter a mesma política na retomada
+---
+
+O comando `xvision run` aceita `--no-cache` para medir o processamento sem ler nem escrever no cache de percepção em disco. A opção se aplica a um clipe ou ao catálogo. O contexto da mudança está nas [medições da Jetson](/docs/sprint-4/produto/execucao-na-jetson#custo-confirmado-em-3009-sem-cache) e no [card #160](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/160).
+
+## Problema observado
+
+As execuções de ajuste de 29/09 reutilizaram a detecção dos jogadores. Essa etapa levou 0,6 s, enquanto o reservado registrou 18,2 s. Os conjuntos são distintos, portanto os valores não medem uma razão de aceleração. Eles mostram por que uma execução com percepção reutilizada não representa o custo completo da inferência.
+
+Antes desta entrega, o comando sempre conectava o cache. Era necessário limpar o diretório antes da medição, removendo entradas que também poderiam servir a outras execuções. A política não aparecia no `run.json`.
+
+## Como usar
+
+Para medir a segunda etapa nas dobras de ajuste, com os instantes já calculados pelo fluxo em duas etapas:
+
+```bash
+cd src
+uv run xvision run --all --dobra ajuste \
+  --config config/pipeline.models.duas-etapas.toml --no-cache
+```
+
+Para um único clipe sintético:
+
+```bash
+uv run xvision fixture --out fixture.mp4
+uv run xvision run --clip fixture.mp4 --no-cache
+```
+
+O padrão continua com cache habilitado. `--cache` torna essa escolha explícita. O modo sem cache preserva o diretório compartilhado e entrega o evento pelo mesmo contrato.
+
+## Relatório e retomada
+
+O `run.json` do catálogo passa à versão `1.3` e acrescenta `cache_enabled`. O campo descreve a política da execução, não a quantidade de acertos do cache. O relatório continua registrando tempo, identidade dos módulos, hardware e runtime.
+
+```json
+{
+  "schema_version": "1.3",
+  "cache_enabled": false
+}
+```
+
+Esse trecho é um exemplo parcial do formato, não uma medição. O modo de clipe único continua produzindo `events.jsonl`, sem o relatório agregado do catálogo.
+
+O checkpoint guarda a mesma política. Uma retomada deve repetir `--no-cache` quando a execução original usou essa opção:
+
+```bash
+uv run xvision run --all --dobra ajuste \
+  --config config/pipeline.models.duas-etapas.toml \
+  --no-cache --resume ../var/runs/EXECUCAO
+```
+
+Se a escolha mudar, o comando recusa a retomada antes de truncar o parcial ou atualizar o checkpoint. Checkpoints antigos, que não possuem o campo, correspondem ao comportamento anterior com cache habilitado.
+
+## Decisão e trade-off
+
+**A escolha vale por execução.** O parâmetro evita uma limpeza global e mantém o uso normal do cache. A alternativa de criar um diretório vazio por benchmark continuaria gravando entradas e exigiria configuração externa; a opção apenas entrega `None` à fronteira de cache que o pipeline já suporta.
+
+A desvantagem principal é o custo da repetição: com `--no-cache`, cada clipe precisa passar novamente pelos módulos. O comando não promete ganho de tempo ou de memória. O checkpoint impede que esse custo seja agregado com tempos obtidos por outra política na mesma execução retomada.
+
+## Validação e limites
+
+As regressões usam vídeo sintético e um catálogo sintético. Elas verificam equivalência do evento, preservação de entradas existentes, ausência de novas entradas no modo sem cache, registro da política e retomada após interrupção sem duplicar clipes. A troca de política preserva os arquivos parciais.
+
+A opção controla somente o cache de percepção em disco. Não remove pesos, planos TensorRT, instantes pré-calculados ou caches do runtime. A primeira etapa deve ser medida separadamente quando fizer parte do custo estudado. Esta entrega não repete a avaliação reservada e não altera os resultados dos requisitos publicados na [validação após congelamento](/docs/sprint-5/140-pacote-reservado).
+
+## Referências
+
+- [Card #160: medição sem cache](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/160).
+- [Custo confirmado na Jetson em 30/09](/docs/sprint-4/produto/execucao-na-jetson#custo-confirmado-em-3009-sem-cache).
+- [Cache de percepção no código do projeto](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/cache/perception.py).

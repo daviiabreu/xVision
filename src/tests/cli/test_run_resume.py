@@ -77,7 +77,7 @@ def _prepara(
     registros = [_Registro(str(i + deslocamento)) for i in range(quantos)]
     vistos: list[str] = []
 
-    def processa(registro: Any, _config: Path) -> _Resultado:
+    def processa(registro: Any, _config: Path, *, cache_enabled: bool = True) -> _Resultado:
         if para_em is not None and len(vistos) == para_em:
             raise _Interrompe
         vistos.append(registro.shot_id)

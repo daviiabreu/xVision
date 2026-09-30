@@ -112,7 +112,7 @@ def test_o_schema_sobe_quando_o_registro_cresce(tmp_path: Path) -> None:
     """Consumidor que le `run.json` precisa saber que os campos novos existem a partir de quando."""
     dados = json.loads(write_run(tmp_path, _registro()).read_text(encoding="utf-8"))
 
-    assert dados["schema_version"] == "1.2"
+    assert dados["schema_version"] == "1.3"
 
 
 def test_o_modo_de_decode_fica_escrito_ao_lado_do_config(tmp_path: Path) -> None:

@@ -157,6 +157,9 @@ RUN_OUT = typer.Option(None, help="Onde gravar a execucao.", show_default="../va
 RUN_RENDER = typer.Option(
     False, "--render", help="Gera annotated.mp4 com top view e bola desta execucao."
 )
+RUN_CACHE = typer.Option(
+    True, "--cache/--no-cache", help="Le e grava o cache de percepcao em disco."
+)
 
 
 # Toda excecao que significa "a entrada ou a configuracao esta errada", e nao "o programa tem um
@@ -214,6 +217,7 @@ def run(
     dobra: str | None = RUN_DOBRA,
     resume: Path | None = RUN_RESUME,
     render: bool = RUN_RENDER,
+    cache_enabled: bool = RUN_CACHE,
 ) -> None:
     """Processa um clipe, ou o catalogo inteiro com --all.
 
@@ -231,7 +235,7 @@ def run(
         typer.echo("--render exige um unico --clip; nao pode ser usado com --all", err=True)
         raise typer.Exit(code=1)
     if todos:
-        _run_catalog(out, config, limit, gabarito, dobra, resume)
+        _run_catalog(out, config, limit, gabarito, dobra, resume, cache_enabled=cache_enabled)
         return
     if resume is not None:
         typer.echo("--resume vale para --all: um clipe so nao tem o que retomar", err=True)
@@ -256,9 +260,9 @@ def run(
 
     try:
         resultado = (
-            _processa(clip, config, on_perception=write_render)
+            _processa(clip, config, on_perception=write_render, cache_enabled=cache_enabled)
             if render
-            else _processa(clip, config)
+            else _processa(clip, config, cache_enabled=cache_enabled)
         )
     except ERROS_DE_USO as erro:
         typer.echo(f"{clip}: {erro}", err=True)
@@ -447,6 +451,8 @@ def _run_catalog(
     gabarito: bool = False,
     dobra: str | None = None,
     resume: Path | None = None,
+    *,
+    cache_enabled: bool = True,
 ) -> None:
     if not config.is_file():
         typer.echo(f"{config} nao existe: passe --config com o caminho do arquivo", err=True)
@@ -461,7 +467,12 @@ def _run_catalog(
     try:
         with exclusive_run(destino):
             _run_selected_catalog(
-                escolhidos, config, destino, resume=resume is not None, decode=decode
+                escolhidos,
+                config,
+                destino,
+                resume=resume is not None,
+                decode=decode,
+                cache_enabled=cache_enabled,
             )
     except CheckpointError as erro:
         typer.echo(str(erro), err=True)
@@ -503,7 +514,13 @@ def _escolhidos(limit: int, gabarito: bool, dobra: str | None) -> list[ShotRecor
 
 
 def _run_selected_catalog(
-    escolhidos: Sequence[ShotRecord], config: Path, destino: Path, *, resume: bool, decode: Decode
+    escolhidos: Sequence[ShotRecord],
+    config: Path,
+    destino: Path,
+    *,
+    resume: bool,
+    decode: Decode,
+    cache_enabled: bool,
 ) -> None:
     digest = sha256_of(config)
     selecao = hashlib.sha256("\0".join(sorted(r.shot_id for r in escolhidos)).encode()).hexdigest()
@@ -517,6 +534,7 @@ def _run_selected_catalog(
             started_at=agora,
             selection_sha256=selecao,
             features_sha256=feature_digest,
+            cache_enabled=cache_enabled,
         )
         modo = "w"
     else:
@@ -527,6 +545,7 @@ def _run_selected_catalog(
             selecao,
             feature_digest,
             selected_clips={record.shot_id for record in escolhidos},
+            cache_enabled=cache_enabled,
         )
         estado.resumed += 1
         write_checkpoint(destino, estado)
@@ -572,7 +591,7 @@ def _run_selected_catalog(
     with parcial.open(modo, encoding="utf-8") as arquivo:
         for posicao, registro in enumerate(pendentes, start=1):
             try:
-                resultado = _processa_registro(registro, config)
+                resultado = _processa_registro(registro, config, cache_enabled=cache_enabled)
             except ERROS_DE_USO as erro:
                 falhou += 1
                 feitos.add(registro.shot_id)
@@ -627,6 +646,7 @@ def _run_selected_catalog(
             platform=plataforma,
             hardware=hardware(),
             runtime=runtimes(),
+            cache_enabled=cache_enabled,
         ),
     )
     parcial.replace(eventos)
@@ -710,6 +730,7 @@ def _retomada(
     feature_digest: str,
     *,
     selected_clips: set[str],
+    cache_enabled: bool,
 ) -> tuple[Checkpoint, str]:
     """Le o checkpoint, recusa configuracao ou populacao diferente, e corta o parcial no
     ponto que o checkpoint responde por."""
@@ -721,6 +742,13 @@ def _retomada(
     except CheckpointError as erro:
         typer.echo(str(erro), err=True)
         raise typer.Exit(code=1) from erro
+    if estado.cache_enabled != cache_enabled:
+        typer.echo(
+            "politica de cache diferente da execucao original: retome com a mesma escolha "
+            "de --cache ou --no-cache; o parcial original foi preservado",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     if estado.config_sha256 != digest:
         typer.echo(
             f"a execucao em {destino} usou config_sha256 {estado.config_sha256[:12]} e agora "
@@ -854,7 +882,9 @@ def _populacao(catalogo: Sequence[ShotRecord], tabela: Labels) -> list[ShotRecor
     ]
 
 
-def _processa_registro(registro: ShotRecord, config: Path) -> ClipResult:
+def _processa_registro(
+    registro: ShotRecord, config: Path, *, cache_enabled: bool = True
+) -> ClipResult:
     clipe = probe(registro.clip_path, clip_id=registro.shot_id)
     provider = FrameProvider(VideoSource(registro.clip_path), decode=read_decode(config))
     try:
@@ -864,7 +894,7 @@ def _processa_registro(registro: ShotRecord, config: Path) -> ClipResult:
             framesets=read_framesets(config),
             provider=provider,
             extractors=load_extractors(read_feature_config(config)),
-            cache=PerceptionCache(cache_dir()),
+            cache=PerceptionCache(cache_dir()) if cache_enabled else None,
         )
     finally:
         provider.close()
@@ -875,7 +905,11 @@ def nome_da_execucao(clip: Path) -> str:
 
 
 def _processa(
-    clip: Path, config: Path, *, on_perception: Callable[[Perception], None] | None = None
+    clip: Path,
+    config: Path,
+    *,
+    on_perception: Callable[[Perception], None] | None = None,
+    cache_enabled: bool = True,
 ) -> ClipResult:
     provider = FrameProvider(VideoSource(clip), decode=read_decode(config))
     try:
@@ -885,7 +919,7 @@ def _processa(
             framesets=read_framesets(config),
             provider=provider,
             extractors=load_extractors(read_feature_config(config)),
-            cache=PerceptionCache(cache_dir()),
+            cache=PerceptionCache(cache_dir()) if cache_enabled else None,
             on_perception=on_perception,
         )
     finally:

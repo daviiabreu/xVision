@@ -508,7 +508,7 @@ def test_all_sem_gabarito_continua_valendo_o_catalogo_inteiro(
 
     vistos: list[str] = []
 
-    def processa(registro: Any, _config: Path) -> Any:
+    def processa(registro: Any, _config: Path, *, cache_enabled: bool = True) -> Any:
         vistos.append(registro.shot_id)
         return Resultado(registro.shot_id)
 

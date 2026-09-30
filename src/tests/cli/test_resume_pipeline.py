@@ -35,11 +35,11 @@ def test_resume_preserves_real_pipeline_events_and_stage_totals(
     process = cli._processa_registro  # pyright: ignore[reportPrivateUsage]
     seen: list[str] = []
 
-    def interrupt(record: ShotRecord, config: Path) -> ClipResult:
+    def interrupt(record: ShotRecord, config: Path, *, cache_enabled: bool = True) -> ClipResult:
         if len(seen) == 11:
             raise KeyboardInterrupt
         seen.append(record.shot_id)
-        return process(record, config)
+        return process(record, config, cache_enabled=cache_enabled)
 
     monkeypatch.setattr(cli, "_processa_registro", interrupt)
     output = tmp_path / "runs"
@@ -52,9 +52,11 @@ def test_resume_preserves_real_pipeline_events_and_stage_totals(
 
     resumed: list[str] = []
 
-    def continue_processing(record: ShotRecord, config: Path) -> ClipResult:
+    def continue_processing(
+        record: ShotRecord, config: Path, *, cache_enabled: bool = True
+    ) -> ClipResult:
         resumed.append(record.shot_id)
-        return process(record, config)
+        return process(record, config, cache_enabled=cache_enabled)
 
     monkeypatch.setattr(cli, "_processa_registro", continue_processing)
     result = CliRunner().invoke(cli.app, [*args, "--resume", str(run)])
