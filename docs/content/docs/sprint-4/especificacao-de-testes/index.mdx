@@ -44,7 +44,7 @@ congelamento -> pacote reservado de 14 clipes, uma única vez
 
 | Conjunto | Tamanho | Uso |
 | --- | --- | --- |
-| gabarito do instante | 38 clipes anotados à mão: 24 nas dobras de ajuste, 14 nas reservadas | os 24 escolhem e medem; os 14 só rodam depois do congelamento |
+| gabarito do instante | 38 clipes anotados à mão: 24 nas dobras de ajuste, 14 nas reservadas | os 24 escolhem e medem; os 14 rodaram uma vez, depois do congelamento |
 | piloto da bola | 328 quadros de 8 clipes e 6 partidas, 317 com bola visível, só nas dobras de ajuste | posição e continuidade da trajetória |
 | segunda passada cega da bola | 88 quadros do piloto, todos os 8 contatos | quanto do erro medido pode ser do gabarito |
 | contatos da bola | o quadro do contato dos 24 clipes de ajuste do gabarito do instante | acerto da bola onde as features leem |
@@ -54,6 +54,47 @@ Três regras valem para todos os casos. A divisão é por partida, e nenhuma par
 dobras. Os 14 clipes reservados rodam uma única vez, depois de código, configuração, peso, ONNX e
 tolerâncias congelados, e um resultado ruim ali não autoriza reajuste nos mesmos 14. E nenhum
 relatório carrega vídeo, quadro, identificador de clipe ou marcação do parceiro.
+
+## Execução única do pacote reservado
+
+O pacote reservado rodou uma vez, de 29 para 30/09, na Jetson, a partir da tag
+`congelamento-sprint-5`: o `develop` com o ranking da bola só de aparência, a configuração das duas
+etapas com os planos TensorRT, e os hashes de cada peso, ONNX e plano. A mensagem da tag lista as
+análises antes da execução, e nada foi ajustado depois. São os 241 clipes das dobras 3 e 4, 14 deles
+com instante anotado. O campo e a trajetória da bola não têm quadro anotado nessas dobras, como a tag
+já previa.
+
+| Caso | Resultado |
+| --- | --- |
+| TI-09, instante | passa: 13 de 14 dentro de 30 quadros, mediana de 6 |
+| deslocamento de +6 quadros | a favor: mediana de 5 e p95 de 10, contra 6 e 16 |
+| TB-10, bola no contato | falha: 12 de 14 contatos com bola detectada, contra o critério de 13 |
+
+As features, nos 241 clipes, ao lado do catálogo de ajuste medido com o mesmo código e a mesma
+configuração:
+
+| Feature | Macro-F1, reservado | Maioria, reservado | Cobertura, reservado | Macro-F1, ajuste | Maioria, ajuste |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `type_of_play` | 0,369 | 0,258 | 98,3% | 0,350 | 0,272 |
+| `body_part` | 0,336 | 0,234 | 85,9% | 0,341 | 0,222 |
+| `goalkeeper_position` | 0,642 | 0,482 | 64,3% | 0,546 | 0,472 |
+| `looked_before` | 0,270 | 0,458 | 16,2% | 0,369 | 0,476 |
+
+As taxas de `type_of_play` e `goalkeeper_position` são maiores no reservado, e a de `body_part`
+fica próxima à do ajuste. `looked_before` cai de 0,369 para 0,270 e segue abaixo da maioria, com
+baixa cobertura nos dois conjuntos. Sem comparação com intervalo entre populações, esses números
+não descartam sobreajuste. Em acurácia, `type_of_play` continua abaixo da classe majoritária, 0,519 contra 0,633; a
+macro-F1 é a métrica de decisão porque a maioria acerta só a classe mais comum. O `type_of_play`
+medido é o da regra de produção, porque o modelo treinado sobre a evidência não estava disponível no
+congelamento.
+
+**O reservado mediu o custo real, e ele não cabe no RNF-04.** Nenhum desses clipes tinha passado
+pela placa, então nenhuma espécie saiu do cache de percepção. A segunda etapa levou 45,5 s por
+clipe, com jogadores em 18,2 s, e a primeira, 16,0 s. O pico chegou a 91,4% da RAM, e 82 dos 241
+clipes passaram de 70%, incluindo 28 de até 8 s. A temperatura máxima foi de 65,9 °C. Os catálogos de
+ajuste de 29/09 tinham jogadores do cache, a 0,6 s por clipe, e por isso não valem como medida de
+memória nem de tempo; valem para as features, que saem iguais com ou sem cache. O detalhe está na
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
 
 ## Rastreabilidade
 

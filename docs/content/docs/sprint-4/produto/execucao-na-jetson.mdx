@@ -6,8 +6,9 @@ description: O pipeline de produção medido no dispositivo, com memória, energ
 A revisão da Sprint 3 deixou quatro apontamentos que só o dispositivo fecha: a execução com os
 módulos reais feita na placa, e não na estação; o pipeline completo em meia precisão; os dados
 brutos das medições publicadas; e a configuração TensorRT versionada. Esta página traz as quatro
-medições, feitas em 24/09/2026 nos 24 clipes de desenvolvimento com instante anotado, e o catálogo
-contínuo de 24 e 25/09, que mediu memória e temperatura por mais de 90 minutos. A lista completa
+medições de 24/09/2026 e a consolidação de 30/09: o reservado congelado, os braços de custo sem
+cache e o experimento de redecodificação nos clipes longos. As medidas antigas ficam datadas para
+não misturar versões do pipeline. A lista completa
 dos apontamentos está na [entrada da sprint](/docs/sprint-4#o-que-veio-da-revisão-da-sprint-3).
 
 ## A placa
@@ -167,7 +168,7 @@ o processo se a memória disponível ficar abaixo de 300 MB por 5 s. Ela agiu um
 seleção de clipes, e terminaram em 25/09 às 11h14, com os 363 clipes cada e nenhuma falha. O efeito
 do instante nas features está no [instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao#no-catálogo).
 
-## Memória e energia contra os requisitos
+## Memória e energia em 24 e 25/09
 
 **RNF-04 é atendido nos clipes de até 8 s e estourado por pouco nos longos.** O
 [requisito](/docs/sprint-1/requisitos/nao-funcionais) pede memória abaixo de 70% da capacidade em 90
@@ -184,7 +185,7 @@ A base com os modelos carregados fica em 55% e não cresce: passado o aqueciment
 janela de 20 minutos ficou entre 4,27 e 4,30 GB por duas horas. Catorze dos 223 clipes passam de
 70%, todos com mais de 8 s. Nos 24 clipes com a interface gráfica ligada, com o código
 anterior às correções, a segunda etapa chegou a 84% em PyTorch e a 92% com TensorRT; esses picos
-não foram repetidos depois das correções, e o TensorRT ainda não rodou em modo texto.
+são históricos. A repetição com o código atual aparece na seção seguinte.
 
 **RNF-05 é atendido nos 100 minutos medidos.** O braço T-DEED rodou 100 minutos seguidos em modo
 texto, das 20h19 às 21h59 de 24/09, com o `tegrastats` a cada segundo. A GPU ficou ocupada 83% do
@@ -193,6 +194,83 @@ GPU e 62,3 °C na CPU, abaixo dos 70 °C do primeiro ponto de estrangulamento pa
 declara. O tempo de processamento por segundo de clipe ficou em 7,17 s no primeiro terço e 7,08 s
 no último, sem degradação. A execução terminou pela memória, no clipe de 18 s, e não pela
 temperatura. A potência e a energia por clipe de cada configuração estão nas tabelas acima.
+
+## Custo confirmado em 30/09, sem cache
+
+A configuração congelada em `33b47c3` rodou os 241 clipes reservados nas duas etapas, uma única
+vez. A segunda etapa levou 45,5 s e 589 J por clipe, com pico de 91,4% da RAM; 82 clipes passaram
+do limite do RNF-04. A primeira etapa acrescentou 16,0 s e 93 J por clipe. O reservado confirma a
+falha de memória, mesmo em modo texto. As features e os testes de qualidade estão na
+[validação após congelamento](/docs/sprint-5/140-pacote-reservado).
+
+Os catálogos de ajuste de 29/09 reaproveitaram a detecção dos jogadores do cache: essa espécie
+levava 0,6 s, contra 18,2 s no reservado. Seus números de tempo, memória e energia não representam
+o custo completo. Para separar o runtime dessa diferença, PyTorch e TensorRT rodaram depois os
+mesmos 24 clipes de ajuste, no código `2807613`, com ByteTrack, ranking só de aparência e cache
+limpo antes de cada braço:
+
+| Segunda etapa, 24 clipes | PyTorch fp16 | TensorRT fp16 |
+| --- | ---: | ---: |
+| tempo médio por clipe | 50,0 s | 41,6 s |
+| energia por clipe | 663 J | 541 J |
+| pico de RAM da placa | 67,3% | 69,7% |
+| temperatura máxima | 65,3 °C | 65,0 °C |
+
+TensorRT reduz o tempo em 16,8% e a energia em 18,4%, com maior pico de RAM. Nos pares cobertos,
+`type_of_play` e `body_part` não mudaram de valor, mas a cobertura diminuiu de 15 para 13 em
+`goalkeeper_position` e de 9 para 8 em `looked_before`. A concordância nos pares comuns não elimina
+essa perda. Os 24 clipes cabem nas duas variantes; isso não substitui a falha registrada nos 241
+reservados.
+
+O RNF-05 foi medido na segunda etapa reservada por 181,5 minutos, com 240 clipes que têm duração
+útil para a comparação. O processamento por segundo de vídeo foi de 6,34 s no primeiro terço e
+6,35 s no último, com temperatura máxima de 65,9 °C. Não houve degradação sustentada nessa execução.
+
+## Redecodificação por espécie
+
+A opção `[decode] mode = "redecode"` decodifica novamente os quadros pedidos por cada espécie,
+em vez de guardá-los até o fim do clipe. O formato da entrada e o preparo dos tensores continuam
+os mesmos. A alternativa é `mode = "keep"`, o padrão, que conserva os quadros e poupa leitura.
+
+Em 30/09, os mesmos 17 clipes de ajuste com mais de 11 s rodaram nos dois modos, em TensorRT,
+com o instante pré-calculado disponível em todos os clipes e cache limpo antes de cada braço:
+
+| Segunda etapa, 17 clipes longos | `keep` | `redecode` |
+| --- | ---: | ---: |
+| execuções concluídas | 17 de 17 | 17 de 17 |
+| pico mediano de RAM | 57,84% | 45,82% |
+| maior pico | 70,01% | 53,27% |
+| mediana de tempo por clipe | 80,3 s | 91,0 s |
+| tempo total nos clipes | 1.406,3 s | 1.568,1 s |
+
+A redecodificação reduz o maior pico em 16,74 pontos percentuais, com aumento de 13,3% na mediana
+do tempo. Sua desvantagem principal é repetir a leitura por espécie. O primeiro experimento foi
+descartado porque os links não preservavam o identificador necessário à leitura do instante;
+esta repetição confirmou o instante nos 17 clipes de ambos os braços.
+
+**A opção fica disponível, sem alterar a configuração congelada.** Os 17 clipes sustentam a
+redução de memória, mas a execução dura menos que a janela contínua do RNF-04 e não revalida as
+features do catálogo. Torná-la padrão exige uma execução longa nas dobras de ajuste, com
+comparação das saídas; o reservado já usado não será repetido.
+
+## Decodificação por hardware
+
+A placa tem o decodificador de vídeo da NVIDIA, exposto pelo GStreamer do sistema como
+`nvv4l2decoder`, e o OpenCV do lock decodifica na CPU. Em 30/09, os mesmos 10 clipes de ajuste, H.264
+em 1080p a 59,94 fps, foram decodificados inteiros pelos quatro caminhos, em modo texto:
+
+| Caminho | Tempo de parede | CPU usada |
+| --- | ---: | ---: |
+| OpenCV em CPU, o do pipeline hoje | 20,1 s | 60,2 s |
+| NVDEC, saída em BGRx | 23,5 s | 13,3 s |
+| NVDEC, convertido para BGR na CPU | 52,4 s | 39,2 s |
+| NVDEC lido em Python, como o pipeline leria | 58,0 s | 43,1 s |
+
+O NVDEC entrega o mesmo número de quadros, mas não o mesmo quadro: contra o OpenCV, a diferença
+média é de 1,2 nível de cinza, com PSNR perto de 37 dB. Ele só poupa CPU enquanto o quadro fica em
+BGRx, e o pré-processamento das espécies espera BGR; a conversão na CPU devolve o custo e deixa a
+leitura quase três vezes mais lenta. A decodificação também não é o gargalo: são cerca de 2 s por
+clipe, contra 45 s da segunda etapa sem cache.
 
 ## Como reproduzir
 
@@ -219,13 +297,14 @@ xvision tegrastats ../var/runs/catalogo.tegrastats.log --clipes 363
 Cada `run.json` grava commit, placa, JetPack, CUDA, versões de runtime e o ajuste de cada espécie.
 Os dados brutos agregados, sem identificador de clipe, estão em
 [`jetson-20260924.json`](/sprint-4/produto/evidencias/jetson-20260924.json) e, para o catálogo, em
-[`jetson-catalogo-20260925.json`](/sprint-4/produto/evidencias/jetson-catalogo-20260925.json).
+[`jetson-catalogo-20260925.json`](/sprint-4/produto/evidencias/jetson-catalogo-20260925.json). A rodada
+final está em [`jetson-20260930.json`](/sprint-5/evidencias/jetson-20260930.json), com hashes das
+fontes privadas e somente agregados publicados.
 
 Esses números são dos commits gravados nos dois arquivos, `782beee` nos 24 clipes e `d6b57ec` e
 `c6fd9fb` no catálogo, todos com o tracking guloso, `GreedyTracking`. Desde 27/09 as configurações
-de modelos usam o ByteTrack com costura, que lê a cor da camisa e ainda não foi medido na placa,
-então os comandos acima rodados no `develop` de hoje medem outro pipeline, e reproduzir os números
-desta página exige fazer checkout desses commits.
+de modelos usam o ByteTrack com costura, que lê a cor da camisa. Ele está presente nas medidas de
+30/09; reproduzir cada tabela exige fazer checkout do commit indicado para aquela execução.
 
 ## Decisões
 
@@ -237,10 +316,15 @@ cerca de 2 s por clipe.
 **A meia precisão fica na produção.** Ela corta 32% do tempo e 40% da energia sem mudar o instante,
 que vem da primeira etapa, e a Sprint 3 já tinha medido a concordância das caixas com o fp32.
 
-**O TensorRT fica versionado e medido, mas a configuração de uso contínuo na placa segue em PyTorch
-fp16.** Ele poupa mais 11% do tempo e 16% da energia, e em troca leva a memória a 92%, sem margem
-para um clipe mais longo que os 24 medidos. A alternativa descartada era adotá-lo já, e a troca fica
-para depois do experimento sem interface gráfica, que devolve a margem.
+**Os dois runtimes ficam versionados, com o custo e o pico registrados por execução.** No código
+atual, TensorRT poupa 16,8% do tempo dos 24 clipes limpos, mas o reservado ultrapassa o RNF-04. A
+alternativa descartada é concluir que o runtime resolve a memória só porque os 24 clipes cabem. A
+redecodificação é a opção medida para baixar o pico dos longos, ainda sem validação contínua.
+
+**A decodificação segue no OpenCV em CPU.** O NVDEC foi medido e só alivia a CPU se o quadro não
+voltar para BGR, o que exige mudar o pré-processamento de todas as espécies e revalidá-las, já que o
+quadro sai diferente. A alternativa descartada era trocar o decodificador agora, que deixaria a
+leitura quase três vezes mais lenta para poupar uma parte do gargalo que não é o maior.
 
 **O catálogo roda em modo texto.** Um dispositivo de borda no campo não tem tela, e a interface
 gráfica ocupava 1,7 GB com uma sessão aberta. A alternativa descartada era manter a tela e tirar os
@@ -268,10 +352,9 @@ mesmo recorte de clipes, o que o código garante por um único auxiliar de sele�
 próximo `uv lock` pode trazer uma versão que não funcione. A saída está registrada: o JetPack tem
 torch próprio para a Orin.
 
-**A memória cresce com o comprimento do clipe.** O quadro decodificado fica guardado até o fim do
-clipe, porque decodificar de novo por espécie custaria outra passada pelo vídeo. Mesmo em modo
-texto, os clipes acima de 11 s chegam a 71% e 73%, e um clipe mais longo que os 18 s do catálogo
-não foi medido. Uma espécie a mais, ou um modelo maior, volta a faltar memória.
+**A memória cresce com o comprimento do clipe.** No modo `keep`, o quadro decodificado fica guardado
+até o fim do clipe. O reservado chegou a 91,4%; `redecode` reduziu o pico nos 17 longos de ajuste,
+mas ainda não tem execução contínua nem medição com uma espécie a mais.
 
 **São 24 clipes.** O tempo por clipe varia com a duração do corte, e o p95 é decidido por dois ou
 três clipes longos.
@@ -280,6 +363,5 @@ três clipes longos.
 
 | Pendência | Próximo experimento |
 | --- | --- |
-| RNF-04 nos clipes longos | medir o custo de decodificar de novo por espécie, em vez de guardar o quadro, contra os 2,8 pontos percentuais acima do limite |
-| TensorRT em modo texto | repetir a segunda etapa com os planos de bola e campo no catálogo e comparar o pico com o do PyTorch |
-| decodificação por hardware | o OpenCV do lock decodifica na CPU; o NVDEC da placa exige GStreamer, que o wheel não traz |
+| RNF-04 com redecodificação | execução contínua nas dobras de ajuste, comparando memória, saídas e tempo; os 17 longos medidos não bastam para a janela do requisito |
+| decodificação por hardware | medida e não adotada; só compensa com o pré-processamento em BGRx ou na GPU, sem a volta para BGR na CPU, e o quadro diferente do OpenCV exige revalidar as espécies |

@@ -1,0 +1,85 @@
+---
+title: Validação após congelamento
+description: Resultado da execução única do reservado e das últimas medidas na Jetson, com critérios atendidos, falhas e limites
+---
+
+O card #140 encerra a validação do instante após o congelamento. Esta página registra o resultado
+que faltava e reúne as medidas concluídas na Jetson em 30/09. O método e os critérios permanecem
+na [especificação de testes](/docs/sprint-4/especificacao-de-testes).
+
+## Congelamento e execução
+
+A tag `congelamento-sprint-5`, no commit `33b47c3`, fixou código, configuração, pesos, ONNX,
+planos e análises antes da execução. Os 241 clipes das dobras reservadas 3 e 4 rodaram uma única
+vez, em duas etapas. Quatorze têm instante anotado; não há anotação de campo nem de trajetória
+nessas dobras. Os dois comandos de avaliação sem anotação terminaram sem métrica, como previsto.
+Nenhuma tolerância ou configuração foi reajustada a partir desses resultados.
+
+| Critério do card #140 | Evidência final |
+| --- | --- |
+| classificar pelo menos 80% dos erros de desenvolvimento | 100% classificados na !89 |
+| medir `exigir_bola_medida` e decidir a política | não muda o instante dos clipes medidos; permanece desligado |
+| segunda anotação cega de 8 clipes | dispensada por decisão registrada em 22/09; tolerâncias de 5 e 10 quadros seguem sem barra de erro do anotador |
+| conferir `ShotContext` até as features | 24 observações com fonte T-DEED; 23 leituras disponíveis de `type_of_play` propagam procedência e apoio da bola; contrato do evento permanece 1.0 |
+| executar o reservado uma única vez após congelamento | concluído em 29 e 30/09, na tag e sem recalibrar os mesmos 14 clipes |
+
+## Resultado contra os critérios dos modelos
+
+| Caso | Resultado | Leitura |
+| --- | --- | --- |
+| TI-09, instante no reservado | 13 de 14 dentro da tolerância; IC95 de 0,685 a 0,987; mediana de 6 quadros | passa no critério fixado; amostra pequena |
+| deslocamento fixo de +6 quadros | mediana de 5 e p95 de 10, contra 6 e 16 | análise prevista na tag; não foi aplicada à configuração |
+| TB-10, bola no contato reservado | 12 de 14 detectadas | falha no critério fixado |
+| TB-03, trajetória pareada de ajuste | PCK de 0,3028 para 0,6025; 114 quadros ganhos e 19 perdidos | passa nos cinco critérios de troca |
+| TB-04, paridade por candidato | 163 pares, diferença máxima de confiança de 0,0056 e centro de 0,66 px; nenhuma escolha mudou | passa nos 24 contatos medidos |
+| TB-07, custo da bola | p95 de 166,0 ms por quadro no catálogo TensorRT | falha no orçamento do caso |
+| RNF-04, memória | pico de 91,4% no reservado, com 82 clipes acima do limite | falha na configuração congelada |
+| RNF-05, execução sustentada | 181,5 minutos, 6,34 e 6,35 s de processamento por segundo de vídeo nos terços inicial e final | sem degradação sustentada medida |
+
+As métricas das features, a maioria e a cobertura estão na
+[execução única do reservado](/docs/sprint-4/especificacao-de-testes#execução-única-do-pacote-reservado).
+Encerrar o card registra a execução e sua decisão; não transforma as falhas dos modelos ou do
+pipeline em aprovação.
+
+## Decisões após as medidas de ajuste
+
+**A redecodificação fica como opção.** Nos 17 clipes de ajuste acima de 11 s, `redecode` reduziu o
+maior pico de RAM de 70,01% para 53,27%, mas aumentou a mediana do tempo de 80,3 s para 91,0 s.
+A alternativa `keep` poupa leitura e mantém os quadros em memória. A execução dos 17 clipes não
+cobre a janela contínua do RNF-04 nem a comparação das features do catálogo, por isso não altera
+o padrão congelado. O fluxo e os comandos estão na
+[execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson#redecodificação-por-espécie).
+
+**O INT8 de produção não é adotado.** Com a cabeça fora da quantização, não melhora o tempo nem
+a memória e muda o ponto escolhido em 7 dos 24 contatos na variante com o restante em fp16.
+Quantizar também a cabeça foi descartado pela perda de qualidade dos pontos e das detecções.
+A rota reproduzível permanece disponível para outro experimento, descrito na
+[quantização INT8](/docs/sprint-4/modelos/quantizacao-int8#a-rota-versionada-com-os-pesos-de-produção).
+
+**A leitura permanece no OpenCV.** NVDEC reduz CPU ao devolver BGRx, mas a conversão de volta
+para BGR deixa a leitura em Python quase três vezes mais lenta e altera os pixels. Adotá-lo
+exige outro pré-processamento e nova avaliação dos modelos, conforme a
+[medida de decodificação](/docs/sprint-4/produto/execucao-na-jetson#decodificação-por-hardware).
+
+## Limites e próxima validação
+
+O reservado foi consumido e não serve para ajustar o deslocamento ou outra configuração. A
+redecodificação precisa de execução contínua nas dobras de ajuste e comparação de saídas antes
+de virar padrão. O orçamento da bola, o contato perdido e a cobertura de features continuam
+limitações declaradas. O uso dos pesos do T-DEED sem licença declarada depende do registro com o
+parceiro e a orientação; o fechamento técnico do card não resolve essa decisão.
+
+## Evidência
+
+O arquivo [`jetson-20260930.json`](/sprint-5/evidencias/jetson-20260930.json) contém agregados de
+qualidade, custo, pareamento, memória e decodificação, com SHA-256 dos relatórios privados de
+origem. Não contém vídeos, quadros, identificadores de clipe ou marcações do parceiro. A primeira
+medida dos longos, sem instante por causa dos nomes dos links, foi descartada; a repetição confirmou
+17 de 17 instantes nos dois braços. Ao fim, a placa voltou ao `develop` e ao modo gráfico.
+
+## Referências
+
+1. [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao#no-pacote-reservado).
+2. [Especificação da bola](/docs/sprint-4/especificacao-de-testes/bola).
+3. [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson).
+4. [Card #140](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/issues/140): decisões e critérios do trabalho.

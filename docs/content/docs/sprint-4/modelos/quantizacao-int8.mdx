@@ -21,7 +21,8 @@ peso .pt local -> ONNX fp32 (Sprint 3) -----------------------------------------
 
 Os três pesos são os pesos locais que a Sprint 3 quantizou, e não os de produção: Players
 `220a757f…`, Ball `c4f7222d…` e Line `a7f78ca3…`. Por isso a comparação é sempre dentro do mesmo
-peso, e nenhum número desta página se compara com as métricas do pipeline de produção.
+peso, e os números da rodada de 24/09 não se comparam com as métricas do pipeline de produção. A
+rodada de 30/09, apresentada adiante, usa os pesos de produção.
 
 ## Componentes e responsabilidades
 
@@ -30,6 +31,7 @@ peso, e nenhum número desta página se compara com as métricas do pipeline de 
 | quantização estática do ONNX Runtime (`onnx.quantize` 0.1.0) | inserir os nós Q/DQ nas convoluções, com as escalas tiradas de uma calibração | não está no repositório: o script e os dados de calibração não ficaram registrados |
 | `mlops.build_engine` | construir o plano de cada precisão e registrar o sha256 do ONNX, a versão do TensorRT, a precisão e a forma da entrada | não escolhe precisão nem calibra |
 | `xvision bench-planos` | rodar os mesmos quadros em cada plano, medir cada passada e comparar as detecções com as do fp32 | não mede acurácia contra rótulo |
+| `python -m mlops.quantize_int8` | a rota versionada de 30/09: tirar os quadros de calibração das dobras de ajuste pelo pré-processamento do próprio pipeline, quantizar em Q/DQ e gravar um manifesto com o sha256 de cada tensor | não guarda os tensores, que são dado do parceiro, e recusa as dobras reservadas |
 
 ## Fluxo de dados
 
@@ -95,7 +97,60 @@ na trajetória.
 | Ball | 235 MB | 161 MB | 123 MB |
 | Line | 181 MB | 151 MB | 86 MB |
 
+## A rota versionada, com os pesos de produção
+
+Em 30/09 os pesos de produção da bola e do campo, os de `config/pipeline.models.jetson.toml`, foram
+quantizados pela rota versionada e medidos na placa contra os planos fp16 de produção. A calibração
+usou 16 quadros da bola, no lote de quatro ladrilhos, e 64 do campo, tirados das dobras de ajuste
+pelo mesmo pré-processamento que o plano recebe. A quantização é a estática do ONNX Runtime 1.23.2,
+em Q/DQ, com escalas por MinMax e pesos por canal. A última camada de cada modelo, a cabeça de
+detecção e de pontos, fica fora do INT8: medido no ONNX Runtime em CPU contra o fp32, quantizá-la
+levava o erro dos pontos do campo de 1,4 para 12,1 px na mediana e deixava a bola com 19 de 75
+detecções, contra 68 de 75 sem ela. Cada ONNX virou dois planos no TensorRT 11.3, com o resto da rede
+em fp16, como o da primeira rodada, e em fp32.
+
+| Medida | fp16, produção | INT8, resto em fp16 | INT8, resto em fp32 |
+| --- | ---: | ---: | ---: |
+| bola no contato, detectada e encostada, em 24 | 22 e 19 | 22 e 19 | 20 e 17 |
+| trajetória no piloto, acertos em 317 | 189 | 185 | 187 |
+| campo, jac@5 em 4 quadros confirmados | 0,442 | 0,305 | 0,414 |
+| campo, p95 do erro de linha | 11,5 px | 21,7 px | 13,7 px |
+| contatos com o ponto da bola mudado, contra o fp16 | | 7 de 24 | 6 de 24 |
+| passada da bola, mediana de 50 | 76,5 ms | 78,7 ms | 100,1 ms |
+| passada do campo, mediana de 50 | 11,3 ms | 12,0 ms | 13,0 ms |
+| plano da bola | 155 MB | 317 MB | 33 MB |
+| plano do campo | 90 MB | 79 MB | 54 MB |
+
+Com a cabeça fora, o INT8 não fica mais rápido que o fp16 em nenhum dos dois modelos, e com o resto
+em fp32 fica mais lento. A primeira rodada quantizava também a cabeça, e o ganho de 21% a 23% não
+se repete sem ela. A resposta muda: contra o fp16, a bola em INT8 reencontra 0,919 das detecções,
+com precisão de 0,850, e o ponto escolhido no contato muda em 7 dos 24 clipes, com diferença de
+confiança de até 0,38. O campo com o resto em fp16 dobra o p95 do erro de linha. O plano da bola com
+o resto em fp16 saiu com o dobro do tamanho do fp16, e a causa não foi investigada.
+
+A memória também não melhora. O pipeline em duas etapas rodou nos 24 clipes de desenvolvimento com
+cada par de planos, em modo texto, com o cache de percepção limpo antes de cada braço:
+
+| 24 clipes, sem cache | fp16, produção | INT8, resto em fp16 | INT8, resto em fp32 |
+| --- | ---: | ---: | ---: |
+| maior pico da RAM num clipe | 69,7% | 71,9% | 69,1% |
+| clipes acima de 70% | 0 | 1 | 0 |
+| segundos por clipe | 41,6 | 41,8 | 43,8 |
+| energia por clipe | 541 J | 525 J | 568 J |
+
+O plano maior da variante com o resto em fp16 sobe o pico, e a variante com o resto em fp32, com o
+menor plano, fica igual ao fp16. A bola e o campo somam menos de metade do tempo do clipe: os
+jogadores levam 18,1 s, em PyTorch, e são eles que decidem o custo.
+
+Os agregados desta rodada, com hashes dos relatórios de origem, estão em
+[`jetson-20260930.json`](/sprint-5/evidencias/jetson-20260930.json).
+
 ## Decisões
+
+**O INT8 dos pesos de produção também não entra.** Sem a cabeça quantizada ele não ganha tempo, e
+com ela a acurácia cai demais. A alternativa descartada era quantizar a cabeça pelo ganho de 21% a
+23% da primeira rodada, que custa os pontos do campo e as bolas que as features leem. A rota fica
+versionada para a próxima tentativa, que precisa de outra técnica, e não de outra calibração.
 
 **O INT8 não entra no pipeline agora.** Em Ball ele acrescenta 37 bolas que o fp32 não vê. Em
 Players e em Line o ganho é de cerca de 23% sobre o fp16, e a perda só pode ser julgada contra
@@ -103,12 +158,12 @@ rótulo: 7% das detecções num caso, 12 px de ponto no outro, o que vira erro d
 alternativa descartada era adotar o INT8 em Players pelo ganho de tempo. Ela fica para depois da
 acurácia contra rótulo, e só vale para os pesos de produção, que não são estes.
 
-**A comparação é contra o fp32 do mesmo peso, e não contra a produção.** Os ONNX INT8 saíram dos
+**A comparação de 24/09 é contra o fp32 do mesmo peso.** Aqueles ONNX INT8 saíram dos
 pesos locais. Comparar com o pipeline de produção misturaria o efeito da quantização com o de trocar
 de modelo. A alternativa descartada era plugar os planos INT8 no pipeline e ler as métricas de
 produção.
 
-**Concordância no lugar de acurácia, pelo IoU e pelo centro.** Sem o conjunto rotulado de cada modelo
+**Na rodada de 24/09, concordância pelo IoU e pelo centro.** Sem o conjunto rotulado de cada modelo
 na placa, a medida é quanto a precisão menor muda a resposta do fp32. O par por IoU de 0,5 é o
 padrão de detecção; o par pela distância do centro entrou no banco por causa da bola, e foi ele que
 separou caixa deslocada de bola nova.
@@ -120,19 +175,22 @@ rótulo certo.
 
 ## Trade-offs
 
-O INT8 corta de 46% a 53% do tempo do fp32 e de 21% a 23% do fp16, e deixa o plano de 1,3 a 3 vezes
-menor que o fp16. O tamanho importa, porque o custo do TensorRT no pipeline foi memória: o pico
-chegou a 92% da RAM. A desvantagem principal é que ele muda a resposta, pouco em Players, nos pontos
-em Line e muito em Ball, e que a quantização não pode ser refeita a partir do repositório.
+Na primeira rodada, com a cabeça quantizada, o INT8 corta de 46% a 53% do tempo do fp32 e de 21% a
+23% do fp16, e deixa o plano de 1,3 a 3 vezes menor que o fp16. Com os pesos de produção e a cabeça
+fora, o ganho de tempo desaparece e o plano menor não baixa o pico da RAM no pipeline. A rota agora
+se refaz a partir do repositório, com o manifesto da calibração. A desvantagem principal continua
+sendo a resposta: o INT8 muda o ponto da bola no contato e os pontos do campo, que são o que as
+features leem, sem devolver tempo em troca.
 
 ## Riscos e incertezas
 
-**A calibração não tem origem registrada, e os repositórios INT8 estão públicos.** A quantização
+**A calibração da rodada de 24/09 não tem origem registrada.** A quantização
 estática exige quadros de calibração, e nem o ONNX nem o repositório dizem quais foram. Se forem
-cortes da Footstats, as escalas saíram de dado restrito, e os três repositórios precisam ficar
-privados até a origem ser confirmada.
+cortes da Footstats, as escalas saíram de dado restrito, e a origem precisa ser confirmada antes da distribuição.
+A rota de produção de 30/09 registra dobras, configuração e hashes de cada tensor e mantém os
+tensores fora do Git.
 
-**O ONNX INT8 só roda no TensorRT.** O ONNX Runtime 1.23.2 em CPU recusa o grafo com a otimização
+**Os ONNX INT8 da rodada de 24/09 só rodaram no TensorRT.** O ONNX Runtime 1.23.2 em CPU recusa aqueles grafos com a otimização
 ligada, porque funde os nós Q/DQ num operador que não aceita escala em fp16. Com a otimização
 desligada, ele não devolve nenhuma detecção em Players nem em Ball, onde o fp32 devolve 812 e 68. A
 validação contra rótulo da Sprint 3, feita com ONNX Runtime numa RTX A4000, não pode ser repetida
@@ -141,6 +199,10 @@ do mesmo jeito.
 **Concordância alta não garante qualidade.** Se o fp32 erra num quadro e o INT8 erra igual, os dois
 concordam.
 
+**O campo foi medido em 4 quadros confirmados por pessoa.** Os outros 26 do piloto são proposta do
+próprio modelo e ficam fora da avaliação. A diferença de jac@5 aponta a direção, mas não tem
+intervalo.
+
 **São 50 quadros de 10 clipes.** O tempo por passada é estável com esse n; a concordância em cenas
 muito diferentes das do conjunto não foi medida.
 
@@ -148,10 +210,7 @@ muito diferentes das do conjunto não foi medida.
 
 | Pendência | Próximo experimento |
 | --- | --- |
-| acurácia do INT8 contra rótulo | repetir a validação da Sprint 3 com os planos INT8 no TensorRT, já que o ONNX Runtime não roda o grafo |
-| INT8 dos pesos de produção | quantizar os pesos de `pipeline.models.toml` com uma rota versionada e medir dentro do pipeline em duas etapas |
-| memória no pipeline | hipótese: planos INT8 menores baixam o pico de 92% do TensorRT; medir com o `tegrastats` quando houver INT8 de produção |
-| quantização reproduzível | versionar o script INT8 com o manifesto do conjunto de calibração, como o `mlops.build_engine` faz com o plano |
+| INT8 que ganhe tempo sem perder a cabeça | quantização com treino, ou precisão por camada escolhida pela sensibilidade medida, sobre a rota versionada |
 
 ## Referências
 

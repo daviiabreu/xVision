@@ -12,10 +12,9 @@ do instante, escrita antes das medidas.
 
 | Situação | Casos |
 | --- | --- |
-| passa | TI-01, TI-02, TI-04, TI-05 e TI-06 |
+| passa | TI-01, TI-02, TI-04, TI-05, TI-06 e TI-09 |
 | informativo, sem critério de aceite | TI-03 e TI-07 |
 | passa em parte | TI-08: passa em `type_of_play` e falha em `body_part` por 0,002 de macro-F1 |
-| não executado | TI-09, pacote reservado, fechado até o congelamento |
 | não será feito | TI-10, por decisão de 22/09 |
 
 ## Testes automatizados
@@ -39,14 +38,14 @@ do instante, escrita antes das medidas.
 | TI-06 | falhas previsíveis | `pytest tests/edge/modules/shot tests/mlops/test_spots.py` | executor ausente, lento ou com saída errada vira erro legível; um clipe com falha não derruba o lote | passa na CI |
 | TI-07 | custo na Jetson | `run.json` e o arquivo ao lado de `var/spots/tdeed.jsonl` | sem critério: RNF-01 ainda não tem orçamento acordado | 13,8 s por clipe na mediana, 15,0 s no p95, na GPU |
 | TI-08 | efeito nas features | catálogo em dois braços, T-DEED e regra, tudo o mais igual; `xvision eval` nos dois | macro-F1 de `type_of_play` e de `body_part` do braço T-DEED pelo menos igual à do braço da regra, com cobertura que não cai | passa em `type_of_play`: macro-F1 de 0,347 contra 0,336 e cobertura de 98,9% contra 96,4%; falha em `body_part`: 0,302 contra 0,304 e 94,5% contra 95,9% |
-| TI-09 | generalização | os 14 reservados, uma vez, depois do congelamento | os mesmos indicadores do TI-01; resultado ruim vira `generalização não demonstrada` | não executado: o pacote segue fechado |
+| TI-09 | generalização | os 14 reservados, uma vez, depois do congelamento | os mesmos indicadores do TI-01; resultado ruim vira `generalização não demonstrada` | passa, generalização demonstrada, na execução única de 29 e 30/09 a partir da tag `congelamento-sprint-5`: 13 de 14 dentro de 30 quadros (IC95 de 0,685 a 0,987) e 13 dentro de 90, contra 0,000 do ponto médio fixo e 0,166 do acaso; mediana de 6 quadros e p95 de 16; o único erro é de escolha. Com o deslocamento de +6 quadros fixado na tag: mediana 5, p95 10 e 14 dentro de 90 |
 | TI-10 | concordância entre anotadores | segunda anotação cega de 8 dos 24 clipes | mediana da discordância até 6 quadros e máximo até 12 | não será feito, por decisão de 22/09: o acerto em 30 quadros não depende dela, e as tolerâncias de 10 e 5 ficam sem barra de erro |
 
 ## Ainda não medido
 
-| Pendência | Como será testado |
-| --- | --- |
-| TI-09, pacote reservado | uma única execução depois do congelamento da Sprint 5 |
+Nenhum caso com critério ficou sem medida. O pacote reservado foi consumido na execução única, e
+a próxima mudança do instante, como aplicar o deslocamento de +6 quadros, precisa de um conjunto de
+desenvolvimento maior para ser julgada, e não dos mesmos 14 clipes.
 
 ## Referências
 

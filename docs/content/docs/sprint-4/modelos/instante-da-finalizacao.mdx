@@ -281,6 +281,32 @@ da medida, de não perder macro-F1 nem cobertura, esta feature não passa. A dif
 o critério não tem tolerância, e a falha fica registrada. A maioria é calculada sobre os clipes que
 cada braço cobriu; a tabela mostra a do braço T-DEED, que difere da outra em até 0,008.
 
+### No pacote reservado
+
+Os 14 clipes reservados rodaram uma única vez, em 29 e 30/09, nas duas etapas da Jetson, a partir
+da tag `congelamento-sprint-5`. A tag registra código, configuração, pesos e as análises que seriam
+feitas, antes da execução, para nenhuma ser escolhida depois de ver o número.
+
+| Medida | Reservado, 14 clipes | Reservado, com +6 quadros | Ajuste, 24 clipes |
+| --- | --- | --- | --- |
+| dentro de 30 quadros | **0,929**, IC95 de 0,685 a 0,987 | 0,929 | 1,000 |
+| dentro de 90 quadros | 0,929 | 1,000 | 1,000 |
+| mediana do erro | 6 quadros | 5 quadros | 5 quadros |
+| p95 do erro | 16 quadros | 10 quadros | 18 quadros |
+| ponto médio fixo | 0,000 | | 0,333 |
+| quadro ao acaso | 0,166 | | 0,161 |
+
+No reservado, treze dos 14 caem dentro de 30 quadros, contra 0,166 do acaso e nenhum do
+ponto médio, e a mediana fica em 6 quadros, perto dos 5 do ajuste. O único erro é de escolha: o
+T-DEED marcou outra ação do lance, pouco mais de 90 quadros antes do gabarito. O deslocamento fixo
+de +6 quadros, que compensa o adiantamento medido no ajuste, baixa a mediana para 5 e o p95 para
+10 e traz esse erro para dentro dos 90 quadros, sem mudar o acerto em 30. Por ter sido a única
+medida permitida no reservado, ela vale como evidência a favor do deslocamento, e não como
+configuração nova: aplicá-lo agora seria uma mudança sem conjunto limpo para medi-la.
+
+Os resultados agregados e os hashes das fontes estão em
+[`jetson-20260930.json`](/sprint-5/evidencias/jetson-20260930.json).
+
 ## O que este conjunto consegue enxergar
 
 Oito hipóteses foram medidas nesta sprint e sete caíram. Duas delas, o corte por confiança da
@@ -397,10 +423,8 @@ antigo sob a chave do código novo. Aconteceu nesta sprint e apareceu como 16 cl
 | Pendência | Próximo experimento |
 | --- | --- |
 | licença do peso | registrar com o parceiro e a orientação o uso de um peso sem licença declarada, com o número desta página |
-| efeito nas features | medir `type_of_play` e `body_part` no catálogo com o instante novo, porque 24 clipes não bastam para macro-F1 |
-| adiantamento de 6 quadros | testar um deslocamento fixo uma única vez no pacote reservado, depois do congelamento, e não nos 24 de ajuste |
+| deslocamento de +6 quadros | medido uma vez no reservado, a favor; aplicar exige medir de novo num conjunto de desenvolvimento maior, porque o reservado já foi usado |
 | tamanho do conjunto de desenvolvimento | anotar de 24 para 60 clipes, que é o mínimo para o teste de sinal pareado resolver uma mudança do tamanho das que esta sprint produziu |
-| conjunto reservado | uma única execução depois do congelamento, sem recalibrar nos mesmos 14 clipes |
 | detecção, e não localização | o resultado atual assume que o clipe contém uma finalização; medir o comportamento em corte sem chute é outro experimento |
 | medida que ordene as quebras | descartada por ora: seis hipóteses falharam contra o nulo e o T-DEED resolve o mesmo problema por outro caminho |
 

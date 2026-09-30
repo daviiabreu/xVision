@@ -12,21 +12,19 @@ da bola e da emenda 15, escritas antes das medidas.
 
 | Situação | Casos |
 | --- | --- |
-| passa | TB-01, TB-05, TB-06 e TB-09 |
-| passa com ressalva | TB-03, sem o pareamento quadro a quadro; TB-04, no agregado e contra o PyTorch fp16 |
-| falha | TB-02 com o ranking ligado, por um contato; TB-07, orçamento de tempo na Jetson |
-| parcial | TB-08, memória nos clipes longos |
-| não executado | TB-10, pacote reservado, fechado até o congelamento |
+| passa | TB-01, TB-03, TB-04, TB-05, TB-06 e TB-09 |
+| falha | TB-02 e TB-10 com o ranking ligado, por um contato cada; TB-07, orçamento de tempo; TB-08, memória sem cache |
 
 ## Testes automatizados
 
 | Grupo | Arquivo | Testes | O que garante |
 | --- | --- | ---: | --- |
-| módulo | `tests/edge/modules/ball/test_module.py` | 34 | a caixa volta para o espaço do quadro original; interpolação não vira caixa de zeros; ajuste do TOML chega ao rastreador e muda a chave do cache; ajuste desconhecido ou inválido é recusado; o estado do rastreador não atravessa clipes; a configuração de produção liga o ranking só de aparência com 2 candidatos |
+| módulo | `tests/edge/modules/ball/test_module.py` | 40 | a caixa volta para o espaço do quadro original; interpolação não vira caixa de zeros; ajuste do TOML chega ao rastreador e muda a chave do cache; ajuste desconhecido ou inválido é recusado; o estado do rastreador não atravessa clipes; a configuração de produção liga o ranking só de aparência com 2 candidatos; os candidatos antes do ranking ficam expostos para a paridade |
 | detector | `tests/edge/modules/ball/test_detector.py` | 25 | ladrilhos devolvem caixa no quadro inteiro; a mesma bola em dois ladrilhos sai uma vez; candidato fora do quadro é recusado |
 | filtro de forma | `tests/edge/modules/ball/test_ball_shape_filter.py` | 5 | caixa grande ou alongada demais é reprovada |
 | rastreador | `tests/edge/modules/ball/test_ball_tracker.py` | 18 | salto improvável é rejeitado; lacuna curta é interpolada e a longa fica ausente; corte de câmera fecha a lacuna; tempo tem de crescer; a reâncora respeita a última posição conhecida |
-| avaliação da trajetória | `tests/mlops/test_ball_trajectory.py` | 9 | detectado, interpolado e ausente contados à parte; posição errada é falso positivo e falso negativo; partida em uma dobra só |
+| avaliação da trajetória | `tests/mlops/test_ball_trajectory.py`, `tests/cli/test_ball_trajectory.py` | 22 | detectado, interpolado e ausente contados à parte; posição errada é falso positivo e falso negativo; partida em uma dobra só; o pareamento contra uma base conta ganhos e perdas por quadro e recusa gabarito diferente |
+| paridade por candidato | `tests/mlops/test_ball_parity.py`, `tests/cli/test_ball_parity.py` | 14 | candidatos pareados pelo centro; confiança e centro medidos por par; mudança do ponto escolhido detectada; plano que não carrega vira erro, e não recuo silencioso para PyTorch |
 | métrica de contato | `tests/mlops/test_ball_quality.py` | 17 | quadro sem bola conta como falha; posição interpolada não conta como percepção; a taxa estrita sai ao lado da frouxa |
 | segunda passada cega | `tests/mlops/test_bola_cega.py` | 21 | a amostra leva todo contato e um quarto dos demais, com semente; a página não mostra a primeira passada; marca incompleta ou fora do esquema é recusada |
 
@@ -35,25 +33,22 @@ da bola e da emenda 15, escritas antes das medidas.
 | ID | O que testa | Como rodar | Critério de aceite | Resultado |
 | --- | --- | --- | --- | --- |
 | TB-01 | confiabilidade do gabarito | `xvision label ball-agreement` | distância mediana do centro até 0,5 diâmetro e visibilidade igual em pelo menos 80% | passa: 0,217 diâmetro e 0,864 |
-| TB-02 | acerto no contato | `xvision eval-ball --config config/pipeline.models.toml --dobra ajuste` | pelo menos 20 de 24 contatos com bola detectada a menos de 20 px, sem contar interpolação | sem o ranking, passa no limite: 20 de 24 em PyTorch fp16 e em TensorRT, com 24 bolas detectadas, igual à Sprint 3; com o ranking ligado, falha por um: 19 de 24, com 22 detectadas |
-| TB-03 | posição e continuidade no piloto | `xvision eval-ball-trajectory --labels ../var/labels/ball-trajectory-v1.jsonl --config config/pipeline.models.toml --dobra ajuste` | para trocar a configuração: pelo menos 10 pontos percentuais a mais de PCK por diâmetro, até 6 visíveis sem previsão, maior lacuna de até 2 quadros, mais ganhos que perdas no pareamento e erro mediano que não piora | linha de base: PCK de 0,3028, erro mediano de 256,7 px, 315 detectados e 13 interpolados. Com o ranking só de aparência, no código de 29/09: PCK de 0,5962, nenhum visível sem previsão, maior lacuna de 0 quadro e erro mediano de 2,8 px; o pareamento quadro a quadro não foi calculado |
-| TB-04 | paridade TensorRT contra PyTorch | o TB-03 na Jetson com `pipeline.models.duas-etapas.toml` e com `pipeline.models.jetson.toml` | pelo menos 95% do F1 posicional; nenhuma mudança do ponto escolhido no contato dos 24 clipes; confiança até 0,02 e centro até 1 px entre candidatos pareados | passa no agregado, contra o PyTorch fp16: PCK de 0,3028 para 0,2997, mesma mediana e mesmo p95, os mesmos 315 e 13; contra o fp32 e no nível de candidato não foi medido |
+| TB-02 | acerto no contato | `xvision eval-ball --config config/pipeline.models.toml --dobra ajuste` | pelo menos 20 de 24 contatos com bola detectada a menos de 20 px, sem contar interpolação | sem o ranking, passa no limite: 20 de 24 em PyTorch fp16 e em TensorRT, com 24 bolas detectadas, igual à Sprint 3; com o ranking ligado, falha por um: 19 de 24, com 22 detectadas; nos dois contatos que o ranking perde, a bola passa a ser interpolada, a 4,6 e 7,0 px da marcação, e o critério não conta interpolação |
+| TB-03 | posição e continuidade no piloto | `xvision eval-ball-trajectory --labels ../var/labels/ball-trajectory-v1.jsonl --config config/pipeline.models.toml --dobra ajuste --saida sem-ranking.json`, e o mesmo com o ranking e `--base sem-ranking.json` para o pareamento | para trocar a configuração: pelo menos 10 pontos percentuais a mais de PCK por diâmetro, até 6 visíveis sem previsão, maior lacuna de até 2 quadros, mais ganhos que perdas no pareamento e erro mediano que não piora | linha de base: PCK de 0,3028, erro mediano de 256,7 px, 315 detectados e 13 interpolados. Com o ranking só de aparência, no código de 29/09: PCK de 0,6025 na execução pareada em PyTorch, nenhum visível sem previsão, maior lacuna de 0 quadro e erro mediano de 2,8 px. No pareamento quadro a quadro, 114 quadros ganhos contra 19 perdidos em 317 (sinal exato, p = 1e-17): passa nos cinco critérios de troca |
+| TB-04 | paridade TensorRT contra PyTorch | o TB-03 na Jetson com `pipeline.models.duas-etapas.toml` e com `pipeline.models.jetson.toml`; e `xvision eval-ball-paridade --config config/pipeline.models.duas-etapas.toml --contra config/pipeline.models.jetson.toml --dobra ajuste` para os candidatos | pelo menos 95% do F1 posicional; nenhuma mudança do ponto escolhido no contato dos 24 clipes; confiança até 0,02 e centro até 1 px entre candidatos pareados | passa: no agregado, contra o PyTorch fp16, PCK de 0,3028 para 0,2997, mesma mediana e mesmo p95, os mesmos 315 e 13; no nível de candidato, nos 24 contatos, 163 pares a até 4 px, 1 candidato só no PyTorch, diferença máxima de confiança de 0,006 e de centro de 0,66 px, e nenhum ponto escolhido mudou. Contra o fp32 não foi medido |
 | TB-05 | integração | `xvision run` nos 24 clipes, em PyTorch e em TensorRT | as features que leem a bola não mudam com o runtime | 23 de 24 iguais em `body_part` e em `type_of_play`, 22 de 24 em `looked_before` e `goalkeeper_position` |
 | TB-06 | falhas previsíveis | `pytest tests/edge/modules/ball` | sem detector, sem tamanho de origem, lacuna longa ou ajuste inválido: saída declarada, sem posição inventada | passa na CI |
-| TB-07 | orçamento na Jetson | `run.json` das execuções limpas, tempo da bola dividido pelos quadros densos do clipe | p95 de até 66,7 ms por quadro a 15 fps | falha: 210,5 ms no p95 em TensorRT e 248,6 ms em PyTorch fp16, com medianas de 162,5 e 213,5 ms |
-| TB-08 | memória | catálogo em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | parcial: a base não cresce; 14 dos 223 clipes passam de 70%, todos com mais de 8 s, com pico de 72,8% |
+| TB-07 | orçamento na Jetson | `run.json` das execuções limpas, tempo da bola dividido pelos quadros densos do clipe | p95 de até 66,7 ms por quadro a 15 fps | falha: 210,5 ms no p95 em TensorRT e 248,6 ms em PyTorch fp16, com medianas de 162,5 e 213,5 ms. No catálogo de 363 clipes, com o plano TensorRT e o ranking, mediana de 156,7 ms e p95 de 166,0 ms por quadro, e nenhum clipe dentro |
+| TB-08 | memória | execução sem cache, em modo texto, com `tegrastats` | pipeline abaixo de 70% da RAM, sem crescimento ao longo dos clipes | falha: no pacote reservado, que nunca tinha passado pela placa, o pico chega a 91,4% da RAM e 82 de 241 clipes passam de 70%, incluindo 28 de até 8 s; a base não cresce ao longo dos clipes. O catálogo de 24 e 25/09, com o código anterior, tinha 14 de 223 acima de 70% |
 | TB-09 | efeito nas features | catálogo em dois braços, ranking ligado e desligado, com o instante do T-DEED | macro-F1 de `type_of_play` e `body_part` do braço novo pelo menos igual, com cobertura que não cai | passa nas duas bases de código. Em 25/09, `cd49c15` em PyTorch fp16: `type_of_play` de 0,347 para 0,350 e `body_part` de 0,302 para 0,346, com cobertura de 359 igual e de 343 para 346. Em 29/09, `ac7a803` em TensorRT: de 0,345 para 0,350 e de 0,305 para 0,341, com 359 igual e de 310 para 314 |
-| TB-10 | generalização | os 14 reservados, uma vez, depois do congelamento | pelo menos 13 de 14 contatos com bola detectada | não executado: o pacote segue fechado |
+| TB-10 | generalização | os 14 reservados, uma vez, depois do congelamento | pelo menos 13 de 14 contatos com bola detectada | falha, na execução única de 29 e 30/09 a partir da tag `congelamento-sprint-5`: 12 de 14 contatos com bola detectada, e as mesmas 12 encostadas no finalizador; nos dois perdidos não há bola nem interpolada perto do contato |
 
 ## Ainda não medido
 
 | Pendência | Como será testado |
 | --- | --- |
-| TB-02 com o ranking | identificar o contato que o ranking troca e conferir o TB-10 na execução única do pacote reservado |
-| TB-03 pareado | contar ganhos e perdas quadro a quadro entre o ranking e a linha de base no piloto |
-| TB-04 no nível de candidato | comparar candidatos pareados no contato dos 24 clipes, TensorRT contra PyTorch |
+| TB-02 e TB-10, contato | medir num conjunto novo de contatos se a bola interpolada perto do contato, que o critério hoje exclui, serve às features, antes de rever o critério |
 | TB-07, orçamento da bola | medir o p95 por quadro depois de otimizar ladrilhos e pré-processamento, ou rever o orçamento com base no catálogo |
-| TB-10, pacote reservado | uma única execução depois do congelamento da Sprint 5 |
 
 ## Referências
 
