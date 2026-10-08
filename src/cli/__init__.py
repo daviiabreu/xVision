@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ import typer
 
 from cli.players import players_app
 from contracts import Perception
-from contracts.events import ContractError
+from contracts.events import ContractError, FeatureValue
 from edge.artifacts import ArtifactError, ArtifactMissing, read_manifest, resolve, sha256_of
 from edge.cache.perception import PerceptionCache, tuning_of
 from edge.features.base import FeatureError
@@ -56,6 +57,7 @@ from edge.pipeline import ClipResult, PipelineError, process_clip
 from edge.runtime import RuntimeInfo
 from edge.testing.make_clip import make_synthetic_clip
 from edge.video import RenderUnavailable
+from edge.xg import expected_goals
 from mlops.ball_parity import RAIO_PAR_PX, ParidadeReport
 from mlops.catalog import CatalogError, ShotRecord, catalog_counts, load_catalog
 from mlops.checkpoint import (
@@ -1039,6 +1041,10 @@ def evaluate_run(
         }
         for clip, features in carregadas.items()
     }
+    if tabela.metric_for(XG_METRICA) is not None:
+        for clip, features in carregadas.items():
+            xg = expected_goals(_features_do_contrato(features))
+            predicoes[clip][XG_METRICA] = (xg.valor, xg.motivo)
     grupos = {r.shot_id: r.match_id for r in load_catalog()} if bootstrap > 0 else None
     try:
         relatorio = evaluate(predicoes, gabarito, tabela, groups=grupos, resamples=bootstrap)
@@ -1058,6 +1064,7 @@ def evaluate_run(
     for metrica in relatorio.metrics:
         _por_classe(metrica)
         _intervalo(metrica)
+        _numerico(metrica)
     destino = run_dir / "report.json"
     destino.write_text(json.dumps(relatorio.to_dict(), indent=1) + "\n", encoding="utf-8")
     typer.echo(f"  {destino}")
@@ -1159,6 +1166,28 @@ def _por_classe(metrica: MetricReport) -> None:
             + f"{_fracao(valores['recall']):>9}{_fracao(valores['precision']):>10}"
             + f"{_fracao(valores['f1']):>7}"
         )
+
+
+XG_METRICA = "expected_goals"
+
+
+def _features_do_contrato(features: Mapping[str, dict[str, Any]]) -> dict[str, FeatureValue]:
+    """Feature que nao fecha com o contrato fica de fora, e o xG a trata como nao medida."""
+    valores: dict[str, FeatureValue] = {}
+    for nome, bruta in features.items():
+        with suppress(KeyError, ContractError):
+            valores[nome] = FeatureValue.from_dict(bruta)
+    return valores
+
+
+def _numerico(metrica: MetricReport) -> None:
+    if metrica.type != "numeric" or "vies" not in metrica.scores:
+        return
+    s = metrica.scores
+    typer.echo(
+        f"  {metrica.feature}: erro medio {s['mae']:.3f}, vies {s['vies']:+.3f}, constante "
+        f"{s['mae_constante']:.3f}, em {metrica.n_predicted} de {metrica.n_labeled}"
+    )
 
 
 def _intervalo(metrica: MetricReport) -> None:

@@ -116,6 +116,9 @@ impl = "edge.features.looked_at_goal:LookedAtGoal"
 [features.goalkeeper_position]
 impl = "edge.features.goalkeeper_position:GoalkeeperPosition"
 
+[features.quadrant]
+impl = "edge.features.quadrant:Quadrant"
+
 [render.top_view]
 players = "models/manifests/players/football-player-detection-1.0.0.toml"
 field = "models/manifests/field/pitch-keypoints-yolo11n-pose-0.1.0.toml"

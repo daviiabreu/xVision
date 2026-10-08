@@ -115,6 +115,10 @@ class Metrica(BaseModel):
     status: Literal["ok", "low_confidence", "unavailable"] = Field(
         default="ok", description="Numero medido e numero indisponivel nao tem a mesma cara."
     )
+    estimados: list[str] = Field(
+        default_factory=lambda: list[str](),
+        description="Campos que entraram pela media porque a feature nao mediu. So no xG.",
+    )
 
 
 class Resultado(BaseModel):

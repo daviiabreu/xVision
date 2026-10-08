@@ -68,7 +68,7 @@ def test_the_metrics_are_not_empty_in_this_scenario(cliente: TestClient, tmp_pat
     corpo = _resultado(cliente, tmp_path)
 
     metricas = [m for r in corpo["resultados"] for m in r["metricas"]]
-    assert len(metricas) == 10, f"o cenario nao produziu metrica: {corpo['resultados']}"
+    assert len(metricas) == 11, f"o cenario nao produziu metrica: {corpo['resultados']}"
     nomes = {m["nome"] for m in metricas}
     assert {"distancia_falsa", "sem_leitura", "marked", "assist", "crowded"} <= nomes
 
@@ -172,4 +172,14 @@ def test_o_tipo_sai_do_valor_e_distingue_os_tres(cliente: TestClient, tmp_path: 
         "distancia_falsa": "float",
         "sem_leitura": None,
         "parte_do_corpo": "text",
+        "expected_goals": None,
     }, "sem leitura nao ha tipo: dizer `float` inventaria numero para uma feature categorica"
+
+
+def test_o_xg_chega_indisponivel_sem_quadrante(cliente: TestClient, tmp_path: Path) -> None:
+    corpo = _resultado(cliente, tmp_path)
+
+    xg = {m["nome"]: m for r in corpo["resultados"] for m in r["metricas"]}["expected_goals"]
+
+    assert (xg["valor"], xg["status"], xg["unidade_de_medida"]) == (None, "unavailable", "xG")
+    assert xg["estimados"] == []

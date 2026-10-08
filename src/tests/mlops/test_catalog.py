@@ -217,3 +217,21 @@ def test_two_different_matches_do_not_share_a_fold_by_accident(conjunto: Path) -
 
     assert por_id["10"].fold == fold_of("900", particao)
     assert por_id["12"].fold == fold_of("901", particao)
+
+
+def test_o_quadrante_sai_da_posicao_gravada(tmp_path: Path) -> None:
+    tiros = [
+        {"id": "10", "id_match": "900", "field_position_x": "401.0", "field_position_y": "20.0"},
+        {"id": "11", "id_match": "900", "field_position_x": "", "field_position_y": ""},
+    ]
+    _csv(tmp_path / "db" / "0005_match_shots_1390.csv", tiros)
+    _csv(tmp_path / "db" / "0006_match_shots_xg_1390.csv", [{"id": "1", "id_match_shot": "10"}])
+    for nome in ("900_004_Mexico_gol_10.mp4", "900_017_Mexico_off_11.mp4"):
+        destino = tmp_path / "cortes" / "900" / nome
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(b"\0" * 5000)
+
+    por_id = {r.shot_id: r for r in load_catalog(tmp_path)}
+
+    assert por_id["10"].labels["quadrant"] == "0.49"
+    assert "quadrant" not in por_id["11"].labels

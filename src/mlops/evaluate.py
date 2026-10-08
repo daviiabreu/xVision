@@ -199,11 +199,17 @@ def scores(tipo: str, pares: Sequence[tuple[object, object]]) -> dict[str, float
     if not pares:
         return {}
     if tipo == "numeric":
-        erros = [abs(float(p) - float(a)) for p, a in pares]  # type: ignore[arg-type]
+        previstos = [float(p) for p, _ in pares]  # type: ignore[arg-type]
+        alvos = [float(a) for _, a in pares]  # type: ignore[arg-type]
+        erros = [abs(p - a) for p, a in zip(previstos, alvos, strict=True)]
         quadrados = [e * e for e in erros]
+        media = sum(alvos) / len(alvos)
         return {
             "mae": sum(erros) / len(erros),
             "rmse": (sum(quadrados) / len(quadrados)) ** 0.5,
+            "vies": (sum(previstos) - sum(alvos)) / len(alvos),
+            # O erro de responder sempre a media do rotulo nos mesmos chutes.
+            "mae_constante": sum(abs(a - media) for a in alvos) / len(alvos),
         }
     acertos = sum(1 for p, a in pares if _as_bool(p) == a)
     return {"accuracy": acertos / len(pares), **_f1(pares)}

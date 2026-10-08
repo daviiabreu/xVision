@@ -35,6 +35,7 @@ from edge.graph.framesets import read_framesets
 from edge.modules.registry import load_modules, read_config
 from edge.paths import cache_dir
 from edge.pipeline import PipelineError, process_clip
+from edge.xg import expected_goals
 
 WORKERS_ENV = "XVISION_API_WORKERS"
 FILA_ENV = "XVISION_API_MAX_FILA"
@@ -298,6 +299,17 @@ def _rodar(
         )
         for feature in resultado.event.features
     ]
+    xg = expected_goals({feature.name: feature for feature in resultado.event.features})
+    medidas.append(
+        Metrica(
+            nome="expected_goals",
+            unidade_de_medida="xG",
+            tipo=tipo_de(xg.valor),
+            valor=xg.valor,
+            status=xg.status,
+            estimados=list(xg.estimados),
+        )
+    )
     return [
         Resultado(
             nome_processo=etapa.kind,

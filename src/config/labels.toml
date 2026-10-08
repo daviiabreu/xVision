@@ -87,6 +87,14 @@ type = "numeric"
 grain = 5.0
 missing = [""]
 
+# Derivado de field_position_x/y pela grade da Footstats, em mlops/catalog.py.
+[[label]]
+name = "quadrant"
+table = "match_shots"
+column = "quadrant"
+type = "numeric"
+missing = [""]
+
 [[label]]
 name = "expected_goals"
 table = "match_shots_xg"
@@ -137,3 +145,12 @@ feature = "type_of_play"
 label = "type_of_play"
 # origin_of_move acerta 485 de 609 com o melhor mapa possivel, contra maioria de 0,657
 baseline_metadata = 0.7964
+
+[[metric]]
+feature = "quadrant"
+label = "quadrant"
+
+# Calculado no eval pelas features do evento, com a conta e a regra de edge/xg.py.
+[[metric]]
+feature = "expected_goals"
+label = "expected_goals"

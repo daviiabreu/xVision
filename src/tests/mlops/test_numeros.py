@@ -27,6 +27,15 @@ def test_the_rmse_is_a_root_and_not_the_mean_square() -> None:
     assert numeros["rmse"] < (9 + 16) / 2, "o rmse veio sem a raiz"
 
 
+def test_o_vies_tem_sinal_e_a_constante_e_a_media_do_rotulo() -> None:
+    pares: list[tuple[object, object]] = [(0.3, 0.1), (0.1, 0.3), (0.5, 0.2)]
+
+    numeros = scores("numeric", pares)
+
+    assert math.isclose(numeros["vies"], 0.1)
+    assert math.isclose(numeros["mae_constante"], (0.1 + 0.1 + 0.0) / 3)
+
+
 def test_a_false_positive_is_not_reported_as_a_false_negative() -> None:
     """Trocadas, as duas celulas invertem o diagnostico: um modelo que inventa deteccao passa a
     parecer um modelo que deixa de detectar, e a correcao pedida e a oposta da necessaria.

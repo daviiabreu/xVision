@@ -32,6 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from edge.features.quadrant import celula_px, valor
 from edge.paths import data_root
 from mlops.split import SplitConfig, fold_of, read_split, split_config
 
@@ -88,6 +89,7 @@ def load_catalog(
         extra = xg.get(shot_id)
         if extra is not None:
             rotulos.update({k: v for k, v in extra.items() if k not in (SHOT_ID, XG_SHOT_ID)})
+        rotulos.update(_derivados(rotulos))
         registros.append(
             ShotRecord(
                 shot_id=shot_id,
@@ -116,6 +118,14 @@ def catalog_counts(root: Path | None = None) -> CatalogCounts:
         matches=len({t[MATCH_ID] for t in com_clipe}),
         ignored_files=ignorados,
     )
+
+
+def _derivados(rotulos: Mapping[str, str]) -> dict[str, str]:
+    """O quadrante sai da posicao gravada, pela mesma grade que a Footstats usa no xG."""
+    x, y = rotulos.get("field_position_x", ""), rotulos.get("field_position_y", "")
+    if not x or not y:
+        return {}
+    return {"quadrant": str(valor(*celula_px(float(x), float(y))))}
 
 
 def _read(caminho: Path, exigidas: frozenset[str]) -> list[dict[str, str]]:

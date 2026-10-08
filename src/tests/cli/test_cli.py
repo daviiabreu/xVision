@@ -897,3 +897,52 @@ def test_artifact_add_refuses_an_entrypoint_that_is_not_there(tmp_path: Path) ->
 
     assert resultado.exit_code != 0
     assert "outro.onnx" in resultado.output
+
+
+def test_eval_calcula_o_xg_do_evento_e_mede_contra_o_expected_goals(tmp_path: Path) -> None:
+    import json
+
+    def feature(nome: str, valor: object, **evidencia: object) -> dict[str, object]:
+        return {
+            "name": nome,
+            "version": "0.1.0",
+            "status": "ok",
+            "value": valor,
+            "confidence": None,
+            "reason": None,
+            "evidence": evidencia,
+        }
+
+    execucao = tmp_path / "run"
+    execucao.mkdir()
+    evento: dict[str, object] = {
+        "schema_version": "1.0.0",
+        "shot_id": "10:5",
+        "clip_id": "10",
+        "match_id": "900",
+        "shot_timestamp_s": 1.0,
+        "features": [
+            feature("quadrant", 0.49, linha=1),
+            feature("type_of_play", "open play"),
+            feature("assist", False),
+            feature("marked", True),
+            feature("occupied_area", False),
+            feature("looked_before", True),
+            feature("body_part", "PERNA_DIREITA"),
+            feature("goalkeeper_position", False),
+        ],
+        "pipeline": {
+            "versions": {},
+            "timings_ms": {},
+            "host": "h",
+            "started_at": "2026-10-06T00:00:00Z",
+        },
+    }
+    (execucao / "events.jsonl").write_text(json.dumps(evento) + "\n", encoding="utf-8")
+    truth = tmp_path / "truth.json"
+    truth.write_text(json.dumps({"10": {"expected_goals": "0.6"}}), encoding="utf-8")
+
+    resultado = runner.invoke(app, ["eval", str(execucao), "--truth", str(truth)])
+
+    assert resultado.exit_code == 0, resultado.output
+    assert "expected_goals: erro medio 0.039, vies -0.039" in resultado.output

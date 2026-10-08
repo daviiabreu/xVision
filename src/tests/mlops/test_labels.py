@@ -162,6 +162,7 @@ def test_the_versioned_table_carries_every_label_the_project_promised() -> None:
         "body_part_2",
         "type_of_play",
         "shot_distance_m",
+        "quadrant",
         "expected_goals",
         "is_goal",
     }

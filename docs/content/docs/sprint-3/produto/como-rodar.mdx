@@ -183,8 +183,8 @@ Em `pipeline.models.toml`, `players`, `ball`, `field`, `pose` e `shot` usam mode
 uniforme com `TeamIdentity`. O `shot` é o T-DEED, que roda em outro processo por
 `external/tdeed/run.py` porque o código dele é GPL-3.0, como explica a página do
 [instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao). São sete módulos com implementação não stub, e `marking` é o
-único que continua stub, mas não são sete modelos treinados. Quatro features estão declaradas
-nessa configuração: `body_part`, `type_of_play`, `looked_before` e `goalkeeper_position`. As limitações estão nas páginas de
+único que continua stub, mas não são sete modelos treinados. Cinco features estão declaradas
+nessa configuração: `body_part`, `type_of_play`, `looked_before`, `goalkeeper_position` e `quadrant`, que alimenta o xG. As limitações estão nas páginas de
 [campo](/docs/sprint-3/modelos/campo-e-homografia) e [bola](/docs/sprint-3/modelos/bola-e-trajetoria).
 
 Para preparar inferência local, pare a API e execute em `src/`:

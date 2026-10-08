@@ -1267,6 +1267,14 @@
             "title": "Status",
             "description": "Numero medido e numero indisponivel nao tem a mesma cara.",
             "default": "ok"
+          },
+          "estimados": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Estimados",
+            "description": "Campos que entraram pela media porque a feature nao mediu. So no xG."
           }
         },
         "type": "object",
