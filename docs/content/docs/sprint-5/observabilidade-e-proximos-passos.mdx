@@ -1,0 +1,69 @@
+---
+title: Observabilidade e próximos passos
+description: O que o xVision já registra sobre a qualidade de cada análise, o que ainda não chega ao analista e como levar métricas e índice de confiança para a interface
+---
+
+O [encerramento do projeto](/docs/sprint-5/encerramento-do-projeto) consolida o que foi construído
+e os resultados que orientaram as decisões. Esta página olha para a mesma entrega pelo lado de quem
+vai usar o resultado no dia a dia: depois que o clipe é processado, o que o analista consegue saber
+sobre a qualidade daquela análise, e o que falta para ele julgar, acompanhar e contestar o que o
+sistema respondeu.
+
+## O que o projeto já registra
+
+Ao longo das sprints, o projeto acumulou bastante informação sobre a própria qualidade, mas quase
+toda ela foi pensada para quem mede o modelo, e não para quem lê o resultado.
+
+| Sinal | Onde nasce | Quem enxerga hoje |
+| --- | --- | --- |
+| Situação, motivo e tempo de cada etapa | resposta da API, campos `situacao`, `motivo` e `duracao_ms` de cada resultado | o analista, ao abrir as etapas na tela de [análises e resultados](/docs/sprint-3/produto/frontend/analises-e-resultados) |
+| Status por característica, `ok`, `low_confidence` ou `unavailable` | contrato `ShotEvent` 1.0, descrito no [contrato do evento](/docs/sprint-2/backend/contrato) | o analista vê o valor "Indisponível", e o selo "Baixa confiança" existe na tela, mas nenhuma característica do pipeline emite `low_confidence` hoje, só o evento de demonstração em `src/contracts/demo.py` |
+| Índice de confiança numérico, de 0 a 1, por característica | campo `confidence` do mesmo contrato, preenchido por parte das características, como `body_part`, `type_of_play`, `looked_before` e `goalkeeper_position`, e nulo em outras, como `crowded`, `occupied_area` e `marked` | ninguém na interface, porque o esquema da API, em `src/api/schemas.py`, não repassa o campo |
+| Procedência da execução, com commit, configuração, pesos e política de cache | `run.json`, descrito na [procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) | quem opera o pipeline pela linha de comando |
+| Tempo, memória e energia por clipe | medições da [execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson), com a [integridade do tegrastats](/docs/sprint-5/161-integridade-tegrastats) | quem roda os experimentos na placa |
+| Qualidade medida de cada modelo contra anotação | [validação após congelamento](/docs/sprint-5/140-pacote-reservado) e [especificação de testes](/docs/sprint-4/especificacao-de-testes) | quem lê a documentação |
+
+A tabela mostra o desenho atual: a observabilidade do xVision existe, mas é sobretudo
+**observabilidade de experimento**, feita em rodadas fechadas, com relatório e hash, e não
+**observabilidade de operação**, que acompanha continuamente o que acontece com as análises
+enviadas pela interface. O repositório não tem coleta contínua de métricas do serviço, então a
+proporção de características indisponíveis, o tempo de processamento ao longo dos dias e o uso de
+memória só são conhecidos quando alguém roda um experimento para medi-los.
+
+## O que não chega ao analista
+
+O ponto mais concreto está no índice de confiança. O contrato valida um `confidence` entre 0 e 1
+para cada característica, e várias delas já o preenchem, mas a API expõe apenas o status, e o
+pipeline nunca rebaixa uma característica para `low_confidence`, porque nenhuma delas tem um limiar
+definido para isso. Na prática, toda característica medida chega à tela como válida, com o mesmo
+peso visual, e o analista não tem como saber se uma leitura de `body_part` veio de um sinal forte
+ou de um caso no limite.
+
+A segunda lacuna é o contexto de qualidade de cada característica. Os números da validação ficam na
+documentação: no reservado, o instante acertou 13 de 14 clipes dentro da tolerância, enquanto a bola
+no contato foi detectada em 12 de 14 e ficou abaixo do critério fixado, como registra a
+[validação após congelamento](/docs/sprint-5/140-pacote-reservado). Na tela de resultados, uma
+característica que passou no critério e outra que ainda falha nele parecem igualmente confiáveis.
+
+## Próximos passos
+
+As frentes abaixo complementam a tabela de próximos passos do
+[encerramento do projeto](/docs/sprint-5/encerramento-do-projeto), que prioriza dados, modelos e
+custo na placa. Aqui a ordem prioriza o que deixa o analista julgar a qualidade com o que o
+pipeline já produz, antes de exigir instrumentação nova.
+
+| Prioridade | Frente | Ação proposta | Como avaliar a evolução |
+| --- | --- | --- | --- |
+| 1 | Índice de confiança na interface | Repassar o `confidence` do contrato pela API e mostrar o valor ao lado de cada característica que o preenche | O analista consegue comparar a confiança de duas leituras da mesma característica, testado com os usuários da análise |
+| 2 | Limiar de baixa confiança | Definir, por característica, o limiar de `confidence` abaixo do qual o pipeline emite `low_confidence`, calibrado nas dobras de ajuste, e não no reservado já consumido | O selo "Baixa confiança" passa a aparecer em análises reais, e a taxa de erro das leituras acima e abaixo do limiar é medida num conjunto independente |
+| 3 | Ficha de qualidade por característica | Exibir na tela de resultados a qualidade medida de cada característica na última validação, com o tamanho da amostra e o link para a página que mediu | Cada número exibido aponta para um relatório com commit e configuração, seguindo a [procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao) |
+| 4 | Acompanhamento ao longo do tempo | Um painel com a proporção de `ok`, `low_confidence` e `unavailable` por característica, por partida e por período, além do tempo de processamento por clipe | Uma mudança de câmera, estádio ou peso que derrube a confiança aparece no painel antes de aparecer em reclamação de uso |
+| 5 | Revisão do analista como sinal | Permitir que o analista confirme ou corrija uma característica na própria tela, guardando a correção junto da análise | As correções formam um conjunto independente para a próxima validação, sem anotação feita fora do fluxo de uso |
+| 6 | Métricas de operação do serviço | Registrar de forma contínua tempo por etapa, tamanho da fila, falhas e uso de memória do processamento, com alerta para os limites já definidos nos requisitos não funcionais | Os mesmos números que hoje exigem um experimento na Jetson passam a ser consultados a qualquer momento |
+
+As frentes 1 e 3 usam dados que já existem e mudam pouco código, porque o valor de confiança já está
+no evento e os números de qualidade já foram medidos, então são o caminho mais curto para o analista
+ganhar critério de julgamento. A frente 2 depende de uma medida nova, já que um limiar escolhido sem
+avaliação só trocaria um selo que nunca aparece por um selo arbitrário. As frentes 4 a 6 dependem de
+instrumentação nova e fazem mais sentido quando o produto receber análises reais com frequência,
+momento em que acompanhar a deriva da qualidade passa a valer mais que uma nova rodada de validação.
