@@ -6,9 +6,9 @@ import math
 
 from contracts import FeatureValue, FramePerception, Perception, PlayerDetection
 from edge.features.base import FeatureSpec, ShotOutput, unavailable
-from edge.modules.field.geometry import PITCH_105X68
+from edge.features.gol import GOL_MEIA_LARGURA_M, gol_mais_proximo
 
-GOAL_HALF_WIDTH_M = 3.66
+GOAL_HALF_WIDTH_M = GOL_MEIA_LARGURA_M
 GOALKEEPER_POSITION_THRESHOLD = 0.5
 
 
@@ -29,7 +29,7 @@ class GoalkeeperPosition:
         finalizador = _finalizador(referencia, shot)
         if finalizador is None or finalizador.pitch_xy is None:
             return unavailable(self.spec, "nao foi possivel resolver o finalizador no chute")
-        gol = _gol_mais_proximo(finalizador.pitch_xy)
+        gol = gol_mais_proximo(finalizador.pitch_xy)
         goleiro = _goleiro_mais_proximo(referencia, gol)
         if goleiro is None or goleiro.pitch_xy is None:
             return unavailable(self.spec, "nenhum goleiro com pitch_xy no quadro do chute")
@@ -102,11 +102,6 @@ def _goleiro_mais_proximo(
 ) -> PlayerDetection | None:
     goleiros = tuple(j for j in quadro.players if j.role == "goalkeeper" and j.pitch_xy is not None)
     return min(goleiros, key=lambda j: math.dist(j.pitch_xy or gol, gol), default=None)
-
-
-def _gol_mais_proximo(posicao: tuple[float, float]) -> tuple[float, float]:
-    meio = PITCH_105X68.length_m / 2.0
-    return min(((-meio, 0.0), (meio, 0.0)), key=lambda gol: math.dist(posicao, gol))
 
 
 def _distancia_da_linha(

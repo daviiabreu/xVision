@@ -260,6 +260,7 @@ def test_the_production_configuration_loads_every_feature_it_declares() -> None:
         "body_part",
         "crowded",
         "goalkeeper_position",
+        "looked_at_goal",
         "looked_before",
         "marked",
         "type_of_play",

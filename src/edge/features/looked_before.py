@@ -12,7 +12,8 @@ from statistics import median
 
 from contracts import FeatureValue, FramePerception, Keypoint, Perception, PlayerDetection
 from edge.features.base import FeatureSpec, ShotOutput, unavailable
-from edge.modules.field.geometry import PITCH_105X68, FieldProjectionError, pitch_to_image
+from edge.features.gol import gol_mais_proximo
+from edge.modules.field.geometry import FieldProjectionError, pitch_to_image
 
 MIN_KEYPOINT_CONFIDENCE = 0.5
 MIN_VALID_FRAMES = 3
@@ -49,7 +50,7 @@ class LookedBefore:
         quadro_referencia, jogador_referencia = referencia
         if jogador_referencia.pitch_xy is None:
             return unavailable(self.spec, "o finalizador nao tem pitch_xy")
-        gol = _gol_mais_proximo(jogador_referencia.pitch_xy)
+        gol = gol_mais_proximo(jogador_referencia.pitch_xy)
 
         inicio = contato.timestamp_s - WINDOW_START_S
         fim = contato.timestamp_s - WINDOW_END_S
@@ -156,11 +157,6 @@ def _referencia_do_finalizador(
 
 def _jogador(quadro: FramePerception, track_id: int) -> PlayerDetection | None:
     return next((j for j in quadro.players if j.track_id == track_id and j.keypoints), None)
-
-
-def _gol_mais_proximo(posicao: tuple[float, float]) -> tuple[float, float]:
-    meio = PITCH_105X68.length_m / 2.0
-    return min(((-meio, 0.0), (meio, 0.0)), key=lambda gol: math.dist(posicao, gol))
 
 
 def _orientacao(

@@ -1,0 +1,142 @@
+---
+title: Olhou para o gol
+description: Feature que mede o rumo do corpo do finalizador contra a baliza que a bola procurou, em metro e não em pixel
+---
+
+A feature `looked_at_goal` decide se o finalizador estava apontado para o gol no instante do
+contato. Ela é geometria sobre a percepção que já existe: nenhum modelo novo, nenhuma inferência
+nova, nenhum peso novo no manifesto.
+
+Esta página não tem card no GitLab. A feature saiu de um pedido direto, e o registro dela é esta
+página mais os 24 testes.
+
+## Por que é feature nova, e não versão de `looked_before`
+
+`looked_before` já mede intenção parecida, e o repositório já a publica. As duas diferem em três
+pontos, e o terceiro é o que mais muda o número:
+
+| | `looked_before` | `looked_at_goal` |
+| --- | --- | --- |
+| janela | de 0,5 s a 0,1 s **antes** do contato | em volta do contato, de -0,10 s a +0,04 s |
+| alvo | gol mais próximo do finalizador | gol que **a bola procurou** depois do contato |
+| ângulo | entre dois vetores em **pixel** | entre dois vetores em **metro**, no plano do campo |
+
+Em pixel o ângulo está deformado pela perspectiva: o mesmo giro de corpo mede diferente no fundo e
+na frente do quadro. Um dos testes fixa isso, comparando o mesmo rumo em metro medido em duas
+profundidades da imagem e exigindo que a diferença fique abaixo de 5 graus.
+
+`looked_before` não foi alterada. Ela está em sete configurações de pipeline e tem valor publicado,
+e mudar a geometria dela sem gabarito seria trocar o significado de um número que já circula.
+
+## O alvo vem do rumo da bola
+
+O critério da distância não basta para escolher a baliza. Chute de fora da área pode partir de um
+ponto mais perto do gol que o próprio time defende, e ali a distância aponta para a baliza errada,
+com a feature medindo orientação contra o alvo trocado.
+
+`gol_pelo_rumo_da_bola` resolve por medida: pega as posições da bola em metro nos quadros a partir
+do contato, até um segundo depois, e escolhe a baliza mais alinhada com o deslocamento. As recusas
+são declaradas:
+
+| Situação | Resultado |
+| --- | --- |
+| menos de dois quadros com bola em metro | sem critério, cai para a distância |
+| deslocamento abaixo de 1,0 m | sem critério: a bola tem 22 cm e a projeção do centro erra mais que isso em campo distante |
+| bola `interpolated` | não entra: a interpolação é reta, e o contato é onde a trajetória vira |
+| bola saindo pela lateral, sem alinhar com baliza nenhuma | sem critério |
+| passado um segundo do contato | não entra: a bola pode ter batido em alguém e mudado de rumo |
+
+Quando nenhum desses sustenta, a feature usa o gol mais próximo e **declara** o critério em
+`criterio_do_gol`. A feature não pede `ball` em `requires` de propósito: exigir a bola faria recusar
+clipe que ainda dá para medir, só com alvo escolhido por critério mais fraco.
+
+## Como o rumo do corpo é construído
+
+1. **A linha dos ombros** dá o eixo lateral do tronco em pixel. A direção de frente é perpendicular
+   a ela, e perpendicular tem dois sentidos.
+2. **O sentido** sai da visibilidade do rosto: dois olhos acima do piso de confiança é alguém
+   voltado para o lado da câmera, nenhum olho com orelha visível é nuca. Um olho só é perfil, e
+   perfil não separa os dois casos: aí a medida **recusa o quadro**. Sentido errado inverte a
+   resposta, e inverter calado é pior que recusar.
+3. **O desvio lateral do nariz** em relação ao meio dos ombros, medido em larguras de ombro, gira
+   esse rumo. É a parte que capta cabeça virada com tronco parado.
+4. **A jacobiana local da homografia** leva o rumo de pixel para metro. Ela é estimada por diferença
+   central de 0,25 m em volta do ponto do jogador, e é o que permite comparar rumo de corpo com rumo
+   de gol: um é medido em pixel, o outro em metro.
+
+O ponto do jogador que passa pela homografia é o tornozelo, ou a base da caixa quando o tornozelo
+falta. Ombro não serve: a homografia mapeia o plano do gramado, e ponto a 1,4 m do chão projetado
+por ela cai metros adiante de onde a pessoa está.
+
+As recusas por quadro são contadas por motivo e publicadas em `recusas_por_quadro`, então um clipe
+que sai `unavailable` diz qual elo faltou em vez de só dizer que faltou.
+
+## O que a medida não é
+
+**Não mede olhar.** Com o finalizador a 93,4 px de altura mediana nos clipes do parceiro, pupila e
+direção de íris não existem no pixel disponível. O que sai é rumo de tronco corrigido por desvio de
+cabeça, que aproxima para onde a pessoa estava voltada, não para onde ela estava olhando.
+
+**`GANHO_LATERAL` não é calibrado.** O valor 2,0 mapeia meia largura de ombro de desvio de nariz
+para 45 graus de giro. Nenhuma anotação do projeto liga desvio de nariz a ângulo de cabeça medido, e
+trocar esse número move a feature inteira. É a pendência mais direta desta entrega.
+
+**O limiar de 0,5 é semântico, não estatístico.** É o escore de quem está a 90 graus do gol, como em
+`looked_before`. Calibração exige gabarito.
+
+**A linha dos ombros está fora do plano do campo.** O rumo construído no passo 1 vem de pontos a
+cerca de 1,4 m do chão, e a jacobiana do passo 4 é do plano do gramado. A aproximação vale em
+primeira ordem, com a câmera longe em relação à altura da pessoa, e piora quanto mais a câmera
+baixa.
+
+**O sentido depende de olho e orelha**, que são os pontos menos confiáveis nessa escala. Na prática
+isso vira recusa frequente, e a cobertura real só aparece quando a feature rodar sobre os clipes do
+parceiro.
+
+## Gabarito: a pendência que decide
+
+A tabela `match_shots_xg` do parceiro tem a coluna `looked_before`, e **não tem coluna própria para
+esta feature**. Em consequência:
+
+- `config/labels.toml` não ganhou entrada `[[metric]]` para `looked_at_goal`, porque não existe
+  rótulo com que compará-la;
+- `xvision eval` não pontua a feature, e não vai pontuar enquanto isso durar;
+- medir contra a coluna `looked_before` é possível, mas seria medir uma pergunta com o rótulo de
+  outra: aquela coluna responde pela janela anterior ao chute, esta mede o instante do contato.
+
+Então o número que esta feature publica hoje é **não medido**. Ela entra no evento com `status`,
+`confidence` e `evidence` completos para o consumidor decidir, e nada além disso.
+
+## Estado
+
+| Item | Estado |
+| --- | --- |
+| `edge/features/looked_at_goal.py` | pronto, coberto por 13 testes |
+| `edge/features/gol.py`, com o alvo pelo rumo da bola | pronto, coberto por 11 testes |
+| registro em 7 configurações de pipeline | feito, nas mesmas em que `looked_before` roda |
+| `_gol_mais_proximo` duplicado em duas features | removido: as duas passaram a importar de `edge.features.gol` |
+| rótulo do parceiro para a feature | **não existe** |
+| medida contra gabarito | **não feita**: depende do rótulo |
+| calibração de `GANHO_LATERAL` e do limiar | **não feita**: depende do gabarito |
+
+## Verificação
+
+Os 24 testes novos passam. Sobre `tests/edge` inteiro, na mesma máquina, antes e depois:
+
+| | falhas | passes |
+| --- | --- | --- |
+| antes | 22 | 1359 |
+| depois | 22 | 1383 |
+
+As 22 falhas e os 6 erros de coleta são de ambiente e são os mesmos nas duas colunas: `typer` antigo
+no Python global, `torch` com DLL quebrada e caminho do Windows dentro de string TOML. `ruff check` e
+`ruff format --check` passam em `edge/features` e em `tests/edge/features`.
+
+O refactor que tirou a duplicação do gol é conferido pelos testes que já existiam de
+`looked_before`, `goalkeeper_position` e `occupied_area`, sem alteração neles.
+
+## Referências
+
+- [`edge/features/looked_at_goal.py`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/features/looked_at_goal.py)
+- [`edge/features/gol.py`](https://git.inteli.edu.br/graduacao/2026-2a/t12/g02/-/blob/develop/src/edge/features/gol.py)
+- [Pose do finalizador](/docs/sprint-4/modelos/pose-do-finalizador), de onde vêm os 93,4 px de altura mediana e a discussão do tornozelo.
