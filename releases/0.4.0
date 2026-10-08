@@ -1,0 +1,71 @@
+# Release 0.4.0
+
+Encerramento do ciclo do Edge xG. As Sprints 4 e 5 fecham o caminho do clipe ao número: o instante
+passa a vir de um detector temporal publicado, o pipeline roda em duas etapas na Jetson, as
+características do lance alimentam um cálculo de xG, e o conjunto reservado foi executado uma única
+vez sobre código congelado.
+
+A entrega continua parcial, e o princípio das releases anteriores continua valendo: resultado
+negativo é resultado. Os números abaixo pertencem às rodadas identificadas na documentação de cada
+sprint, e não a uma nova execução feita no encerramento.
+
+## What's New
+
+- Cálculo de xG da Footstats sobre as características do chute, em `edge/xg.py`, com regra
+  declarada para o campo que a feature não mediu: entra a média dos rótulos do parceiro, sobre
+  2.508 finalizações, e a resposta informa quais campos vieram por média em vez de medida.
+- Feature `quadrant`, que situa o chute na grade 16x9 da Footstats e fornece o valor base de xG
+  daquele quadrante.
+- Feature `looked_at_goal`, que mede o rumo do corpo do finalizador no instante do contato em
+  metro, no plano do campo, com a baliza alvo escolhida pelo rumo da bola depois do contato.
+- O T-DEED passa a dar o instante do pipeline, em processo separado, no caminho de duas etapas.
+- Validação após congelamento: a tag `congelamento-sprint-5`, no commit `33b47c3`, fixou código,
+  configuração e pesos, e os 241 clipes das dobras reservadas foram executados uma única vez. Dos
+  14 clipes com anotação do instante, 13 ficaram dentro da tolerância de 30 quadros, com mediana
+  de erro de 6 quadros e IC95 da proporção de 0,685 a 0,987.
+- Rota INT8 versionada, com calibração vinda do próprio pipeline e Q/DQ do ONNX Runtime, medida na
+  Jetson contra fp16 e fp32 do mesmo peso.
+- Pipeline completo do estimador de pose do finalizador: dataset de recortes de jogador, ajuste
+  fino, validação no domínio do dataset e uma métrica que julga o peso pelo tornozelo em vez da
+  média de OKS, porque trocar os dois tornozelos de lado é invisível para o protocolo e inverte a
+  resposta de `body_part`. O comando `xvision eval-pose` aplica essa métrica sobre a caixa anotada.
+- Segunda passada cega do gabarito da bola, com a concordância entre as duas passadas medida, e
+  pareamento da trajetória quadro a quadro contra uma base.
+- Redecodificação por espécie: em 17 clipes longos de ajuste, o maior pico de RAM cai de 70,01%
+  para 53,27%, com a mediana de tempo subindo de 80,3 s para 91,0 s. A troca está publicada com os
+  dois números lado a lado.
+- Procedência de execução gravada no `run.json`, medição sem cache e retomada de execução longa
+  com os fingerprints dos módulos conferidos antes de tocar no parcial.
+- Interface alinhada ao contrato da API, com correção dos bugs levantados na revisão geral.
+- Documentação das Sprints 4 e 5: roteiro operacional, protocolo dos experimentos INT8,
+  rastreabilidade dos requisitos, análise financeira por hardware, observabilidade e a página de
+  encerramento do projeto.
+
+## Fixes
+
+- A retomada passa a persistir os fingerprints dos módulos antes de iniciar o catálogo e a recusar
+  entrada externa alterada antes de truncar o parcial ou atualizar o checkpoint.
+- A varredura de limiar passa a percorrer todos os limiares representáveis na validação.
+- Entradas de avaliação ambíguas passam a ser recusadas no limite de entrada.
+- Linhas do tempo inválidas do tegrastats passam a ser recusadas.
+- Respostas de sessão antiga deixam de sobrescrever sessão renovada, e a renovação de senha
+  preserva os logins posteriores.
+- O cache de percepção passa a incluir as entradas opcionais, que antes ficavam de fora da chave.
+- A calibração com sobreposição zero preserva a compatibilidade que havia sido quebrada.
+
+## Limitações conhecidas
+
+- A detecção da bola no quadro do contato ficou em 12 de 14 no reservado, abaixo do critério do
+  teste, e é a prioridade de evolução registrada.
+- O pico de memória no reservado chegou a 91,4%, com 82 clipes acima do limite definido.
+- A taxa medida, de 6,34 a 6,35 segundos de processamento por segundo de vídeo, não caracteriza
+  processamento em tempo real.
+- O peso de pose treinado não foi promovido. Os números do treino são do protocolo do Ultralytics,
+  medidos no domínio do COCO, que não é o do futebol de transmissão, e o `usable_rate` ainda não
+  foi medido contra o peso de partida. A configuração de produção segue no peso genérico.
+- `looked_at_goal` não tem coluna correspondente em `match_shots_xg`, então não recebeu entrada de
+  métrica em `labels.toml` e não é pontuada pelo `xvision eval`. O valor que ela publica é não
+  medido.
+- O INT8 foi medido na placa e permanece fora do pipeline, por mudar a resposta.
+- As medidas das dobras de ajuste e do reservado permanecem separadas de propósito, e não devem ser
+  lidas como uma única amostra.
