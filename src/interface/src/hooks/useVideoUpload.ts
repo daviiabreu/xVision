@@ -1,8 +1,17 @@
 import { useState } from "react";
 
+import { ErroHttp } from "../services/api";
 import { enviarVideo } from "../services/videoService";
 import { ERROR_MESSAGES } from "../utils/errorMessages";
 import { validateVideoFile } from "../utils/fileValidation";
+
+function mensagemDoEnvio(erro: unknown): string {
+  if (erro instanceof ErroHttp && (erro.status === 404 || erro.status === 409)) {
+    return ERROR_MESSAGES.UPLOAD_ADDRESS_EXPIRED;
+  }
+
+  return erro instanceof Error ? erro.message : ERROR_MESSAGES.VIDEO_UPLOAD_FAILED;
+}
 
 export function useVideoUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -35,7 +44,7 @@ export function useVideoUpload() {
 
       return id;
     } catch (erro) {
-      setError(erro instanceof Error ? erro.message : ERROR_MESSAGES.VIDEO_UPLOAD_FAILED);
+      setError(mensagemDoEnvio(erro));
 
       return null;
     } finally {

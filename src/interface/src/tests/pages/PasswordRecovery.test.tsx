@@ -126,6 +126,25 @@ describe("recuperacao de senha", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("detalhe interno");
   });
 
+  it("orienta a pedir outro link quando o servico recusa o formato do token com 422", async () => {
+    vi.mocked(redefinirSenha).mockRejectedValue(new ErroHttp(422, "detalhe interno"));
+    render(
+      <MemoryRouter initialEntries={["/reset-password?token=token-cortado"]}>
+        <ResetPassword />
+      </MemoryRouter>,
+    );
+
+    await userEvent.type(screen.getByLabelText("Nova senha"), "uma-senha-nova-de-verdade");
+    await userEvent.type(
+      screen.getByLabelText("Confirme a nova senha"),
+      "uma-senha-nova-de-verdade",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Atualizar senha" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("incompleto");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("detalhe interno");
+  });
+
   it("orienta a pedir outro link quando o token esta ausente", () => {
     render(
       <MemoryRouter initialEntries={["/reset-password"]}>

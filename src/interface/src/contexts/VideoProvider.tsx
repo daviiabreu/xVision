@@ -15,6 +15,7 @@ import {
   type VideoSummary,
 } from "../services/videoService";
 import { ERROR_MESSAGES } from "../utils/errorMessages";
+import { segundosAteReconsultar } from "../utils/polling";
 
 import { VideoContext } from "./videoContext";
 
@@ -79,7 +80,9 @@ function useReloadSchedule(
   useEffect(() => {
     const waiting = videos.filter((video) => !terminou(video.videoStatus));
     if (waiting.length === 0) return;
-    const seconds = Math.min(...waiting.map((video) => video.retryAfterSeconds ?? 3));
+    const seconds = Math.min(
+      ...waiting.map((video) => segundosAteReconsultar(video.retryAfterSeconds)),
+    );
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = () => {

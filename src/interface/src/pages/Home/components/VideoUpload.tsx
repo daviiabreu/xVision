@@ -106,14 +106,16 @@ function UploadDropZone({
       }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => {
-        if (event.currentTarget === event.target) {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           state.setDragging(false);
         }
       }}
       onDrop={(event) => {
         event.preventDefault();
         state.setDragging(false);
-        state.selecionar(event.dataTransfer.files[0]);
+        if (!state.isUploading) {
+          state.selecionar(event.dataTransfer.files[0]);
+        }
       }}
     >
       <UploadSelection file={state.file} />

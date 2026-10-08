@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useVideoUpload } from "../../hooks/useVideoUpload";
+import { ErroHttp } from "../../services/api";
 import { enviarVideo } from "../../services/videoService";
 import { ERROR_MESSAGES } from "../../utils/errorMessages";
 
@@ -14,7 +15,9 @@ function arquivo(nome: string, tipo = "video/mp4", tamanho = 1024): File {
   return f;
 }
 
-beforeEach(() => vi.mocked(enviarVideo).mockReset());
+beforeEach(() => {
+  vi.mocked(enviarVideo).mockReset();
+});
 
 describe("useVideoUpload", () => {
   it("aceita um video valido", () => {
@@ -72,6 +75,22 @@ describe("useVideoUpload", () => {
 
     expect(enviarVideo).toHaveBeenCalledTimes(1);
   });
+
+  it.each([404, 409])(
+    "explica que o endereco de envio expirou ou foi usado quando o servico responde %i",
+    async (status) => {
+      vi.mocked(enviarVideo).mockRejectedValue(new ErroHttp(status, "endereco de envio"));
+      const { result } = renderHook(() => useVideoUpload());
+
+      act(() => result.current.handleFileSelect(arquivo("c.mp4")));
+      await act(async () => {
+        await expect(result.current.confirmVideo()).resolves.toBeNull();
+      });
+
+      expect(result.current.error).toBe(ERROR_MESSAGES.UPLOAD_ADDRESS_EXPIRED);
+      expect(result.current.file?.name).toBe("c.mp4");
+    },
+  );
 
   it("preserva a selecao trocada durante o envio, em vez de apagar a escolha nova", async () => {
     let liberar!: (id: number) => void;

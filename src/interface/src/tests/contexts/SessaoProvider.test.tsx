@@ -1,10 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessaoProvider } from "../../contexts/SessaoProvider";
 import { useSessao } from "../../contexts/useSessao";
-import { apagarSessao, guardarSessao } from "../../services/sessao";
+import { apagarSessao, guardarSessao, renovarSessao } from "../../services/sessao";
 
 function Sonda() {
   const { autenticado, nome, atualizarNome, sair } = useSessao();
@@ -32,6 +32,7 @@ function montar() {
 }
 
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.useRealTimers());
 
 describe("SessaoProvider", () => {
   it("nasce autenticado quando ha sessao valida", () => {
@@ -77,5 +78,68 @@ describe("SessaoProvider", () => {
 
     expect(screen.getByText("novo@exemplo.com")).toBeInTheDocument();
     expect(localStorage.getItem("sessao")).toContain("novo@exemplo.com");
+  });
+
+  it("acompanha o logout feito em outra aba", async () => {
+    guardarSessao("t", 3600, 1);
+    montar();
+    expect(screen.getByText("dentro")).toBeInTheDocument();
+
+    act(() => {
+      localStorage.removeItem("sessao");
+      window.dispatchEvent(new StorageEvent("storage", { key: "sessao", newValue: null }));
+    });
+
+    expect(await screen.findByText("fora")).toBeInTheDocument();
+  });
+
+  it("acompanha o login feito em outra aba", async () => {
+    montar();
+    expect(screen.getByText("fora")).toBeInTheDocument();
+
+    act(() => {
+      guardarSessao("t", 3600, 1, "outra@exemplo.com");
+      window.dispatchEvent(new StorageEvent("storage", { key: "sessao" }));
+    });
+
+    expect(await screen.findByText("dentro")).toBeInTheDocument();
+  });
+
+  it("sai sozinho quando a sessao expira com a aba aberta e parada", () => {
+    vi.useFakeTimers();
+    guardarSessao("t", 60, 1);
+    montar();
+    expect(screen.getByText("dentro")).toBeInTheDocument();
+
+    act(() => void vi.advanceTimersByTime(59_000));
+    expect(screen.getByText("dentro")).toBeInTheDocument();
+
+    act(() => void vi.advanceTimersByTime(2_000));
+    expect(screen.getByText("fora")).toBeInTheDocument();
+    expect(localStorage.getItem("sessao")).toBeNull();
+  });
+
+  it("segue a validade renovada pela troca de senha em vez de sair no prazo antigo", () => {
+    vi.useFakeTimers();
+    guardarSessao("antigo", 60, 1);
+    montar();
+
+    act(() => {
+      renovarSessao("novo", 3600);
+      void vi.advanceTimersByTime(61_000);
+    });
+
+    expect(screen.getByText("dentro")).toBeInTheDocument();
+  });
+
+  it("ignora mudancas de outras chaves do storage", () => {
+    guardarSessao("t", 3600, 1);
+    montar();
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "outra-chave" }));
+    });
+
+    expect(screen.getByText("dentro")).toBeInTheDocument();
   });
 });

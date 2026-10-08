@@ -44,13 +44,22 @@ function useAccess(onEntrou: () => void): AccessState {
     event.preventDefault();
     setErro(null);
     setEnviando(true);
+    let contaCriada = false;
     try {
-      if (criandoConta) await registrar(email, senha);
+      if (criandoConta) {
+        await registrar(email, senha);
+        contaCriada = true;
+      }
       await autenticar(email, senha);
       onEntrou();
     } catch (failure) {
       console.error(failure);
-      setErro(mensagemDaFalha(failure));
+      if (contaCriada) {
+        setCriandoConta(false);
+        setErro(`A conta foi criada, mas não foi possível entrar. ${mensagemDaFalha(failure)}`);
+      } else {
+        setErro(mensagemDaFalha(failure));
+      }
     } finally {
       setEnviando(false);
     }
@@ -109,7 +118,11 @@ function MarketingPanel() {
 
 function ModeSwitcher({ state }: { state: AccessState }) {
   return (
-    <div className="mt-6 grid grid-cols-2 rounded-xl bg-stone-100 p-1" aria-label="Modo de acesso">
+    <div
+      role="group"
+      className="mt-6 grid grid-cols-2 rounded-xl bg-stone-100 p-1"
+      aria-label="Modo de acesso"
+    >
       {[
         { label: "Entrar", creating: false },
         { label: "Criar conta", creating: true },
@@ -153,7 +166,10 @@ function EmailField({ state }: { state: AccessState }) {
 }
 
 function PasswordField({ state }: { state: AccessState }) {
-  const describedBy = [state.erro ? "erro-login" : undefined, "senha-minima"]
+  const describedBy = [
+    state.erro ? "erro-login" : undefined,
+    state.criandoConta ? "senha-minima" : undefined,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
@@ -171,24 +187,23 @@ function PasswordField({ state }: { state: AccessState }) {
           </Link>
         )}
       </div>
-      <label className="block">
-        <span className="sr-only">Senha</span>
-        <input
-          id="senha"
-          type="password"
-          required
-          minLength={12}
-          autoComplete={state.criandoConta ? "new-password" : "current-password"}
-          aria-invalid={state.erro !== null}
-          aria-describedby={describedBy || undefined}
-          value={state.senha}
-          onChange={(event) => state.setSenha(event.target.value)}
-          className="mt-2 h-11 w-full rounded-xl border border-stone-300 px-3 text-base outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-        />
-      </label>
-      <p id="senha-minima" className="mt-1.5 text-xs text-stone-500">
-        Mínimo de 12 caracteres.
-      </p>
+      <input
+        id="senha"
+        type="password"
+        required
+        minLength={state.criandoConta ? 12 : undefined}
+        autoComplete={state.criandoConta ? "new-password" : "current-password"}
+        aria-invalid={state.erro !== null}
+        aria-describedby={describedBy || undefined}
+        value={state.senha}
+        onChange={(event) => state.setSenha(event.target.value)}
+        className="mt-2 h-11 w-full rounded-xl border border-stone-300 px-3 text-base outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+      />
+      {state.criandoConta && (
+        <p id="senha-minima" className="mt-1.5 text-xs text-stone-500">
+          Mínimo de 12 caracteres.
+        </p>
+      )}
     </div>
   );
 }

@@ -13,8 +13,8 @@ function fonteDoFrame(frame: string): string {
 }
 
 function semMetrica(result: VideoResult, principalMediu: boolean): string {
-  if (!result.ok)
-    return result.reason ?? "Esta etapa não concluiu, então não há nada para mostrar.";
+  if (result.state === "skipped") return "Esta etapa foi ignorada, então não há nada para mostrar.";
+  if (!result.ok) return "Esta etapa não concluiu, então não há nada para mostrar.";
   return principalMediu
     ? "Etapa concluída. As métricas consolidadas aparecem em Métricas da finalização."
     : "Etapa concluída. Esta análise não produziu nenhuma métrica.";

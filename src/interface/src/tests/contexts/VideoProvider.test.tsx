@@ -41,7 +41,9 @@ function montar() {
   );
 }
 
-beforeEach(() => vi.mocked(getVideos).mockReset());
+beforeEach(() => {
+  vi.mocked(getVideos).mockReset();
+});
 afterEach(() => vi.useRealTimers());
 
 describe("VideoProvider", () => {

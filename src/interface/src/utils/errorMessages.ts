@@ -11,5 +11,5 @@ export const ERROR_MESSAGES = {
   SERVER_ERROR: "O servidor não conseguiu responder. Tente novamente em instantes.",
   SESSION_EXPIRED: "Sua sessão expirou. Entre de novo para continuar.",
   UNEXPECTED_ADDRESS: "O servidor respondeu com um endereço inesperado.",
-  API_URL_MISSING: "A aplicação foi publicada sem o endereço da API. Avise quem a implantou.",
+  UPLOAD_ADDRESS_EXPIRED: "O endereço de envio expirou ou já foi usado. Envie o vídeo de novo.",
 } as const;

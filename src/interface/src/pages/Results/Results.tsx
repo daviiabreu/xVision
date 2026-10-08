@@ -17,6 +17,7 @@ import {
 } from "../../services/videoService";
 import { ERROR_MESSAGES } from "../../utils/errorMessages";
 import { nomeDoProcesso } from "../../utils/nomesDeProcesso";
+import { segundosAteReconsultar } from "../../utils/polling";
 import Loading from "../Loading/Loading";
 import MainResult from "./components/MainResult";
 import ResultAccordion from "./components/ResultAccordion";
@@ -52,7 +53,10 @@ function watchResult(id: number, setState: (state: Estado) => void) {
         const progress = await getVideoStatus(id).catch(() => null);
         if (!alive) return;
         setState({ fase: "processando", progresso: progress });
-        timer = setTimeout(() => void load(false), (progress?.retryAfterSeconds ?? 3) * 1000);
+        timer = setTimeout(
+          () => void load(false),
+          segundosAteReconsultar(progress?.retryAfterSeconds ?? null) * 1000,
+        );
       } else if (error instanceof ErroHttp && error.status === 404) setState({ fase: "ausente" });
       else
         setState({

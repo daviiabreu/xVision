@@ -128,4 +128,37 @@ describe("Login", () => {
     await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
     expect(screen.queryByRole("link", { name: "Esqueceu a senha?" })).toBeNull();
   });
+
+  it("nao impede quem ja tem conta de tentar entrar com senha curta", async () => {
+    montar();
+
+    expect(screen.getByLabelText("Senha")).not.toHaveAttribute("minlength");
+
+    await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
+
+    expect(screen.getByLabelText("Senha")).toHaveAttribute("minlength", "12");
+  });
+
+  it("rotula o campo de senha uma unica vez", () => {
+    montar();
+
+    expect((screen.getByLabelText("Senha") as HTMLInputElement).labels).toHaveLength(1);
+  });
+
+  it("volta para entrar quando a conta foi criada mas o login falhou", async () => {
+    vi.mocked(registrar).mockResolvedValue(EU);
+    vi.mocked(autenticar).mockRejectedValue(new Error(ERROR_MESSAGES.NO_CONNECTION));
+    montar();
+    await userEvent.click(screen.getByRole("button", { name: "Usar modo Criar conta" }));
+    await preencher();
+
+    await userEvent.click(screen.getByRole("button", { name: "Criar conta e entrar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("A conta foi criada");
+    expect(screen.getByRole("button", { name: "Entrar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usar modo Entrar" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
 });

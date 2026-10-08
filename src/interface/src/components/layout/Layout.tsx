@@ -11,6 +11,22 @@ const links = [
   { to: "/api-docs", label: "Documentação da API", icon: "file-video" as const },
 ];
 
+function lerMenuCompacto(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function guardarMenuCompacto(compacto: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(compacto));
+  } catch {
+    // A preferência só vale para esta visita quando o navegador bloqueia o storage.
+  }
+}
+
 function Navigation({
   compact = false,
   currentPath,
@@ -548,13 +564,11 @@ function Layout({ children }: { children: ReactNode }) {
     window.requestAnimationFrame(() => openRef.current?.focus());
   }, []);
   useMobileDialog(menuOpen, closeMenu, closeRef, dialogRef);
-  const [compact, setCompact] = useState(
-    () => localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true",
-  );
+  const [compact, setCompact] = useState(lerMenuCompacto);
   const toggle = () =>
     setCompact((current) => {
       const next = !current;
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      guardarMenuCompacto(next);
       return next;
     });
   if (!autenticado) return <PublicLayout mainRef={mainRef}>{children}</PublicLayout>;

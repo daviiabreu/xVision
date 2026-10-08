@@ -12,6 +12,9 @@ function mensagemDaFalha(erro: unknown): string {
   if (erro instanceof ErroHttp && erro.status === 400) {
     return "Este link é inválido, já foi usado ou expirou. Solicite um novo link.";
   }
+  if (erro instanceof ErroHttp && erro.status === 422) {
+    return "O link parece incompleto. Copie o endereço inteiro do email ou solicite um novo link.";
+  }
   return erro instanceof Error ? erro.message : ERROR_MESSAGES.SERVER_ERROR;
 }
 

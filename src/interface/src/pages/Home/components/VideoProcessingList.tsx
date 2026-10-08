@@ -11,7 +11,7 @@ type Filtro = "Todos" | VideoStatus;
 const FILTROS: Filtro[] = ["Todos", "Pendente", "Em processamento", "Finalizado", "Falhou"];
 
 function VideoProcessingList() {
-  const { videos, loading, error, recarregar } = useVideos();
+  const { videos, total, loading, error, recarregar } = useVideos();
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("Todos");
 
@@ -30,6 +30,7 @@ function VideoProcessingList() {
       <Filters filtro={filtro} setFiltro={setFiltro} />
       <ListContent
         videos={videos}
+        total={total}
         visiveis={visiveis}
         loading={loading}
         error={error}
@@ -66,7 +67,11 @@ function ListHeader({ busca, setBusca }: { busca: string; setBusca: (value: stri
 
 function Filters({ filtro, setFiltro }: { filtro: Filtro; setFiltro: (value: Filtro) => void }) {
   return (
-    <div className="mt-5 flex gap-2 overflow-x-auto pb-1" aria-label="Filtrar análises">
+    <div
+      role="group"
+      className="mt-5 flex gap-2 overflow-x-auto pb-1"
+      aria-label="Filtrar análises"
+    >
       {FILTROS.map((opcao) => (
         <button
           key={opcao}
@@ -84,17 +89,19 @@ function Filters({ filtro, setFiltro }: { filtro: Filtro; setFiltro: (value: Fil
 
 interface ListContentProps {
   videos: ReturnType<typeof useVideos>["videos"];
+  total: number;
   visiveis: ReturnType<typeof useVideos>["videos"];
   loading: boolean;
   error: string | null;
   recarregar: () => Promise<void>;
 }
 
-function ListContent({ videos, visiveis, loading, error, recarregar }: ListContentProps) {
+function ListContent({ videos, total, visiveis, loading, error, recarregar }: ListContentProps) {
   return (
     <div aria-live="polite" className="mt-5 space-y-3">
       {loading && videos.length === 0 && <LoadingRows />}
       {error && videos.length === 0 && <LoadError error={error} retry={recarregar} />}
+      {error && videos.length > 0 && <StaleNotice error={error} />}
       {!loading && !error && videos.length === 0 && <EmptyList />}
       {videos.length > 0 && visiveis.length === 0 && (
         <p className="rounded-xl bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
@@ -104,6 +111,12 @@ function ListContent({ videos, visiveis, loading, error, recarregar }: ListConte
       {visiveis.map((video) => (
         <VideoProcessingCard key={video.id} video={video} />
       ))}
+      {total > videos.length && (
+        <p className="px-1 text-center text-xs text-stone-500">
+          Mostrando {videos.length} de {total} análises, as mais recentes. A busca e os filtros
+          valem só para elas.
+        </p>
+      )}
     </div>
   );
 }
@@ -125,6 +138,19 @@ function LoadError({ error, retry }: { error: string; retry: () => Promise<void>
         Tentar de novo
       </Button>
     </div>
+  );
+}
+
+function StaleNotice({ error }: { error: string }) {
+  return (
+    <p
+      role="alert"
+      className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900"
+    >
+      <Icon name="warning" className="mt-0.5 h-4 w-4 shrink-0" />
+      Não conseguimos atualizar a lista agora, então o que aparece abaixo pode estar desatualizado.{" "}
+      {error}
+    </p>
   );
 }
 

@@ -1,4 +1,4 @@
-const CHAVE = "sessao";
+export const CHAVE = "sessao";
 
 export const SESSAO_PERDIDA = "sessao-perdida";
 

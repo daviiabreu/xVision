@@ -13,17 +13,19 @@ function montar({
   videos = [resumo()],
   loading = false,
   error = null,
+  total = videos.length,
 }: {
   videos?: ReturnType<typeof resumo>[];
   loading?: boolean;
   error?: string | null;
+  total?: number;
 } = {}) {
   render(
     <MemoryRouter>
       <VideoContext.Provider
         value={{
           videos,
-          total: videos.length,
+          total,
           statistics: { pending: 0, processing: 0, completed: videos.length, failed: 0 },
           loading,
           error,
@@ -68,5 +70,30 @@ describe("VideoProcessingList", () => {
       "aria-live",
       "polite",
     );
+  });
+
+  it("avisa quando a atualizacao falha mas ainda ha itens na tela", () => {
+    montar({ error: "sem conexão" });
+
+    expect(screen.getByText("treino.mp4")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("sem conexão");
+  });
+
+  it("avisa que a lista mostra so as mais recentes quando a conta tem mais analises", () => {
+    montar({ total: 130 });
+
+    expect(screen.getByText(/Mostrando 1 de 130 análises/)).toBeInTheDocument();
+  });
+
+  it("nao avisa nada quando a lista mostra todas as analises", () => {
+    montar();
+
+    expect(screen.queryByText(/Mostrando/)).toBeNull();
+  });
+
+  it("agrupa os filtros para leitores de tela", () => {
+    montar();
+
+    expect(screen.getByRole("group", { name: "Filtrar análises" })).toBeInTheDocument();
   });
 });
