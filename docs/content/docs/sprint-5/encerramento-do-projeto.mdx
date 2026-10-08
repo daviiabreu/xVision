@@ -1,0 +1,141 @@
+---
+title: Encerramento do projeto
+description: Síntese das entregas do xVision, resultados da validação e próximos passos para evolução da solução
+---
+
+O xVision encerra este ciclo com um produto de análise de clipes de finalização, um pipeline
+modular de visão computacional e uma base de experimentos executados na Jetson. O trabalho
+conectou o recebimento do vídeo à identificação do contato, à extração de características e
+à consulta dos resultados, com ferramentas para avaliar a qualidade e registrar a origem de
+cada execução.
+
+Esta página consolida as entregas e decisões descritas nas sprints. Os números apresentados
+pertencem às rodadas identificadas nas referências; não representam uma nova execução dos
+modelos no momento deste encerramento.
+
+## Objetivo e recorte do produto
+
+O projeto foi desenvolvido no contexto da análise de futebol da Footstats, com o objetivo de
+apoiar a caracterização de finalizações por visão computacional. A entrada é um clipe que já
+contém uma finalização. Dentro dele, o sistema identifica o instante provável do contato e
+organiza as características extraídas em um evento estruturado.
+
+O fluxo do produto recebe o vídeo pela interface, acompanha seu processamento e permite
+consultar o histórico e as evidências por etapa. Nesse fluxo, a API executa o pipeline no
+próprio host. Na Jetson, a execução por catálogo usa duas etapas e produz eventos locais em
+JSONL. O [manual de operação](/docs/sprint-3/produto/como-rodar) descreve a preparação
+e a verificação de cada caminho.
+
+## O que foi construído
+
+| Frente | Entrega realizada | Referência |
+| --- | --- | --- |
+| Produto e interface | Cadastro e autenticação, envio de clipes, acompanhamento do processamento, histórico e consulta de resultados por etapa | [Operação do produto](/docs/sprint-3/produto/como-rodar) |
+| Serviço HTTP | Reserva de upload, recebimento do vídeo, fila de processamento local, persistência e consulta das análises | [Backend](/docs/sprint-3/produto/backend) |
+| Pipeline de visão | Organização modular da detecção de jogadores, bola e campo, tracking, identidade, pose e instante da finalização | [Pipeline de borda](/docs/sprint-4/modelos/edge-pipeline) |
+| Instante da finalização | Integração do detector temporal T-DEED, comparação com referências e validação após congelamento | [Instante da finalização](/docs/sprint-4/modelos/instante-da-finalizacao) |
+| Geometria e características | Estimação de homografia, tratamento da trajetória da bola e extração de características configuráveis do lance | [Campo e homografia](/docs/sprint-4/modelos/campo-e-homografia) e [tipo da jogada e área ocupada](/docs/sprint-4/modelos/tipo-da-jogada-e-area-ocupada) |
+| Contrato de saída | Evento `ShotEvent` 1.0, identificado por lance e validado por JSON Schema, com status das características | [Contrato do evento](/docs/sprint-2/backend/contrato) |
+| Execução na borda | Pipeline em duas etapas na Jetson, planos TensorRT para bola e campo e medições de tempo, memória e energia | [Execução na Jetson](/docs/sprint-4/produto/execucao-na-jetson) |
+| Avaliação e reprodução | Comandos de avaliação, manifestos de pesos, procedência do catálogo, controle do cache e retomada de execuções | [Procedência](/docs/sprint-4/produto/proveniencia-de-execucao) e [medição sem cache](/docs/sprint-5/160-medicao-sem-cache) |
+| Documentação | Manuais de instalação e operação, descrição dos experimentos, rastreabilidade dos requisitos e análise financeira | [Rastreabilidade](/docs/sprint-4/rastreabilidade-dos-requisitos) e [análise financeira](/docs/sprint-4/analise-financeira) |
+
+A configuração de modelos reúne as características `body_part`, `type_of_play`, `looked_before`
+e `goalkeeper_position`. O contrato distingue valores disponíveis, de baixa confiança e
+indisponíveis. Essa distinção permite interpretar a cobertura da análise sem transformar a
+ausência de evidência em uma resposta válida.
+
+## Resultados que orientaram as decisões
+
+A validação final usou o congelamento `congelamento-sprint-5`, no commit `33b47c3`. Os 241 clipes
+das dobras reservadas foram executados uma única vez, em duas etapas. Desses clipes, 14 tinham
+anotação do instante. Por isso, o total processado e o denominador da métrica de qualidade são
+diferentes.
+
+| Experimento | Resultado documentado | Interpretação para o projeto |
+| --- | --- | --- |
+| Instante no reservado | 13 de 14 clipes dentro da tolerância de 30 quadros; mediana de erro de 6 quadros; IC95 da proporção de 0,685 a 0,987 | Atingiu o critério fixado para esse teste; a amostra deve acompanhar a leitura dos 92,9% |
+| Bola no contato reservado | 12 de 14 detectadas | Identificou a detecção no contato como prioridade de evolução; ficou abaixo do critério do teste |
+| Trajetória nas dobras de ajuste | PCK de 0,3028 para 0,6025 na comparação pareada, com 114 quadros ganhos e 19 perdidos | Sustentou a troca avaliada para a trajetória; o resultado é do conjunto de ajuste |
+| Execução sustentada | 181,5 minutos, com 6,34 e 6,35 segundos de processamento por segundo de vídeo nos terços inicial e final | Mostrou estabilidade do custo durante a execução; a taxa medida não caracteriza processamento em tempo real |
+| Memória no reservado | Pico de 91,4%, com 82 clipes acima do limite definido | Direcionou a evolução para reduzir a retenção de quadros e avaliar clipes longos |
+| Redecodificação em 17 clipes longos de ajuste | Maior pico de RAM de 70,01% para 53,27%; mediana de tempo de 80,3 s para 91,0 s | Demonstrou uma troca mensurável entre memória e tempo de processamento |
+
+Os resultados e os hashes dos relatórios de origem estão na
+[validação após congelamento](/docs/sprint-5/140-pacote-reservado) e no
+[agregado da Jetson de 30/09](/sprint-5/evidencias/jetson-20260930.json).
+As medidas de ajuste e de reservado permanecem separadas para preservar o significado de cada teste.
+
+### Precisão numérica e otimização
+
+O projeto avaliou FP32, FP16 e INT8 por protocolos distintos. O
+[relato de INT8 com calibração](/docs/sprint-4/modelos/quantização-int8) apresenta a exportação
+direta dos pesos locais e suas métricas contra rótulos. A
+[comparação na Jetson](/docs/sprint-4/modelos/quantizacao-int8) registra tanto a concordância
+entre planos quanto a rodada dos pesos de produção.
+
+Para bola e campo de produção, a variante INT8 com a cabeça excluída não trouxe ganho de
+latência sobre FP16 nos testes descritos. A decisão foi manter os planos FP16 avaliados.
+Essa escolha considera o comportamento da saída e o custo no dispositivo, além do tamanho do
+artefato. Concordância com FP32, mAP contra rótulos e tempo por clipe continuam métricas separadas.
+
+### Confiabilidade do software
+
+A revisão final também tratou a integridade do produto e das medições. Foram corrigidos casos
+de previsões duplicadas na avaliação, reutilização de cache quando dependências opcionais mudavam,
+respostas de sessão antiga que afetavam sessões novas e retomada com entradas externas alteradas.
+A avaliação de limiares booleanos passou a considerar os escores exatos e a possibilidade de
+classificar todas as previsões como negativas.
+
+Essas entregas estão registradas na [revisão geral](/docs/sprint-5/162-revisao-geral), na
+[varredura de limiar](/docs/sprint-5/169-varredura-de-limiar) e nos
+[fingerprints de retomada](/docs/sprint-5/170-fingerprints-na-retomada), com testes de regressão
+associados aos defeitos reproduzidos. Seus resultados verificam comportamento de software;
+a qualidade dos modelos é avaliada pelos experimentos próprios de visão computacional.
+
+## Aprendizados do ciclo
+
+O instante, a trajetória e a homografia influenciam as características finais em cadeia. Uma
+melhora em uma métrica isolada precisa ser acompanhada até o evento produzido para confirmar seu
+efeito sobre a análise. Essa relação motivou avaliações por componente e do pipeline.
+
+Na Jetson, a organização da execução teve efeito direto sobre a viabilidade do processamento.
+Separar o T-DEED dos demais módulos permitiu trabalhar com a memória disponível. Os testes de
+redecodificação mostraram que reduzir memória pode aumentar o tempo, tornando necessária uma
+escolha explícita de prioridade operacional.
+
+A procedência também se tornou parte da avaliação: peso, configuração, commit, política de cache
+e conjunto de dados precisam acompanhar os resultados. O congelamento do reservado e a separação
+entre calibração, ajuste e avaliação tornam as comparações mais claras e sustentam decisões
+que outra pessoa consegue revisar.
+
+## Próximos passos
+
+As frentes abaixo são propostas de evolução. A ordem prioriza a qualidade das entradas do
+pipeline, seu custo na placa e a reprodução do fluxo por outros operadores.
+
+| Prioridade | Frente | Ação proposta | Como avaliar a evolução |
+| --- | --- | --- | --- |
+| 1 | Dados e avaliação | Ampliar a anotação de contatos, trajetórias e pontos do campo, contemplando oclusão, bola pequena e movimento de câmera; formar um novo conjunto de avaliação independente | Publicar critérios antes do teste, medir concordância entre anotadores e apresentar qualidade junto de cobertura e tamanho da amostra |
+| 2 | Bola, pose e homografia | Refinar a detecção e a seleção da bola, avaliar os ajustes de pose e acompanhar o efeito dos pontos do campo sobre a projeção | Comparar contato, trajetória, erro de projeção e características finais no mesmo recorte, com pesos e tracking identificados |
+| 3 | Memória na Jetson | Ampliar o ensaio de redecodificação para uma execução contínua com diferentes durações de clipe | Medir pico de RAM, tempo e equivalência das saídas; confrontar o resultado com o limite de memória definido |
+| 4 | Desempenho | Medir o custo completo das duas etapas sem reutilização de percepção e priorizar os módulos de maior duração | Comparar mediana, p95, energia e qualidade com `--no-cache`, registrando o runtime e a configuração de cada braço |
+| 5 | Operação reproduzível | Repetir o roteiro em ambiente limpo com outro operador e um pacote autorizado de dados e pesos | Conferir hashes, validar o evento e consultar o resultado HTTP, preservando comandos, logs e resultados dos ensaios de rede |
+| 6 | Uso das análises | Avaliar a leitura das evidências por etapa e dos status de confiança com os usuários da análise | Registrar compreensão dos resultados, tempo de revisão e casos que exigem conferência humana |
+
+O conjunto reservado já utilizado permanece como evidência do ciclo encerrado. Novas escolhas
+de modelo, limiar ou configuração devem usar dados de ajuste e ser julgadas em outro conjunto
+independente. Para novos experimentos de precisão, registre pesos, calibração, comandos e relatórios por rodada, seguindo a organização da
+[procedência de execução](/docs/sprint-4/produto/proveniencia-de-execucao).
+
+## Materiais para continuidade
+
+O repositório reúne código, configurações, contratos, testes e manifestos dos modelos. O
+[manual de instalação](/docs/sprint-3/produto/como-rodar) apresenta a preparação do produto;
+a [execução com módulos reais](/docs/sprint-4/produto/execucao-com-modulos-reais) apresenta
+a verificação das saídas;
+e a [documentação da Jetson](/docs/sprint-4/produto/execucao-na-jetson) detalha a execução na placa.
+Os vídeos, rótulos e pesos são obtidos pelos meios autorizados descritos nos respectivos manuais.
+
+Esses materiais permitem continuar o trabalho a partir das configurações e decisões registradas,
+com referências para comparar cada evolução com o resultado deste ciclo.

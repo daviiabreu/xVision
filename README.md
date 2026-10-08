@@ -206,6 +206,12 @@ O `scrub` precisa de janela e roda onde o `opencv` foi compilado com uma; o `she
 não depende de nada. A amostra é estratificada por partida com semente fixa, então rodar de novo
 continua de onde parou.
 
+## Encerramento do projeto
+
+O [relato de encerramento](docs/content/docs/sprint-5/encerramento-do-projeto.mdx) reúne as entregas
+do produto, os resultados da validação na Jetson, as decisões sobre os modelos e os próximos passos
+para evolução da qualidade, desempenho e operação.
+
 ## Histórico de Lançamentos
 
 As notas completas de cada versão estão em `releases/`.

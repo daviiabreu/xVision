@@ -1,4 +1,21 @@
 {
   "title": "Sprint 5",
-  "pages": ["140-pacote-reservado", "160-medicao-sem-cache", "161-integridade-tegrastats", "163-integridade-avaliacao", "165-cache-dependencias-opcionais", "166-respostas-de-sessao-antiga", "162-revisao-geral", "167-correcao-manual-operacao", "168-renovacao-de-sessao", "169-varredura-de-limiar", "170-fingerprints-na-retomada", "olhou-para-o-gol", "placeholder", "slides"]
+  "pages": [
+    "index",
+    "encerramento-do-projeto",
+    "140-pacote-reservado",
+    "160-medicao-sem-cache",
+    "161-integridade-tegrastats",
+    "163-integridade-avaliacao",
+    "165-cache-dependencias-opcionais",
+    "166-respostas-de-sessao-antiga",
+    "162-revisao-geral",
+    "167-correcao-manual-operacao",
+    "168-renovacao-de-sessao",
+    "169-varredura-de-limiar",
+    "170-fingerprints-na-retomada",
+    "olhou-para-o-gol",
+    "placeholder",
+    "slides"
+  ]
 }
