@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 import cli
 from edge.artifacts import sha256_of
 from edge.modules.pose import COCO_KEYPOINTS, YoloPose
+from edge.modules.registry import ModuleConfig
 from edge.testing.make_clip import make_synthetic_clip
 from mlops.catalog import ShotRecord
 
@@ -48,7 +49,7 @@ class _PoseFalsa:
 
     def estimate_boxes(self, batch: Any, caixas: Any) -> dict[int, Any]:
         self.caixas.append(dict(caixas))
-        pontos = []
+        pontos: list[tuple[str, float, float, float]] = []
         for nome in COCO_KEYPOINTS:
             origem = nome
             if self._trocado and nome == "ankle_left":
@@ -58,6 +59,13 @@ class _PoseFalsa:
             x, y = _posicao(origem)
             pontos.append((nome, x, y, 0.9))
         return {indice: tuple(pontos) for indice in caixas}
+
+
+def _substitui_modulos(monkeypatch: pytest.MonkeyPatch, modulos: dict[str, object]) -> None:
+    def carregar(_config: tuple[ModuleConfig, ...]) -> dict[str, object]:
+        return modulos
+
+    monkeypatch.setattr(cli, "load_modules", carregar)
 
 
 @pytest.fixture
@@ -105,7 +113,7 @@ def test_o_comando_declara_o_denominador_que_mediu(
     monkeypatch: pytest.MonkeyPatch,
     include_proposals: bool,
 ) -> None:
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _PoseFalsa()})
+    _substitui_modulos(monkeypatch, {"pose": _PoseFalsa()})
     extra = ["--include-proposals"] if include_proposals else []
 
     relatorio = _roda(tmp_path, pose_population, *extra)
@@ -122,7 +130,7 @@ def test_o_comando_declara_o_denominador_que_mediu(
 def test_o_estimador_exato_sai_utilizavel(
     tmp_path: Path, pose_population: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _PoseFalsa()})
+    _substitui_modulos(monkeypatch, {"pose": _PoseFalsa()})
 
     relatorio = _roda(tmp_path, pose_population)
 
@@ -136,7 +144,7 @@ def test_a_troca_de_lado_chega_ao_relatorio_como_zero(
     tmp_path: Path, pose_population: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """O defeito que o comando existe para pegar, e que a OKS nao pega."""
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _PoseFalsa(trocado=True)})
+    _substitui_modulos(monkeypatch, {"pose": _PoseFalsa(trocado=True)})
 
     relatorio = _roda(tmp_path, pose_population)
 
@@ -151,7 +159,7 @@ def test_a_caixa_medida_e_a_da_anotacao(
 ) -> None:
     """A escolha do finalizador nao entra aqui: se entrasse, o numero mediria as duas coisas."""
     modulo = _PoseFalsa()
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": modulo})
+    _substitui_modulos(monkeypatch, {"pose": modulo})
 
     _roda(tmp_path, pose_population)
 
@@ -163,7 +171,7 @@ def test_a_caixa_medida_e_a_da_anotacao(
 def test_o_video_diferente_do_anotado_encerra_com_erro(
     tmp_path: Path, pose_population: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _PoseFalsa()})
+    _substitui_modulos(monkeypatch, {"pose": _PoseFalsa()})
     pose_population[0]["video_sha256"] = "b" * 64
     labels = tmp_path / "pose.jsonl"
     labels.write_text(json.dumps(pose_population[0]), encoding="utf-8")
@@ -177,7 +185,7 @@ def test_o_video_diferente_do_anotado_encerra_com_erro(
 def test_a_configuracao_sem_modulo_pose_encerra_com_erro(
     tmp_path: Path, pose_population: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {})
+    _substitui_modulos(monkeypatch, {})
     labels = tmp_path / "pose.jsonl"
     labels.write_text(json.dumps(pose_population[0]), encoding="utf-8")
 
@@ -198,7 +206,7 @@ def test_o_modulo_sem_o_seam_encerra_com_erro(
         def load(self) -> None: ...
         def close(self) -> None: ...
 
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _SemSeam()})
+    _substitui_modulos(monkeypatch, {"pose": _SemSeam()})
     labels = tmp_path / "pose.jsonl"
     labels.write_text(json.dumps(pose_population[0]), encoding="utf-8")
 
@@ -211,7 +219,7 @@ def test_o_modulo_sem_o_seam_encerra_com_erro(
 def test_a_dobra_vazia_encerra_com_erro(
     tmp_path: Path, pose_population: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(cli, "load_modules", lambda _config: {"pose": _PoseFalsa()})
+    _substitui_modulos(monkeypatch, {"pose": _PoseFalsa()})
     labels = tmp_path / "pose.jsonl"
     labels.write_text(json.dumps(pose_population[0]), encoding="utf-8")
 

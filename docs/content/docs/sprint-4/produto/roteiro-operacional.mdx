@@ -1,0 +1,169 @@
+---
+title: Roteiro operacional com modelos reais
+description: Do clone à validação do evento local, com verificação HTTP e ensaios de rede
+---
+
+Este roteiro cobre a execução nativa com modelos reais, a validação do evento local e a consulta
+do resultado pela API. O fluxo HTTP é cliente → API com worker local → resultado persistido.
+Na Jetson, a CLI executa o catálogo em duas etapas e grava eventos em JSONL.
+Os comandos e critérios abaixo orientam uma nova execução e seu registro de evidências.
+
+## Papéis no fluxo executável
+
+| Componente | Responsabilidade | Saída verificável |
+| --- | --- | --- |
+| CLI de borda | Executar o pipeline e serializar `ShotEvent` | `events.jsonl` validado contra o schema |
+| API e worker local | Receber o vídeo, chamar `process_clip` e persistir o resultado | ID, status e resposta por etapas |
+| Interface | Enviar o clipe e consultar o resultado HTTP | Histórico e visualização das etapas |
+| Compose de demonstração | Subir frontend, API e volume com pipeline sintético | Smoke test HTTP e persistência |
+
+## 1. Preparar um ambiente limpo
+
+Comece pelo [manual do clone](/docs/sprint-3/produto/como-rodar), que contém URL do repositório,
+pré-requisitos, criação do `.env`, acesso autorizado aos pesos, hashes dos manifestos e instalação
+do código externo T-DEED em revisão fixa. Registre o SHA completo com `git rev-parse HEAD` e use
+esse mesmo SHA na repetição; não basta registrar `develop`.
+
+Escolha o ambiente antes da instalação:
+
+- **Smoke test de serviço:** Compose padrão e fixture sintética. Valida HTTP e persistência, sem modelos.
+- **Inferência real em host compatível:** instalação local com extras e cinco pesos conferidos, conforme
+  a seção “Modelos e render” do manual. `pipeline.models.toml` usa CUDA no pré-processamento da bola;
+  não trate esse perfil como garantia de execução em qualquer CPU.
+- **Jetson:** ambiente e versões da [execução na placa](/docs/sprint-4/produto/execucao-na-jetson),
+  grupo `jetson` e duas etapas. Engines precisam ser construídos na placa e conferidos pelo ONNX de origem.
+
+`xvision artifact get` **confere**, não baixa pesos. Antes do aceite de inferência, confira os cinco pesos, o acesso aos dados, CUDA e o checkpoint
+T-DEED. Registre os módulos e suas implementações efetivamente usados na configuração.
+
+O Compose padrão é o caminho do smoke test sintético. Para os comandos com modelos reais desta
+página, use a instalação nativa com extras, pesos e código externo preparados conforme o manual.
+O volume nomeado do Compose recebe a cópia inicial de `./var`; para o fluxo nativo, os artefatos
+ficam no `var/` do próprio clone.
+
+## 2. Executar modelos reais e conferir o evento
+
+Após preparar pesos, T-DEED e dados autorizados, em `src/`, confira o inventário:
+
+```bash
+uv run --no-sync xvision artifact status
+uv run --no-sync xvision data status
+```
+
+Em host com recursos para a configuração de uma etapa, processe um clipe autorizado:
+
+```bash
+uv run --no-sync xvision run --clip ../var/entrada.mp4 --config config/pipeline.models.toml --render
+```
+
+Na Jetson de 8 GB, use o catálogo e as duas etapas abaixo; antes, construa os planos seguindo
+`config/pipeline.models.jetson.toml` e o manual da placa. Mantenha o mesmo catálogo e recorte nas duas:
+
+```bash
+uv run --no-sync xvision spots --config config/pipeline.models.toml --dobra ajuste
+uv run --no-sync xvision run --all --dobra ajuste --config config/pipeline.models.jetson.toml
+```
+
+Guarde os logs e o diretório de saída informado pela CLI. Para validar o arquivo, substitua
+`/caminho/da/execucao/events.jsonl` pelo caminho produzido, ainda em `src/`:
+
+```bash
+uv run --no-sync python - /caminho/da/execucao/events.jsonl <<'PY'
+import json
+import sys
+from pathlib import Path
+from contracts import validate_shot_event
+
+path = Path(sys.argv[1])
+events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+assert events, 'Nenhum evento produzido'
+ids = []
+for event in events:
+    validate_shot_event(event)
+    ids.append(event['shot_id'])
+assert len(ids) == len(set(ids)), 'shot_id duplicado nesta saída'
+print(f'{len(events)} eventos válidos; IDs únicos nesta saída')
+PY
+sha256sum /caminho/da/execucao/events.jsonl
+```
+
+Aceite local: saída não vazia, schema válido, identificação do clipe esperado e revisão/configuração
+registradas. Validade de schema não comprova acurácia. Preserve os status `low_confidence` e
+`unavailable`; não os conte como medidas corretas. Para `--all`, arquive `run.json` e confira eventos
+e falhas do catálogo; para `--clip`, registre manualmente commit, configuração e hashes, pois não
+há `run.json`. Se solicitou render, confira a existência e reprodução do MP4, não só imagens de etapas.
+
+## 3. Verificar upload, processamento e consulta HTTP
+
+Para esse teste, suba a API **nativa no host de inferência** com os extras e
+`XVISION_PIPELINE=pipeline.models.toml`, conforme o manual. O caminho de upload não orquestra
+as duas etapas da Jetson: os `shot_id` do catálogo e os IDs `video-N` da API não devem ser tratados
+como intercambiáveis. Não declare que os comandos do catálogo validaram upload real na placa.
+
+Crie uma conta pela interface e obtenha um token com a chamada de login da coleção Bruno em
+`src/api/docs/xvision/`. No terminal Bash do cliente, configure a origem efetivamente exposta:
+`http://127.0.0.1:8080` para API nativa local ou `http://localhost:3000` para o smoke test Compose.
+O exemplo a seguir usa a primeira. Digite o token sem imprimi-lo:
+
+```bash
+export BASE_URL=http://127.0.0.1:8080
+read -r -s -p 'Token de acesso: ' XVISION_TEST_TOKEN
+export XVISION_TEST_TOKEN
+mkdir -p ../var/aceite-http
+curl --fail-with-body -sS -X POST "$BASE_URL/v1/videos/upload-url" \
+  -H "Authorization: Bearer $XVISION_TEST_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"fileName":"entrada.mp4","contentType":"video/mp4"}' \
+  -o ../var/aceite-http/reserva.json
+export VIDEO_ID=$(python3 -c 'import json; print(json.load(open("../var/aceite-http/reserva.json"))["id"])')
+export UPLOAD_PATH=$(python3 -c 'import json; print(json.load(open("../var/aceite-http/reserva.json"))["uploadUrl"])')
+curl --fail-with-body -sS -X PUT "$BASE_URL$UPLOAD_PATH" \
+  -H 'Content-Type: video/mp4' --data-binary @../var/entrada.mp4 \
+  -o ../var/aceite-http/upload.json
+curl --fail-with-body -sS "$BASE_URL/v1/videos/status/$VIDEO_ID" \
+  -H "Authorization: Bearer $XVISION_TEST_TOKEN" -o ../var/aceite-http/status.json
+cat ../var/aceite-http/status.json
+```
+
+A resposta de reserva fornece uma URL relativa assinada. O PUT aceito enfileira o trabalho; não
+confirma conclusão. Repita o GET de status respeitando `reconsultar_em_s` até `Finalizado` ou
+`Falhou`; estabeleça e registre um limite de espera para o ambiente. `Falhou` exige guardar o
+`motivo`, não publicar sucesso. Ao finalizar:
+
+```bash
+curl --fail-with-body -sS "$BASE_URL/v1/videos/$VIDEO_ID" \
+  -H "Authorization: Bearer $XVISION_TEST_TOKEN" -o ../var/aceite-http/resultado.json
+unset XVISION_TEST_TOKEN
+```
+
+Confira etapas, status das métricas e `render_url`, se aplicável. A API devolve uma projeção por
+etapas (`ResultadoResponse`), não o JSONL integral `ShotEvent`. Arquive os JSONs em acesso restrito
+(a reserva contém URL assinada), logs, revisão, hashes dos pesos e configuração usada. Esse é o
+aceite do serviço HTTP local, identificado pelo ID da análise e pelo resultado persistido.
+
+## 4. Ensaiar falhas de rede no serviço existente
+
+Execute estes ensaios em ambiente de teste com cliente e serviço separados, mantendo acesso local
+aos logs do serviço. Prepare o binding e a origem CORS para essa rede autorizada, caso use API
+nativa. A porta 8080 do Compose não é publicada; seu cliente acessa o proxy em 3000.
+Registre horário de corte/restauração, ID, respostas e estado final. Os resultados abaixo são
+**critérios a verificar**, não medições já realizadas.
+
+| Ensaio | Procedimento | Evidência e critério |
+| --- | --- | --- |
+| Rede indisponível antes da reserva | Coloque o navegador do cliente offline, tente o envio e restaure a conexão | Registrar erro visível e ausência de confirmação; consultar histórico antes de tentar novamente |
+| Interrupção durante PUT | Limite a rede no navegador e interrompa o upload em andamento | Guardar ID da reserva, logs e status após restauração; não assumir aceite nem repetir PUT automaticamente |
+| Resposta perdida após envio | Após disparar PUT, interrompa a conexão do cliente e restaure | Consultar o mesmo ID: se aceito, acompanhar sem criar outra análise; se incerto, registrar como inconclusivo |
+| Desconexão durante processamento | Após receber aceite, deixe o cliente offline; mantenha o serviço ativo | Conferir localmente o processamento; ao reconectar, consultar o mesmo ID e comparar com o histórico |
+| Reinício do serviço | Com análise concluída, reinicie a API e consulte o mesmo ID | Resultado persistido deve continuar disponível; isso testa persistência, não reenvio de eventos remotos |
+
+Use a coleção Bruno para repetir as consultas após restaurar a conexão. Reservas têm expiração;
+consulte o estado e o diagnóstico antes de criar outra. Não há neste roteiro garantia de
+idempotência de novos uploads nem promessa de recuperação automática de toda interrupção.
+Falhas observadas e ensaios não executados devem aparecer individualmente no relatório.
+
+## Registro de execução a anexar
+
+Preencha uma linha por etapa com operador, data, host, commit, configuração, comando, resultado
+esperado, resultado observado e caminho/hash da evidência. Marque cada etapa como aprovada,
+reprovada, bloqueada por pré-requisito ou não executada. Até que haja execução documentada,
+este roteiro serve como procedimento e critérios de aceite da execução local.

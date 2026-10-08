@@ -119,7 +119,7 @@ independente, com seu próprio `package.json`.
 
 ## Execução do Projeto
 
-### Produto completo
+### Execução local e escopo do deploy
 
 O [manual de operação da Sprint 3](https://g02-a0b03e.pages.git.inteli.edu.br/docs/sprint-3/produto/como-rodar/)
 mostra como partir do clone, subir frontend e serviço HTTP, enviar um vídeo sintético, conferir o
@@ -127,6 +127,15 @@ resultado e reiniciar preservando o histórico. A
 [validação reproduzível](https://g02-a0b03e.pages.git.inteli.edu.br/docs/sprint-3/produto/execucao-e-validacao/)
 inclui comandos de teste e evidência versionada. Modelos reais e vídeo com bola e visão superior
 exigem os pesos e o runtime descritos no manual.
+
+O [roteiro operacional](docs/content/docs/sprint-4/produto/roteiro-operacional.mdx) cobre
+smoke test com stubs, inferência real nativa e aceite HTTP, com validação do evento e ensaios de
+falha de rede. A API executa o pipeline no próprio host e disponibiliza o resultado por etapas.
+
+O [relato INT8 com calibração](docs/content/docs/sprint-4/modelos/quantização-int8.mdx) apresenta
+as métricas contra rótulos e explica sua relação com os testes de concordância e de produção.
+O [protocolo experimental](docs/content/docs/sprint-4/modelos/protocolo-experimentos-int8.mdx)
+orienta o registro de pesos, calibração, commit, comandos e relatórios por rodada.
 
 ### Documentação
 

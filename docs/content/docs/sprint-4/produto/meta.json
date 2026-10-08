@@ -3,6 +3,7 @@
   "pages": [
     "proveniencia-de-execucao",
     "execucao-com-modulos-reais",
-    "execucao-na-jetson"
+    "execucao-na-jetson",
+    "roteiro-operacional"
   ]
 }

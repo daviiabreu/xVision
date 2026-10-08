@@ -3,6 +3,24 @@ title: Quantização INT8 com calibração
 description: Exportação dos modelos para TensorRT INT8 com dataset de calibração local, métricas de qualidade e comparação com FP16
 ---
 
+## Relação com os outros experimentos
+
+Esta é a referência principal do relato de **exportação direta Ultralytics com calibração local**,
+identificado como INT8-B. As tabelas de precision, recall e mAP descrevem avaliação contra rótulos;
+essas métricas têm significado diferente da concordância entre saídas FP32, FP16 e INT8.
+
+A página [INT8 na Jetson](/docs/sprint-4/modelos/quantizacao-int8) registra outros dois experimentos:
+INT8-A, de 24/09, compara planos dos mesmos pesos locais contra FP32; INT8-C, consolidado em 30/09,
+avalia variantes dos pesos de produção de bola e campo. Pesos, calibração, cabeças quantizadas e
+unidades de tempo diferem. Portanto, os três relatos não constituem uma única série de evolução.
+
+A leitura de viabilidade por modelo abaixo se refere a este experimento. Para a configuração de
+produção, a decisão registrada em INT8-C é manter os planos FP16 avaliados. A saída de caixas do
+modelo de campo, isoladamente, não valida a saída de pose usada na homografia.
+
+O [protocolo experimental](/docs/sprint-4/modelos/protocolo-experimentos-int8) apresenta comandos
+para uma nova rodada e o registro de pesos, calibração, commit e relatórios a associar a cada resultado.
+
 Esta página dá continuidade à [quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao),
 que converteu os modelos de jogadores (Players), bola (Ball) e pontos do campo (Keypoints)
 de PyTorch FP32 para TensorRT FP16. Nesta sprint, os três modelos foram exportados
@@ -64,8 +82,8 @@ contra os 29–30 segundos do FP16 e os 48–50 segundos do FP32, medidos na mes
 | Ball      | 50 s            | 30 s            | 7 s             | 77%                |
 
 Os três modelos passaram de aproximadamente 12 frames por segundo (FP16) para cerca de
-51 frames por segundo em INT8, ficando pela primeira vez acima da taxa de captura do clipe
-(60 fps). O INT8 ficou aproximadamente 4,3× mais rápido que o FP16 e 7× mais rápido
+51 frames por segundo em INT8, ainda abaixo da taxa de captura do clipe
+(60 fps). Esse valor individual não comprova processamento em tempo real do pipeline completo. O INT8 ficou aproximadamente 4,3× mais rápido que o FP16 e 7× mais rápido
 que o FP32 nas mesmas condições de medição.
 
 ## Validação de qualidade
@@ -91,8 +109,8 @@ As quedas em relação ao FP16 são maiores do que as observadas na conversão F
 ainda conservadoras: precision e recall permanecem acima de 0,97, e o F1 médio por classe
 fica em 0,98. O mAP50 cai de 0,992 para 0,984, uma redução relativa de 0,8%. O impacto
 maior aparece nas métricas com IoU mais alto (mAP75 e mAP50-95), onde a quantização INT8
-introduz erros de localização mais perceptíveis. Ainda assim, Players permanece adequado
-para uso em produção com INT8.
+introduz erros de localização mais perceptíveis. Nesse recorte, Players apresenta menor
+degradação que Ball; a conclusão se limita aos pesos locais avaliados.
 
 ### Keypoints
 
@@ -112,7 +130,8 @@ Caixas (detecção de campo):
 | mAP50-95            | 0.9539              | 0.9539          | 0.9506          |
 
 As métricas de caixa praticamente não se alteraram em relação ao FP16 e ao FP32 original.
-O mAP50 chega a registrar uma leve alta (0,9900 → 0,9911), dentro da variação esperada.
+O mAP50 registra uma diferença de +0,0011 (0,9900 → 0,9911); o valor isolado não demonstra
+um ganho consistente de qualidade.
 
 Pose (keypoints do campo):
 
@@ -126,13 +145,14 @@ Pose (keypoints do campo):
 | mAP50-90            | 0.5673              | 0.5671          | 0.4236          |
 | mAP50-95            | 0.5351              | 0.5346          | 0.3815          |
 
-A pose é significativamente mais sensível à quantização INT8 do que as caixas. O mAP75
-cai de 0,56 para 0,41, uma redução relativa de 27%. Isso indica que o posicionamento
-preciso dos keypoints é degradado pela quantização INT8: o modelo ainda detecta os pontos
-do campo, mas com desvios que afetam a correspondência sob IoU mais restrito (e, por
-consequência, a qualidade da homografia). Esse resultado está alinhado com o observado
-na Sprint 3 via concordância de pixels: INT8 deslocava os pontos em ~11,9 px na mediana,
-contra 0,19 px do FP16.
+A saída de pose apresenta maior redução de mAP que as caixas. O mAP75 cai de 0,5613 para
+0,4102, uma redução relativa de aproximadamente 27%. As métricas de pose e de caixas avaliam
+saídas diferentes e devem permanecer separadas. Esses resultados motivam medir o erro de
+homografia diretamente; mAP de pose não é erro de projeção no campo.
+
+Em outro protocolo, INT8-A de 24/09 na Sprint 4 mediu deslocamento mediano de 12,1 px dos pontos
+INT8 contra FP32, frente a 0,18 px em FP16. Esse resultado é concordância entre planos e não uma
+segunda medição do mAP desta tabela.
 
 ### Ball
 
@@ -150,12 +170,12 @@ O modelo de bola apresentou degradação grave com a quantização INT8.
 
 Os números mostram colapso da detecção. O mAP50 cai de 0,4649 (FP16) para 0,1676, queda
 relativa de 64%. O mAP75 essencialmente zera (0,0032), e o recall cai para 0,38. O modelo
-não é mais confiável para detectar a bola em INT8. Isso é consistente com o observado na
-Sprint 3 por concordância: o INT8 produzia muitas detecções espúrias e perdia a maior parte
-das bolas do FP32, provavelmente porque a caixa da bola é pequena (~8 px de lado na entrada
-de 1280 px) e extremamente sensível a deslocamentos de representação.
+apresenta degradação expressiva neste conjunto. Em INT8-A, com outro protocolo, foram
+reencontradas 36 de 67 detecções FP32 por IoU e 63 de 67 pela distância do centro, com 37
+detecções adicionais sem par. Detecções adicionais em relação ao FP32 não são necessariamente
+falsos positivos contra rótulos. Essa distinção impede interpretar concordância como acurácia.
 
-A causa raiz está na limitação do modelo original: Ball já era o modelo com desempenho mais
+Uma hipótese, ainda não isolada por experimento controlado, é a sensibilidade do modelo original: Ball já era o modelo com desempenho mais
 fraco antes de qualquer quantização, e a quantização INT8 amplia essa fragilidade. Ampliar
 o dataset com exemplos de bolas pequenas, ocluídas e com desfoque de movimento continua
 sendo a principal alavanca para melhorar esse modelo antes de qualquer tentativa de
@@ -163,27 +183,21 @@ quantização mais agressiva.
 
 ## Comparativo geral dos três modelos
 
-| Modelo             | Degradação geral                                 | Uso em produção com INT8?                              |
+| Modelo             | Degradação geral                                 | Interpretação neste experimento |
 | ------------------ | ------------------------------------------------ | ------------------------------------------------------ |
-| Players            | Pequena - F1 e mAP50 acima de 0,98               | Viável, pendente validação contra rótulo na placa      |
-| Keypoints - caixas | Mínima - métricas praticamente iguais ao FP16    | Viável                                                 |
-| Keypoints - pose   | Moderada - mAP75 cai ~27%, impacto na homografia | Requer avaliação do erro de homografia antes de adotar |
+| Players            | Pequena - F1 e mAP50 acima de 0,98               | Candidato à avaliação no pipeline      |
+| Keypoints - caixas | Mínima - métricas praticamente iguais ao FP16    | Caixas preservadas; analisar pose separadamente |
+| Keypoints - pose   | Moderada - mAP75 cai ~27%, impacto na homografia | Medir impacto sobre a homografia |
 | Ball               | Grave - mAP50 cai 64%, modelo não confiável      | Não viável no estado atual                             |
 
-## Decisão de adoção
+## Interpretação e decisão de adoção
 
-Ball INT8 não entra no pipeline. A qualidade é insuficiente em qualquer métrica.
-O caminho prioritário continua sendo melhorar o modelo base com mais dados antes de
-tentar quantizações agressivas.
+Este relato indica Players e a saída de caixas de Keypoints como candidatos à avaliação no pipeline. A saída de pose alimenta a homografia e precisa ser avaliada separadamente.
+Ball apresenta degradação nas métricas declaradas. Essas conclusões se referem aos pesos locais e ao protocolo desta página.
 
-Players e Keypoints (caixas) INT8 são viáveis.
-O ganho de velocidade é expressivo (~4× sobre FP16 individual), porém a validação contra
-rótulo na Jetson ainda não foi feita para os pesos de produção — apenas para os pesos
-locais usados nesta avaliação. A adoção formal fica condicionada a essa etapa.
-
-Keypoints (pose) INT8 exige avaliação específica do erro de homografia. A queda
-de mAP nas métricas de pose pode ou não ser tolerável dependendo do impacto sobre a
-projeção do campo.
+A decisão consolidada está em [INT8-A e INT8-C](/docs/sprint-4/modelos/quantizacao-int8):
+**não adotar INT8 na configuração atual**. Uma revisão dessa decisão exige pesos de produção,
+calibração identificada, avaliação rotulada independente e ganho medido no pipeline da Jetson.
 
 ## Referências
 

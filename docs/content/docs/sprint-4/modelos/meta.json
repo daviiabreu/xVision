@@ -6,7 +6,9 @@
     "campo-e-homografia",
     "tipo-da-jogada-e-area-ocupada",
     "pose-do-finalizador",
+    "quantização-int8",
     "quantizacao-int8",
+    "protocolo-experimentos-int8",
     "edge-pipeline"
   ]
 }

@@ -3,6 +3,30 @@ title: Quantização INT8 na Jetson
 description: Os modelos quantizados em INT8 medidos na placa contra fp16 e fp32 do mesmo peso, em tempo e concordância
 ---
 
+## Relação com o relato de calibração
+
+O relato principal da exportação direta é
+[Quantização INT8 com calibração](/docs/sprint-4/modelos/quantização-int8), identificado como
+INT8-B. Esta página complementa esse relato com duas rodadas Q/DQ executadas na Jetson.
+
+| ID | Pesos e método | Métrica e referência | Registro |
+| --- | --- | --- | --- |
+| INT8-A, 24/09 | Pesos locais Players `220a757f…`, Ball `c4f7222d…`, Line `a7f78ca3…`; cabeça incluída; 50 quadros | Concordância com TensorRT FP32 do mesmo peso; FP16 como controle | [JSON](/sprint-4/modelos/evidencias/quantizacao-int8-20260924.json), commit `dd808ed`, árvore limpa; hashes ONNX em `modelos.*.planos.*.construcao` |
+| INT8-B | Exportação direta Ultralytics, `quantizacao_int8.py`; vídeo de 360 quadros e datasets locais | Precision, recall e mAP contra rótulos; tempo por vídeo | [Relato com calibração](/docs/sprint-4/modelos/quantização-int8) |
+| INT8-C, consolidado em 30/09 | Pesos de produção de bola e campo, cabeça excluída; 24 clipes | Concordância com FP16; avaliações separadas de contato, trajetória e campo | [Agregado](/sprint-5/evidencias/jetson-20260930.json), `experimentos_commit=2807613`; hashes em `fontes_sha256` |
+
+INT8-A mede divergência em relação ao FP32, não queda de acurácia contra rótulos. INT8-B sustenta
+a discussão de qualidade dos pesos locais no seu protocolo. INT8-C sustenta a decisão para os
+pesos de produção de bola e campo: manter o FP16, dado que as variantes INT8 não reduziram a
+latência e pioraram indicadores do campo na amostra descrita. Não se generaliza essa decisão para
+toda quantização futura. A tag de congelamento `33b47c3…` do agregado é um registro distinto do
+commit dos experimentos.
+
+Os 7 s por vídeo de INT8-B e os milissegundos por passada de INT8-A têm escopos diferentes; o
+segundo inclui transferências e exclui pré/pós-processamento. Não comparar os ganhos diretamente.
+Para registrar uma nova rodada, use o
+[protocolo de rastreabilidade](/docs/sprint-4/modelos/protocolo-experimentos-int8).
+
 Esta página continua a [quantização da Sprint 3](/docs/sprint-3/modelos/quantizacao), que levou os
 modelos de jogadores (Players), bola (Ball) e pontos do campo (Line) a TensorRT FP16. Nesta sprint os
 três foram quantizados em INT8 (card #138) e publicados no Hugging Face, mas ainda não tinham rodado
@@ -88,8 +112,8 @@ INT8 devolve 100 detecções onde o fp32 devolve 67.
 O par por IoU é duro com a bola, cuja caixa tem 8 px de lado na entrada: um deslocamento de 3 px já
 derruba o IoU para 0,45. Pelo centro, o INT8 reencontra 63 das 67 bolas do fp32, e a maior parte da
 diferença por IoU era a caixa mudando de forma. O que não se explica por deslocamento são as 37
-detecções sem par nenhum, em 50 quadros, onde o fp16 não acrescenta nenhuma: bola falsa que entra
-na trajetória.
+detecções sem par nenhum, em 50 quadros, onde o fp16 não acrescenta nenhuma: detecções adicionais em relação ao FP32. Sem rótulos, não é possível classificá-las
+como falsas; elas podem alterar a trajetória.
 
 | Tamanho do plano | fp32 | fp16 | INT8 |
 | --- | --- | --- | --- |
@@ -148,9 +172,9 @@ Os agregados desta rodada, com hashes dos relatórios de origem, estão em
 ## Decisões
 
 **O INT8 dos pesos de produção também não entra.** Sem a cabeça quantizada ele não ganha tempo, e
-com ela a acurácia cai demais. A alternativa descartada era quantizar a cabeça pelo ganho de 21% a
+com ela a concordância com a referência degrada fortemente nos testes descritos. A alternativa descartada era quantizar a cabeça pelo ganho de 21% a
 23% da primeira rodada, que custa os pontos do campo e as bolas que as features leem. A rota fica
-versionada para a próxima tentativa, que precisa de outra técnica, e não de outra calibração.
+versionada para a próxima tentativa, para investigar técnica, calibração e sensibilidade por camada em novos experimentos controlados.
 
 **O INT8 não entra no pipeline agora.** Em Ball ele acrescenta 37 bolas que o fp32 não vê. Em
 Players e em Line o ganho é de cerca de 23% sobre o fp16, e a perda só pode ser julgada contra

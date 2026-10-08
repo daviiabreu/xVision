@@ -1,0 +1,137 @@
+---
+title: Rastreabilidade e reprodução de INT8
+description: Identificação dos três experimentos, comandos disponíveis e evidências necessárias para repetir a decisão
+---
+
+Use os IDs INT8-A, INT8-B e INT8-C definidos na
+[síntese de INT8](/docs/sprint-4/modelos/quantizacao-int8). Os comandos abaixo são um protocolo
+para **novas execuções**, com parâmetros explícitos e preservação dos relatórios produzidos.
+
+## Registro obrigatório por rodada
+
+Guarde uma pasta por rodada e por braço (FP32, FP16, INT8). Não sobrescreva o baseline.
+
+| Registro | Conteúdo necessário |
+| --- | --- |
+| Código | SHA completo, `git status --short`, patch se a árvore estiver modificada, comando e diretório de execução |
+| Pesos | Manifesto, SHA-256 do `.pt`, ONNX e engine; formas de entrada, batch, cabeça incluída/excluída e precisão das demais camadas |
+| Calibração | Origem autorizada, versão/hash do dataset, splits, quantidade de quadros/tensores, semente, pré-processamento e hashes dos tensores |
+| Avaliação | Lista privada e hash das amostras e rótulos, split, tamanho, anotação humana ou proposta do modelo; ausência de sobreposição com calibração |
+| Ambiente | Placa, modo de energia, RAM, sistema, Python, CUDA, TensorRT, torch, Ultralytics, ONNX Runtime e lock usado |
+| Medição | Aquecimento, repetições, ordem dos braços, cache, unidade (passada ou clipe), inclusão de cópias, pré/pós-processamento e render |
+| Saídas | Relatórios brutos, agregação, hashes e limitações; limiares de aceite definidos antes da avaliação |
+
+Mantenha vídeos, rótulos e tensores no armazenamento autorizado. Publique os hashes e agregados,
+com indicação de como um avaliador autorizado obtém os dados. Um hash identifica o arquivo,
+mas não disponibiliza seu conteúdo para reprodução.
+
+Em `src/`, depois de preparar o runtime descrito no
+[manual da Jetson](/docs/sprint-4/produto/execucao-na-jetson):
+
+```bash
+mkdir -p ../var/experimentos/int8-nova-rodada
+git rev-parse HEAD > ../var/experimentos/int8-nova-rodada/commit.txt
+git status --short > ../var/experimentos/int8-nova-rodada/arvore.txt
+uv pip freeze > ../var/experimentos/int8-nova-rodada/ambiente.txt
+sha256sum uv.lock config/pipeline.models.jetson.toml > ../var/experimentos/int8-nova-rodada/config.sha256
+```
+
+## INT8-A: comparação entre planos
+
+O [JSON de 24/09](/sprint-4/modelos/evidencias/quantizacao-int8-20260924.json) registra
+`git_sha=dd808ed`, `git_dirty=false`, tempos individuais e, em
+`modelos.<modelo>.planos.<precisao>.construcao`, o hash ONNX e o ambiente de construção.
+Use os hashes completos do registro de construção para identificar os ONNX da comparação.
+
+Se os ONNX originais estiverem disponíveis, confira seus hashes contra o JSON e construa os planos
+na placa com `python -m mlops.build_engine --onnx CAMINHO --output CAMINHO` (adicione `--fp16`
+para o braço FP16). `CAMINHO` deve ser substituído pelo artefato de cada braço. Preserve cada
+`.run.json` ao lado do engine. Para Players, com os planos conferidos em `var/engines/int8-a/`:
+
+```bash
+uv run --no-sync xvision bench-planos \
+  --plano fp32=../var/engines/int8-a/player-fp32.engine \
+  --plano fp16=../var/engines/int8-a/player-fp16.engine \
+  --plano int8=../var/engines/int8-a/player-int8.engine \
+  --referencia fp32 --clipes 10 --por-clipe 5 --dobra ajuste \
+  --raio-centro 4 --saida ../var/experimentos/int8-nova-rodada/player-concordancia.json
+```
+
+Para Ball, use os três planos da bola; para Line, informe também `--pontos` com o número de pontos
+da cabeça do ONNX original. Não deduza esse valor do modelo de campo de produção, que é outro peso.
+Confirme o catálogo e sua ordem no commit histórico: selecionar dez clipes de um catálogo alterado
+não reproduz necessariamente a amostra de 24/09. Este comando mede **concordância**, não mAP.
+
+## INT8-B: exportação direta e avaliação rotulada
+
+Prepare os pesos locais `player.pt`, `ball.pt` e `keypoints.pt` em `src/models/quantizacao/`.
+Registre os hashes completos antes de executar. Em cada `dataset/<modelo>/`, forneça o YAML e os
+dados autorizados. Verifique quais amostras a versão instalada do exportador usa para calibrar;
+a avaliação abaixo usa explicitamente `test`, que deve existir e ser independente da calibração.
+
+No ambiente Python com CUDA, Ultralytics e TensorRT compatíveis, a partir dessa pasta:
+
+```bash
+python3 -u quantizacao_int8.py --modelo ball --workspace 1 --dataset-root dataset
+python3 -u avaliar.py validar --modelo ball --precisao int8 --split test
+python3 -u avaliar.py video --modelo ball --precisao int8 --video /caminho/absoluto/clipe.mp4 --max-frames 360
+```
+
+Substitua o caminho do clipe autorizado. Repita com `player` e `keypoints`, mantendo dataset,
+limiares e vídeo de comparação por modelo. O controle FP16 usa `quantizacao.py` e
+`avaliar.py --precisao fp16`. Um controle PyTorch FP32 precisa de avaliação registrada do `.pt`
+no mesmo split e com os mesmos parâmetros; as colunas antigas não suprem esse controle.
+
+`avaliar.py` grava em `resultados/<modelo>_<precisao>_<modo>/` (ou pasta numerada): preserve
+`metricas.json`, os artefatos de validação e `velocidade.json`. Confira no relatório o que o tempo
+inclui. Os 360 quadros em 7 s representam cerca de 51,4 fps individuais, abaixo de 60 fps.
+Associe cada nova tabela aos relatórios dessa execução.
+
+## INT8-C: rota Q/DQ versionada com pesos de produção
+
+O [agregado de 30/09](/sprint-5/evidencias/jetson-20260930.json) aponta o commit experimental
+`2807613` e hashes das fontes `int8/bench-*.json`, `int8/tb02-*.json`, `int8/tb03-*.json`,
+`int8/campo-*.json` e `int8/paridade-*.json`, além dos relatórios de energia.
+Para repetir esse recorte, utilize os arquivos originais identificados pelos hashes, os manifestos
+de calibração e as configurações do commit experimental. Para uma nova rodada, registre os
+comandos abaixo junto das novas saídas.
+
+Para uma **nova** calibração da bola, em `src/`, após obter os pesos e o catálogo de ajuste:
+
+```bash
+uv sync --frozen --all-extras --group jetson --group quantizacao
+uv run --no-sync python -m mlops.export_onnx \
+  --manifest models/manifests/ball/yolo-football-ball-detection-0.1.0.toml \
+  --height 992 --width 1600 --batch 4 --output ../var/experimentos/int8-nova-rodada/ball-onnx
+uv run --no-sync python -m mlops.quantize_int8 calibracao \
+  --especie ball --config config/pipeline.models.jetson.toml --quadros 16 --semente 0 \
+  --output ../var/experimentos/int8-nova-rodada/calibracao-ball
+uv run --no-sync python -m mlops.quantize_int8 quantiza \
+  --onnx ../var/experimentos/int8-nova-rodada/ball-onnx/model-1.onnx \
+  --calibracao ../var/experimentos/int8-nova-rodada/calibracao-ball \
+  --output ../var/experimentos/int8-nova-rodada/ball-int8.onnx
+uv run --no-sync python -m mlops.build_engine \
+  --onnx ../var/experimentos/int8-nova-rodada/ball-int8.onnx \
+  --output ../var/experimentos/int8-nova-rodada/ball-int8-fp16.engine \
+  --fp16 --workspace-gib 2 --saida predictions
+```
+
+Para campo, use `--especie field`, o manifesto do campo e exportação com altura 544, largura 960,
+batch 1 e 64 quadros de calibração. Use caminhos distintos. A semente 0 acima é explícita para
+a nova rodada; não atribua esse valor ao experimento antigo sem conferir seu manifesto.
+Construa o braço INT8 com restante FP32 omitindo `--fp16` e mudando o destino do engine.
+
+Preserve `calibracao.json`, o manifesto de quantização `.run.json` e o manifesto de cada engine.
+Confira as camadas excluídas e os hashes. Para avaliar o pipeline, crie configurações por braço,
+apontando `engine` e `engine_onnx_sha256` para os novos artefatos, sem alterar o baseline de produção.
+Repita as duas etapas da Jetson no mesmo recorte, com o mesmo tracking e cache controlado. O tracking
+integra o tratamento experimental: qualquer troca deve ser registrada, e métricas antigas não
+passam a descrever o tracker atual apenas porque o arquivo de configuração mudou.
+
+## Como publicar a conclusão
+
+Separe três tabelas: concordância com a precisão de referência; qualidade contra rótulos; custo
+no dispositivo. A primeira conta divergências, a segunda mede acerto e a terceira mede recursos.
+Declare denominadores (por exemplo, campo com quatro quadros humanos), limiares e limitações.
+Associe cada linha ao ID da rodada, peso, calibração, commit, comando e relatório. A conclusão deve indicar o modelo e o protocolo aos quais se aplica. A interpretação dos pesos
+locais está no relato com calibração, e a decisão para os planos de produção está em INT8-C.

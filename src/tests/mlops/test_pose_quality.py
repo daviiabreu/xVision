@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -177,9 +178,9 @@ def test_quadro_sem_tornozelo_anotado_sai_do_denominador_do_tornozelo(tmp_path: 
     sem_pes = _documento()
     sem_pes["keypoints"] = [
         {**ponto, "x": None, "y": None, "visibility": "absent"}
-        if ponto["name"].startswith("ankle_")
+        if cast(str, ponto["name"]).startswith("ankle_")
         else ponto
-        for ponto in sem_pes["keypoints"]  # type: ignore[union-attr]
+        for ponto in cast(list[dict[str, object]], sem_pes["keypoints"])
     ]
     labels = _labels(tmp_path, sem_pes)
 

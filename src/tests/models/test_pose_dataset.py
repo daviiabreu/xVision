@@ -14,6 +14,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import cast
 
 import pytest
 
@@ -80,8 +81,9 @@ def test_o_flip_idx_declarado_e_o_que_os_nomes_derivam() -> None:
 
 
 def test_o_espelhamento_troca_exatamente_os_pares_laterais() -> None:
+    flip_idx = cast(tuple[int, ...], dataset.FLIP_IDX)
     for indice, nome in enumerate(COCO_KEYPOINTS):
-        destino = COCO_KEYPOINTS[dataset.FLIP_IDX[indice]]
+        destino = COCO_KEYPOINTS[flip_idx[indice]]
         if nome.endswith("_left"):
             assert destino == nome.removesuffix("_left") + "_right"
         elif nome.endswith("_right"):

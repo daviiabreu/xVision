@@ -157,3 +157,25 @@ names:
 ```
 
 > Use o `path` absoluto no `.yaml` para evitar problemas de caminho relativo.
+
+## INT8: escopo e reprodução
+
+`quantizacao_int8.py` exporta diretamente pela Ultralytics, com calibração local. Essa rota é o
+experimento INT8-B; ela é diferente da rota Q/DQ de `mlops.quantize_int8` (INT8-C). Consulte a
+[síntese dos experimentos](../../../docs/content/docs/sprint-4/modelos/quantizacao-int8.mdx) e o
+[protocolo de reprodução](../../../docs/content/docs/sprint-4/modelos/protocolo-experimentos-int8.mdx).
+As métricas contra rótulos de INT8-B estão no
+[relato com calibração](../../../docs/content/docs/sprint-4/modelos/quantização-int8.mdx).
+
+Na pasta deste README, com runtime CUDA/TensorRT compatível, peso `ball.pt`, dataset de calibração
+e split `test` independente preparados:
+
+```bash
+python3 -u quantizacao_int8.py --modelo ball --workspace 1
+python3 -u avaliar.py validar --modelo ball --precisao int8 --split test
+```
+
+O engine fica em `ball_int8/ball.int8.engine`; os resultados em `resultados/ball_int8_validar/`
+(ou pasta numerada). Preserve hashes, splits, ambiente e comandos antes de comparar os braços.
+Concordância com FP32 não é avaliação contra rótulos; somente a segunda pode sustentar mAP.
+A decisão documentada continua sendo não adotar INT8 na configuração atual de produção.
